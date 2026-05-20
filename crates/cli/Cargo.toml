@@ -1,0 +1,18 @@
+[package]
+name = "mango-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "mango"
+path = "src/main.rs"
+
+[dependencies]
+mango-core = { path = "../core" }
+clap = { version = "4", features = ["derive"] }
+comfy-table = "7"
+anyhow = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
