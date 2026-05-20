@@ -2,7 +2,7 @@
 
 ## 概述
 
-初始化前端技术栈：Vite 8 + React 19 + TypeScript 5.8 + Tailwind CSS 4 + shadcn/ui，并配置 TanStack Query 数据层和 Vitest 测试环境。前端代码位于项目根目录的 `src/` 下，通过 Tauri WebView 加载。
+初始化前端技术栈：Vite 8 + React 19 + TypeScript 5.9 + Tailwind CSS 4 + shadcn/ui，并配置 TanStack Query 数据层和 Vitest 测试环境。前端代码位于项目根目录的 `src/` 下，通过 Tauri WebView 加载。
 
 ## 技术方案
 
@@ -12,25 +12,26 @@
 mango/
 ├── package.json
 ├── pnpm-lock.yaml
-├── pnpm-workspace.yaml          # 如果需要 monorepo 管理
 ├── vite.config.ts
-├── tsconfig.json
-├── tsconfig.node.json
+├── tsconfig.json                # 统一 tsconfig（含 src + config 文件）
 ├── vitest.config.ts
+├── components.json              # shadcn/ui 配置
 ├── index.html
+├── public/
+│   └── vite.svg
 ├── src/
 │   ├── main.tsx                 # React 入口
 │   ├── App.tsx                  # 根组件
-│   ├── app.css                  # Tailwind CSS 入口
+│   ├── app.css                  # Tailwind CSS 入口（CSS-first 模式）
 │   ├── vite-env.d.ts
-│   ├── components/              # 通用 UI 组件（shadcn/ui 输出目录）
-│   │   └── ui/
+│   ├── components/
+│   │   └── ui/                  # shadcn/ui 组件输出目录
 │   ├── lib/
 │   │   ├── utils.ts             # cn() 等工具函数
 │   │   └── bindings/            # tauri-specta / ts-rs 生成目录
 │   └── test/
 │       └── setup.ts             # Vitest 全局 setup
-└── components.json              # shadcn/ui 配置
+└── (不使用 tsconfig.node.json — 合并到 tsconfig.json 以避免 composite/noEmit 冲突)
 ```
 
 ### 依赖项
@@ -46,19 +47,22 @@ mango/
 | @tauri-apps/api | ^2.0.0 | Tauri 前端 API |
 | @tauri-apps/plugin-shell | ^2.0.0 | Shell 插件 |
 | clsx | ^2.0.0 | 条件 class 拼接 |
-| tailwind-merge | ^2.0.0 | Tailwind class 合并 |
+| tailwind-merge | ^3.0.0 | Tailwind class 合并 |
+| class-variance-authority | ^0.7.0 | 组件变体管理（shadcn/ui 依赖） |
+| lucide-react | ^0.500.0 | 图标库 |
 
 **devDependencies：**
 | 包名 | 版本 | 用途 |
 |------|------|------|
-| vite | ^8.0.0 | 构建工具 |
-| @vitejs/plugin-react | ^4.0.0 | React 支持 |
+| vite | ^8.0.0 | 构建工具（Rolldown 打包器） |
+| @vitejs/plugin-react | ^6.0.0 | React 支持（Vite 8 兼容） |
 | typescript | ^5.8.0 | 类型系统 |
 | @types/react | ^19.0.0 | React 类型 |
 | @types/react-dom | ^19.0.0 | ReactDOM 类型 |
+| @types/node | ^25.0.0 | Node.js 类型（vite config 需要） |
 | tailwindcss | ^4.0.0 | 样式框架 |
 | @tailwindcss/vite | ^4.0.0 | Vite 插件 |
-| vitest | ^3.0.0 | 测试框架 |
+| vitest | ^4.0.0 | 测试框架（Vite 8 兼容） |
 | @testing-library/react | ^16.0.0 | 组件测试 |
 | @testing-library/jest-dom | ^6.0.0 | DOM 断言 |
 | jsdom | ^25.0.0 | 测试环境 |
@@ -79,6 +83,7 @@ mango/
     "preview": "vite preview",
     "test": "vitest",
     "test:run": "vitest run",
+    "typecheck": "tsc --noEmit",
     "tauri": "tauri"
   }
 }
@@ -112,7 +117,7 @@ export default defineConfig({
 });
 ```
 
-**tsconfig.json：**
+**tsconfig.json（统一配置，不使用 project references）：**
 ```json
 {
   "compilerOptions": {
@@ -135,45 +140,45 @@ export default defineConfig({
       "@/*": ["./src/*"]
     }
   },
-  "include": ["src"],
-  "references": [{ "path": "./tsconfig.node.json" }]
+  "include": ["src", "vite.config.ts", "vitest.config.ts"]
 }
 ```
 
-**tsconfig.node.json：**
-```json
-{
-  "compilerOptions": {
-    "target": "ES2022",
-    "lib": ["ES2023"],
-    "module": "ESNext",
-    "skipLibCheck": true,
-    "moduleResolution": "bundler",
-    "allowImportingTsExtensions": true,
-    "isolatedModules": true,
-    "moduleDetection": "force",
-    "noEmit": true,
-    "strict": true
-  },
-  "include": ["vite.config.ts", "vitest.config.ts"]
-}
-```
+> 注：不使用 `tsconfig.node.json` + `references` 模式，因为 TypeScript 的 `composite: true` 与 `noEmit: true` 存在冲突。统一 tsconfig 配合 `skipLibCheck: true` 即可满足需求。
 
-**src/app.css（Tailwind CSS 4 CSS-first 模式）：**
+**src/app.css（Tailwind CSS 4 CSS-first 模式 + shadcn/ui 完整主题变量）：**
 ```css
 @import "tailwindcss";
 
 @theme {
-  --color-primary: #6366f1;
-  --color-primary-foreground: #ffffff;
   --color-background: #ffffff;
   --color-foreground: #0a0a0a;
+  --color-primary: #6366f1;
+  --color-primary-foreground: #ffffff;
+  --color-secondary: #f5f5f5;
+  --color-secondary-foreground: #171717;
   --color-muted: #f5f5f5;
   --color-muted-foreground: #737373;
+  --color-accent: #f5f5f5;
+  --color-accent-foreground: #171717;
+  --color-destructive: #ef4444;
+  --color-destructive-foreground: #ffffff;
   --color-border: #e5e5e5;
+  --color-input: #e5e5e5;
+  --color-ring: #6366f1;
+  --color-card: #ffffff;
+  --color-card-foreground: #0a0a0a;
+  --color-popover: #ffffff;
+  --color-popover-foreground: #0a0a0a;
   --radius-sm: 0.25rem;
   --radius-md: 0.375rem;
   --radius-lg: 0.5rem;
+}
+
+body {
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue",
+    Arial, sans-serif;
 }
 ```
 
@@ -189,7 +194,7 @@ const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       retry: 1,
-      staleTime: 5 * 60 * 1000, // 5 minutes
+      staleTime: 5 * 60 * 1000,
     },
   },
 });
@@ -199,7 +204,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
     <QueryClientProvider client={queryClient}>
       <App />
     </QueryClientProvider>
-  </React.StrictMode>
+  </React.StrictMode>,
 );
 ```
 
@@ -207,9 +212,13 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
 ```typescript
 function App() {
   return (
-    <div className="min-h-screen bg-background text-foreground">
-      <h1 className="text-2xl font-bold p-8">Mango</h1>
-      <p className="px-8 text-muted-foreground">工程基座初始化完成</p>
+    <div className="flex min-h-screen items-center justify-center bg-background text-foreground">
+      <div className="text-center">
+        <h1 className="text-3xl font-bold text-primary">Mango</h1>
+        <p className="mt-2 text-muted-foreground">
+          漫剧创作工作站 - 工程基座初始化完成
+        </p>
+      </div>
     </div>
   );
 }
@@ -322,7 +331,7 @@ pnpm tauri dev
 # → 弹出桌面窗口，显示前端内容
 
 # 4. Tailwind CSS 生效
-# → 页面中 text-2xl / font-bold 等类正确应用样式
+# → 页面中 text-3xl / font-bold 等类正确应用样式
 
 # 5. shadcn/ui 组件可用
 pnpm dlx shadcn@latest add button
@@ -333,7 +342,7 @@ pnpm test:run
 # → 无报错退出
 
 # 7. TypeScript 编译检查
-npx tsc --noEmit
+pnpm typecheck
 # → 无类型错误
 ```
 
