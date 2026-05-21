@@ -1,3 +1,74 @@
+use std::path::PathBuf;
+
+use clap::Parser;
+use tracing_subscriber::EnvFilter;
+
+mod commands;
+
+#[derive(Parser)]
+#[command(name = "mango", version, about = "Mango - 漫剧创作工作站 CLI")]
+struct Cli {
+    #[command(subcommand)]
+    command: Commands,
+
+    /// Database file path. Defaults to the same location used by the desktop
+    /// app (`<data_dir>/com.mango.app/mango.db`).
+    #[arg(long, global = true)]
+    db: Option<PathBuf>,
+}
+
+#[derive(clap::Subcommand)]
+enum Commands {
+    /// Project management
+    Project(commands::project::ProjectArgs),
+}
+
 fn main() {
-    println!("mango CLI - coming soon");
+    if let Err(e) = run() {
+        // Print only the Display chain (not the Debug backtrace) so user-facing
+        // errors stay clean even when RUST_BACKTRACE is set.
+        eprintln!("Error: {e}");
+        for cause in e.chain().skip(1) {
+            eprintln!("  caused by: {cause}");
+        }
+        std::process::exit(1);
+    }
+}
+
+fn run() -> anyhow::Result<()> {
+    tracing_subscriber::fmt()
+        .with_env_filter(EnvFilter::from_default_env())
+        .with_writer(std::io::stderr)
+        .init();
+
+    let cli = Cli::parse();
+
+    let db_path = match cli.db {
+        Some(path) => path,
+        None => default_db_path()?,
+    };
+
+    if let Some(parent) = db_path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+
+    let conn = mango_core::db::open_sync(&db_path)?;
+
+    match cli.command {
+        Commands::Project(args) => commands::project::execute(&conn, args)?,
+    }
+
+    Ok(())
+}
+
+/// Resolves the default DB path. Must stay aligned with the Tauri app's
+/// `app.path().app_data_dir()` so GUI and CLI share the same SQLite file.
+///
+/// - macOS:   ~/Library/Application Support/com.mango.app/mango.db
+/// - Linux:   ~/.local/share/com.mango.app/mango.db
+/// - Windows: %APPDATA%\com.mango.app\mango.db
+fn default_db_path() -> anyhow::Result<PathBuf> {
+    let data_dir = dirs::data_dir()
+        .ok_or_else(|| anyhow::anyhow!("cannot determine system data directory"))?;
+    Ok(data_dir.join("com.mango.app").join("mango.db"))
 }
