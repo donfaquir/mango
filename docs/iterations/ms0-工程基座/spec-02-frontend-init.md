@@ -26,7 +26,13 @@ mango/
 │   ├── vite-env.d.ts
 │   ├── components/
 │   │   └── ui/                  # shadcn/ui 组件输出目录
+│   ├── locales/
+│   │   ├── zh-CN/
+│   │   │   └── common.json      # 中文翻译
+│   │   └── en/
+│   │       └── common.json      # 英文翻译
 │   ├── lib/
+│   │   ├── i18n.ts              # i18next 初始化配置
 │   │   ├── utils.ts             # cn() 等工具函数
 │   │   └── bindings/            # tauri-specta / ts-rs 生成目录
 │   └── test/
@@ -49,7 +55,10 @@ mango/
 | clsx | ^2.0.0 | 条件 class 拼接 |
 | tailwind-merge | ^3.0.0 | Tailwind class 合并 |
 | class-variance-authority | ^0.7.0 | 组件变体管理（shadcn/ui 依赖） |
-| lucide-react | ^0.500.0 | 图标库 |
+| lucide-react | ^1.16.0 | 图标库 |
+| i18next | ^26.0.0 | 国际化核心 |
+| react-i18next | ^17.0.0 | React i18n 绑定 |
+| i18next-browser-languagedetector | ^8.0.0 | 浏览器语言检测 |
 
 **devDependencies：**
 | 包名 | 版本 | 用途 |
@@ -188,6 +197,7 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import App from "./App";
+import "./lib/i18n";
 import "./app.css";
 
 const queryClient = new QueryClient({
@@ -210,13 +220,17 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
 
 **src/App.tsx（初始骨架）：**
 ```typescript
+import { useTranslation } from "react-i18next";
+
 function App() {
+  const { t } = useTranslation();
+
   return (
     <div className="flex min-h-screen items-center justify-center bg-background text-foreground">
       <div className="text-center">
-        <h1 className="text-3xl font-bold text-primary">Mango</h1>
+        <h1 className="text-3xl font-bold text-primary">{t("appName")}</h1>
         <p className="mt-2 text-muted-foreground">
-          漫剧创作工作站 - 工程基座初始化完成
+          {t("appDescription")}
         </p>
       </div>
     </div>
@@ -233,6 +247,46 @@ import { twMerge } from "tailwind-merge";
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
+}
+```
+
+**src/lib/i18n.ts（国际化初始化）：**
+```typescript
+import i18n from "i18next";
+import { initReactI18next } from "react-i18next";
+import LanguageDetector from "i18next-browser-languagedetector";
+import zhCN from "@/locales/zh-CN/common.json";
+import en from "@/locales/en/common.json";
+
+i18n
+  .use(LanguageDetector)
+  .use(initReactI18next)
+  .init({
+    resources: {
+      "zh-CN": { common: zhCN },
+      en: { common: en },
+    },
+    defaultNS: "common",
+    fallbackLng: "zh-CN",
+    interpolation: { escapeValue: false },
+  });
+
+export default i18n;
+```
+
+**src/locales/zh-CN/common.json：**
+```json
+{
+  "appName": "Mango",
+  "appDescription": "漫剧创作工作站 - 工程基座初始化完成"
+}
+```
+
+**src/locales/en/common.json：**
+```json
+{
+  "appName": "Mango",
+  "appDescription": "Comic Video Creation Workstation - Project scaffold initialized"
 }
 ```
 
