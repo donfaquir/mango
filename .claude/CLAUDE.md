@@ -27,8 +27,8 @@ React (WebView) ──Tauri IPC──▸ src-tauri ──▸ crates/core (busine
 - **Type export**: tauri-specta (command bindings) + ts-rs (pure struct export to `src/lib/bindings/`)
 
 ### Frontend
-- **Framework**: React 19 + TypeScript 5.8+ (strict mode)
-- **Build**: Vite 6+ with @vitejs/plugin-react
+- **Framework**: React 19 + TypeScript 6.x (strict mode)
+- **Build**: Vite 8+ with @vitejs/plugin-react
 - **Styling**: Tailwind CSS 4 (CSS-first config, via @tailwindcss/vite plugin)
 - **UI Components**: shadcn/ui (new-york style) + Radix Primitives + lucide-react icons
 - **State**: Zustand 5 (UI state only) + TanStack Query 5 (server/IPC data)
