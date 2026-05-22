@@ -15,11 +15,18 @@ struct Migration {
     sql: &'static str,
 }
 
-const MIGRATIONS: &[Migration] = &[Migration {
-    version: 1,
-    name: "initial",
-    sql: include_str!("migrations/001_initial.sql"),
-}];
+const MIGRATIONS: &[Migration] = &[
+    Migration {
+        version: 1,
+        name: "initial",
+        sql: include_str!("migrations/001_initial.sql"),
+    },
+    Migration {
+        version: 2,
+        name: "add_project_root_path",
+        sql: include_str!("migrations/002_add_project_root_path.sql"),
+    },
+];
 
 /// Execute all pending migrations. Each migration runs in its own transaction.
 pub fn run_migrations(conn: &Connection) -> Result<(), MigrationError> {

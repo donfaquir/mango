@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -11,6 +11,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useCreateProject } from "@/hooks/useProjects";
+import { commands } from "@/lib/bindings/commands";
+import { unwrap } from "@/lib/ipc";
 
 interface CreateProjectDialogProps {
   open: boolean;
@@ -24,6 +26,8 @@ export function CreateProjectDialog({
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [stylePrompt, setStylePrompt] = useState("");
+  const [rootPath, setRootPath] = useState("");
+  const [rootPathEdited, setRootPathEdited] = useState(false);
 
   const createProject = useCreateProject();
 
@@ -31,6 +35,8 @@ export function CreateProjectDialog({
     setName("");
     setDescription("");
     setStylePrompt("");
+    setRootPath("");
+    setRootPathEdited(false);
     createProject.reset();
   };
 
@@ -39,13 +45,49 @@ export function CreateProjectDialog({
     onOpenChange(next);
   };
 
+  // Re-suggest a root path whenever the name changes, unless the user has
+  // edited the path field themselves (we don't want to clobber their pick).
+  useEffect(() => {
+    if (rootPathEdited) return;
+    const trimmed = name.trim();
+    if (!trimmed) {
+      setRootPath("");
+      return;
+    }
+    let cancelled = false;
+    unwrap(commands.suggestProjectRoot(trimmed))
+      .then((suggested) => {
+        if (!cancelled) setRootPath(suggested);
+      })
+      .catch(() => {
+        // Suggestion is best-effort; leave the field as-is on failure.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [name, rootPathEdited]);
+
+  const handlePick = async () => {
+    try {
+      const picked = await unwrap(commands.pickProjectDirectory());
+      if (picked) {
+        setRootPath(picked);
+        setRootPathEdited(true);
+      }
+    } catch (err) {
+      console.error("pick directory failed", err);
+    }
+  };
+
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     const trimmedName = name.trim();
-    if (!trimmedName) return;
+    const trimmedRoot = rootPath.trim();
+    if (!trimmedName || !trimmedRoot) return;
 
     await createProject.mutateAsync({
       name: trimmedName,
+      root_path: trimmedRoot,
       description: description.trim() || null,
       style_prompt: stylePrompt.trim() || null,
       global_seed: null,
@@ -72,6 +114,27 @@ export function CreateProjectDialog({
               placeholder="如：我的第一部漫剧"
               autoFocus
             />
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="project-root">项目位置 *</Label>
+            <div className="flex gap-2">
+              <Input
+                id="project-root"
+                value={rootPath}
+                onChange={(e) => {
+                  setRootPath(e.target.value);
+                  setRootPathEdited(true);
+                }}
+                placeholder="项目目录路径"
+              />
+              <Button type="button" variant="outline" onClick={handlePick}>
+                选择
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              将自动创建 assets/ 和 thumbnails/ 子目录。
+            </p>
           </div>
 
           <div className="space-y-2">
@@ -115,7 +178,9 @@ export function CreateProjectDialog({
             </Button>
             <Button
               type="submit"
-              disabled={!name.trim() || createProject.isPending}
+              disabled={
+                !name.trim() || !rootPath.trim() || createProject.isPending
+              }
             >
               {createProject.isPending ? "创建中..." : "创建"}
             </Button>

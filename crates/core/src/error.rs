@@ -5,6 +5,9 @@ pub enum CoreError {
     #[error("sqlite error: {0}")]
     Sqlite(#[from] rusqlite::Error),
 
+    #[error("io error: {0}")]
+    Io(#[from] std::io::Error),
+
     #[error("not found: {entity} with id '{id}'")]
     NotFound { entity: &'static str, id: String },
 

@@ -1,3 +1,4 @@
+pub mod dialog;
 pub mod project;
 
 use crate::error::IpcError;

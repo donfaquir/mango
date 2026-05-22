@@ -10,6 +10,15 @@ pub struct IpcError {
     pub code: String,
 }
 
+impl IpcError {
+    pub fn internal(message: impl Into<String>) -> Self {
+        IpcError {
+            message: message.into(),
+            code: "INTERNAL".into(),
+        }
+    }
+}
+
 impl From<CoreError> for IpcError {
     fn from(err: CoreError) -> Self {
         match &err {
@@ -24,6 +33,10 @@ impl From<CoreError> for IpcError {
             CoreError::Sqlite(e) => IpcError {
                 message: format!("Database error: {e}"),
                 code: "DB_ERROR".into(),
+            },
+            CoreError::Io(e) => IpcError {
+                message: format!("Filesystem error: {e}"),
+                code: "IO_ERROR".into(),
             },
         }
     }

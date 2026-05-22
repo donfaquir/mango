@@ -4,6 +4,19 @@ import { invoke as __TAURI_INVOKE } from "@tauri-apps/api/core";
 
 /** Commands */
 export const commands = {
+	/**
+	 *  Open a native directory picker. Returns `None` if the user cancelled.
+	 * 
+	 *  Implemented with the non-blocking callback variant + a oneshot channel so
+	 *  the tokio executor thread is not parked while the user is choosing.
+	 */
+	pickProjectDirectory: () => typedError<string | null, IpcError>(__TAURI_INVOKE("pick_project_directory")),
+	/**
+	 *  Suggest a default project root for a given (display) name. The returned
+	 *  path is `<app_data>/projects/<slug>` where slug is name-derived for human
+	 *  readability; the actual persisted root is whatever the user submits.
+	 */
+	suggestProjectRoot: (projectName: string) => typedError<string, IpcError>(__TAURI_INVOKE("suggest_project_root", { projectName })),
 	createProject: (input: CreateProjectInput) => typedError<Project, IpcError>(__TAURI_INVOKE("create_project", { input })),
 	getProject: (id: string) => typedError<Project, IpcError>(__TAURI_INVOKE("get_project", { id })),
 	listProjects: (opts: {
@@ -11,12 +24,21 @@ export const commands = {
 	offset?: number | null,
 } | null) => typedError<Project[], IpcError>(__TAURI_INVOKE("list_projects", { opts })),
 	updateProject: (id: string, input: UpdateProjectInput_Deserialize) => typedError<Project, IpcError>(__TAURI_INVOKE("update_project", { id, input })),
+	/**
+	 *  Delete project metadata only. The on-disk root_path directory and its
+	 *  contents are intentionally preserved; V2 will add an explicit purge flag.
+	 */
 	deleteProject: (id: string) => typedError<null, IpcError>(__TAURI_INVOKE("delete_project", { id })),
 };
 
 /* Types */
 export type CreateProjectInput = {
 	name: string,
+	/**
+	 *  None → fall back to `<app_data>/projects/{uuid}/` (convention path).
+	 *  Some(path) → must be absolute and empty/non-existent (validated).
+	 */
+	root_path?: string | null,
 	description?: string | null,
 	style_prompt?: string | null,
 	global_seed?: number | null,
@@ -41,6 +63,12 @@ export type Project = {
 	name: string,
 	description: string,
 	style_prompt: string,
+	/**
+	 *  Absolute filesystem path to the project root directory. Guaranteed
+	 *  non-empty by `startup::backfill_project_roots` for legacy rows and by
+	 *  `queries::project::create` for all new rows.
+	 */
+	root_path: string,
 	global_seed: number | null,
 	created_at: string,
 	updated_at: string,

@@ -43,9 +43,10 @@ fn run() -> anyhow::Result<()> {
 
     let cli = Cli::parse();
 
+    let app_data_dir = default_app_data_dir()?;
     let db_path = match cli.db {
         Some(path) => path,
-        None => default_db_path()?,
+        None => app_data_dir.join("mango.db"),
     };
 
     if let Some(parent) = db_path.parent() {
@@ -53,22 +54,24 @@ fn run() -> anyhow::Result<()> {
     }
 
     let conn = mango_core::db::open_sync(&db_path)?;
+    mango_core::startup::initialize(&conn, &app_data_dir)?;
 
     match cli.command {
-        Commands::Project(args) => commands::project::execute(&conn, args)?,
+        Commands::Project(args) => commands::project::execute(&conn, &app_data_dir, args)?,
     }
 
     Ok(())
 }
 
-/// Resolves the default DB path. Must stay aligned with the Tauri app's
-/// `app.path().app_data_dir()` so GUI and CLI share the same SQLite file.
+/// Resolves the default app data directory. Must stay aligned with the Tauri
+/// app's `app.path().app_data_dir()` so GUI and CLI share the same SQLite file
+/// and convention project paths.
 ///
-/// - macOS:   ~/Library/Application Support/com.mango.app/mango.db
-/// - Linux:   ~/.local/share/com.mango.app/mango.db
-/// - Windows: %APPDATA%\com.mango.app\mango.db
-fn default_db_path() -> anyhow::Result<PathBuf> {
+/// - macOS:   ~/Library/Application Support/com.mango.app
+/// - Linux:   ~/.local/share/com.mango.app
+/// - Windows: %APPDATA%\com.mango.app
+fn default_app_data_dir() -> anyhow::Result<PathBuf> {
     let data_dir = dirs::data_dir()
         .ok_or_else(|| anyhow::anyhow!("cannot determine system data directory"))?;
-    Ok(data_dir.join("com.mango.app").join("mango.db"))
+    Ok(data_dir.join("com.mango.app"))
 }
