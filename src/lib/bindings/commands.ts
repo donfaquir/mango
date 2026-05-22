@@ -52,6 +52,12 @@ export const commands = {
 	listCostumes: (opts: ListCostumesOptions) => typedError<Costume[], IpcError>(__TAURI_INVOKE("list_costumes", { opts })),
 	updateCostume: (id: string, input: UpdateCostumeInput_Deserialize) => typedError<Costume, IpcError>(__TAURI_INVOKE("update_costume", { id, input })),
 	/**
+	 *  Open a native file picker filtered to common image extensions. Returns
+	 *  `None` if the user cancelled. Mirrors `pick_project_directory` so the
+	 *  frontend keeps a single picker pattern across the app.
+	 */
+	pickImageFile: () => typedError<string | null, IpcError>(__TAURI_INVOKE("pick_image_file")),
+	/**
 	 *  Open a native directory picker. Returns `None` if the user cancelled.
 	 * 
 	 *  Implemented with the non-blocking callback variant + a oneshot channel so

@@ -43,7 +43,11 @@ export function Sidebar({ collapsed }: SidebarProps) {
       <nav className="flex-1 space-y-1 px-2 py-4">
         {navItems.map((item) => {
           const Icon = item.icon;
-          const active = location.pathname === item.path;
+          const active =
+            item.path === "/"
+              ? location.pathname === "/"
+              : location.pathname === item.path ||
+                location.pathname.startsWith(`${item.path}/`);
           return (
             <Link
               key={item.path}

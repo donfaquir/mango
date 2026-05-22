@@ -36,6 +36,7 @@ fn make_builder() -> Builder<tauri::Wry> {
         commands::costume::get_costume,
         commands::costume::list_costumes,
         commands::costume::update_costume,
+        commands::dialog::pick_image_file,
         commands::dialog::pick_project_directory,
         commands::dialog::suggest_project_root,
         commands::project::create_project,

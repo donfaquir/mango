@@ -25,6 +25,29 @@ pub async fn pick_project_directory(
         .map_err(|e| IpcError::internal(format!("dialog channel closed: {e}")))
 }
 
+/// Open a native file picker filtered to common image extensions. Returns
+/// `None` if the user cancelled. Mirrors `pick_project_directory` so the
+/// frontend keeps a single picker pattern across the app.
+#[tauri::command]
+#[specta::specta]
+pub async fn pick_image_file(
+    app: tauri::AppHandle,
+) -> Result<Option<String>, IpcError> {
+    let (tx, rx) = oneshot::channel();
+    app.dialog()
+        .file()
+        .add_filter("图片", &["png", "jpg", "jpeg", "webp"])
+        .pick_file(move |result| {
+            let mapped = result.map(|fp| match fp {
+                FilePath::Path(p) => p.to_string_lossy().into_owned(),
+                FilePath::Url(u) => u.to_string(),
+            });
+            let _ = tx.send(mapped);
+        });
+    rx.await
+        .map_err(|e| IpcError::internal(format!("dialog channel closed: {e}")))
+}
+
 /// Suggest a default project root for a given (display) name. The returned
 /// path is `<app_data>/projects/<slug>` where slug is name-derived for human
 /// readability; the actual persisted root is whatever the user submits.
