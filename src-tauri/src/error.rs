@@ -38,6 +38,10 @@ impl From<CoreError> for IpcError {
                 message: format!("Filesystem error: {e}"),
                 code: "IO_ERROR".into(),
             },
+            CoreError::Keyring(msg) => IpcError {
+                message: format!("Keyring error: {msg}"),
+                code: "KEYRING_ERROR".into(),
+            },
         }
     }
 }

@@ -23,6 +23,8 @@ enum Commands {
     Project(commands::project::ProjectArgs),
     /// Character management
     Character(commands::character::CharacterArgs),
+    /// API account management (keyring-backed)
+    Account(commands::account::AccountArgs),
 }
 
 fn main() {
@@ -61,6 +63,7 @@ fn run() -> anyhow::Result<()> {
     match cli.command {
         Commands::Project(args) => commands::project::execute(&conn, &app_data_dir, args)?,
         Commands::Character(args) => commands::character::execute(&conn, args)?,
+        Commands::Account(args) => commands::account::execute(&conn, args)?,
     }
 
     Ok(())

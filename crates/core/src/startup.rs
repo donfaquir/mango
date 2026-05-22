@@ -15,10 +15,10 @@ use crate::paths;
 
 /// Run all startup hooks. Currently:
 /// 1. Backfill `project.root_path` for rows with NULL (legacy MS0 data).
-///
-/// Provider/model seeding will be added by spec-13 and chained here.
+/// 2. Apply Provider/Model seed rows (kling / jimeng + their models).
 pub fn initialize(conn: &Connection, app_data_dir: &Path) -> Result<()> {
     backfill_project_roots(conn, app_data_dir)?;
+    crate::seed::providers::apply(conn)?;
     Ok(())
 }
 

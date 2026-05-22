@@ -20,6 +20,7 @@ image = { workspace = true }
 ts-rs = { workspace = true }
 specta = { workspace = true }
 specta-typescript = { workspace = true }
+keyring-core = { workspace = true }
 
 [dev-dependencies]
 tempfile = "3"

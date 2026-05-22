@@ -2,6 +2,9 @@ mod commands;
 mod error;
 mod state;
 
+use std::sync::Arc;
+
+use mango_core::account::keyring::SystemKeyring;
 use specta_typescript::Typescript;
 use tauri::Manager;
 use tauri_specta::{collect_commands, Builder};
@@ -12,6 +15,12 @@ const METADATA_DB_FILENAME: &str = "mango.db";
 
 fn make_builder() -> Builder<tauri::Wry> {
     Builder::<tauri::Wry>::new().commands(collect_commands![
+        commands::account::create_api_account,
+        commands::account::delete_api_account,
+        commands::account::get_api_account,
+        commands::account::list_api_accounts,
+        commands::account::update_api_account,
+        commands::account::verify_api_account_storage,
         commands::asset::delete_asset,
         commands::asset::get_asset,
         commands::asset::import_asset,
@@ -39,6 +48,8 @@ fn make_builder() -> Builder<tauri::Wry> {
         commands::prop::get_prop,
         commands::prop::list_props,
         commands::prop::update_prop,
+        commands::provider::list_models,
+        commands::provider::list_providers,
         commands::scene::create_scene,
         commands::scene::delete_scene,
         commands::scene::get_scene,
@@ -64,6 +75,13 @@ pub fn run() {
         .invoke_handler(builder.invoke_handler())
         .setup(move |app| {
             builder.mount_events(app);
+
+            // Register the platform's native credential store as keyring-core's
+            // default before we hand out any `SystemKeyring` handles. `false`
+            // selects keyutils on Linux (the Secret Service alternative needs
+            // dbus and a session bus, which not all setups have).
+            keyring::use_native_store(false)
+                .expect("Failed to register the native keyring store");
 
             let app_dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&app_dir)?;
@@ -95,6 +113,7 @@ pub fn run() {
             app.manage(state::AppState {
                 db,
                 app_data_dir: app_dir,
+                keyring: Arc::new(SystemKeyring),
             });
             Ok(())
         })

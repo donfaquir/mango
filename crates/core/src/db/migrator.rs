@@ -26,6 +26,11 @@ const MIGRATIONS: &[Migration] = &[
         name: "add_project_root_path",
         sql: include_str!("migrations/002_add_project_root_path.sql"),
     },
+    Migration {
+        version: 3,
+        name: "add_api_account_key_last4",
+        sql: include_str!("migrations/003_add_api_account_key_last4.sql"),
+    },
 ];
 
 /// Execute all pending migrations. Each migration runs in its own transaction.

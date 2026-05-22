@@ -1,0 +1,1 @@
+ALTER TABLE api_account ADD COLUMN key_last4 TEXT NOT NULL DEFAULT '';

@@ -4,6 +4,17 @@ import { invoke as __TAURI_INVOKE } from "@tauri-apps/api/core";
 
 /** Commands */
 export const commands = {
+	createApiAccount: (input: CreateApiAccountInput) => typedError<ApiAccount, IpcError>(__TAURI_INVOKE("create_api_account", { input })),
+	deleteApiAccount: (id: string) => typedError<null, IpcError>(__TAURI_INVOKE("delete_api_account", { id })),
+	getApiAccount: (id: string) => typedError<ApiAccount, IpcError>(__TAURI_INVOKE("get_api_account", { id })),
+	listApiAccounts: (providerId: string | null) => typedError<ApiAccount[], IpcError>(__TAURI_INVOKE("list_api_accounts", { providerId })),
+	updateApiAccount: (id: string, input: UpdateApiAccountInput_Deserialize) => typedError<ApiAccount, IpcError>(__TAURI_INVOKE("update_api_account", { id, input })),
+	/**
+	 *  Confirms that the keyring still holds a non-empty credential for this
+	 *  account. NOT a network test — that arrives in MS2 under a different name
+	 *  (`test_connection`) so the UI can offer both without collision.
+	 */
+	verifyApiAccountStorage: (id: string) => typedError<null, IpcError>(__TAURI_INVOKE("verify_api_account_storage", { id })),
 	/**
 	 *  Delete an asset row. Files on disk are intentionally not removed; a future
 	 *  GC sweep (V2) reconciles orphaned files. See spec-12 §"错误场景".
@@ -70,6 +81,8 @@ export const commands = {
 	getProp: (id: string) => typedError<Prop, IpcError>(__TAURI_INVOKE("get_prop", { id })),
 	listProps: (opts: ListPropsOptions) => typedError<Prop[], IpcError>(__TAURI_INVOKE("list_props", { opts })),
 	updateProp: (id: string, input: UpdatePropInput_Deserialize) => typedError<Prop, IpcError>(__TAURI_INVOKE("update_prop", { id, input })),
+	listModels: (providerId: string | null) => typedError<Model[], IpcError>(__TAURI_INVOKE("list_models", { providerId })),
+	listProviders: () => typedError<Provider[], IpcError>(__TAURI_INVOKE("list_providers")),
 	createScene: (input: CreateSceneInput) => typedError<Scene, IpcError>(__TAURI_INVOKE("create_scene", { input })),
 	deleteScene: (id: string) => typedError<null, IpcError>(__TAURI_INVOKE("delete_scene", { id })),
 	getScene: (id: string) => typedError<Scene, IpcError>(__TAURI_INVOKE("get_scene", { id })),
@@ -78,6 +91,22 @@ export const commands = {
 };
 
 /* Types */
+/**
+ *  IPC-exposed account row. Crucially excludes `api_key_ref`: the frontend has
+ *  no business reading the keyring entry name, and not exporting it makes
+ *  accidental misuse a type error.
+ */
+export type ApiAccount = {
+	id: string,
+	provider_id: string,
+	label: string,
+	key_last4: string,
+	usage_quota: number | null,
+	usage_used: number,
+	last_used_at: string | null,
+	created_at: string,
+};
+
 export type Asset = {
 	id: string,
 	project_id: string,
@@ -119,6 +148,16 @@ export type Costume = {
 	reference_image_path: string | null,
 	created_at: string,
 	updated_at: string,
+};
+
+export type CreateApiAccountInput = {
+	provider_id: string,
+	label: string,
+	/**
+	 *  Plaintext API key. Written to the system keyring immediately and never
+	 *  persisted to SQLite or returned to the caller.
+	 */
+	api_key: string,
 };
 
 export type CreateCharacterInput = {
@@ -225,6 +264,17 @@ export type ListScenesOptions = {
 	offset?: number | null,
 };
 
+export type Model = {
+	id: string,
+	provider_id: string,
+	name: string,
+	/**
+	 *  One of: 'text' | 'image' | 'video' | 'audio'. Enforced by a CHECK
+	 *  constraint in `001_initial.sql`.
+	 */
+	model_type: string,
+};
+
 export type Project = {
 	id: string,
 	name: string,
@@ -251,6 +301,14 @@ export type Prop = {
 	updated_at: string,
 };
 
+export type Provider = {
+	id: string,
+	name: string,
+	base_url: string,
+	auth_type: string,
+	docs_url: string,
+};
+
 export type Scene = {
 	id: string,
 	project_id: string,
@@ -260,6 +318,20 @@ export type Scene = {
 	reference_image_path: string | null,
 	created_at: string,
 	updated_at: string,
+};
+
+export type UpdateApiAccountInput = UpdateApiAccountInput_Serialize | UpdateApiAccountInput_Deserialize;
+
+export type UpdateApiAccountInput_Deserialize = {
+	label?: string | null,
+	/**  Some(new_key) replaces the keyring entry; None leaves it untouched. */
+	api_key?: string | null,
+};
+
+export type UpdateApiAccountInput_Serialize = {
+	label?: string | null,
+	/**  Some(new_key) replaces the keyring entry; None leaves it untouched. */
+	api_key?: string | null,
 };
 
 export type UpdateCharacterInput = UpdateCharacterInput_Serialize | UpdateCharacterInput_Deserialize;

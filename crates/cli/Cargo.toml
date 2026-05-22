@@ -18,3 +18,5 @@ rusqlite = { workspace = true }
 anyhow = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
+rpassword = { workspace = true }
+keyring = { workspace = true }
