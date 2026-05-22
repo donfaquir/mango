@@ -1,3 +1,4 @@
+pub mod asset;
 pub mod character;
 pub mod costume;
 pub mod project;

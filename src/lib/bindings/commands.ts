@@ -4,6 +4,28 @@ import { invoke as __TAURI_INVOKE } from "@tauri-apps/api/core";
 
 /** Commands */
 export const commands = {
+	/**
+	 *  Delete an asset row. Files on disk are intentionally not removed; a future
+	 *  GC sweep (V2) reconciles orphaned files. See spec-12 §"错误场景".
+	 */
+	deleteAsset: (id: string) => typedError<null, IpcError>(__TAURI_INVOKE("delete_asset", { id })),
+	getAsset: (id: string) => typedError<Asset, IpcError>(__TAURI_INVOKE("get_asset", { id })),
+	/**
+	 *  Import an external image into the project.
+	 * 
+	 *  Runs in three stages so the file-IO stage (potentially tens of MiB of
+	 *  copy + image decode) does NOT hold the tokio-rusqlite worker. Stages 1
+	 *  and 3 are short DB-bound calls; stage 2 is `spawn_blocking` filesystem
+	 *  work. See spec-12 §"导入流水线（三段式）" for the design rationale.
+	 */
+	importAsset: (input: ImportAssetInput) => typedError<Asset, IpcError>(__TAURI_INVOKE("import_asset", { input })),
+	listAssets: (opts: ListAssetsOptions) => typedError<Asset[], IpcError>(__TAURI_INVOKE("list_assets", { opts })),
+	/**
+	 *  Allow the asset protocol to read files under `project_root`. The webview
+	 *  needs this before `convertFileSrc(<absolute path>)` URLs can resolve.
+	 *  Safe to call repeatedly; `allow_directory` is idempotent.
+	 */
+	registerProjectAssetScope: (projectId: string) => typedError<null, IpcError>(__TAURI_INVOKE("register_project_asset_scope", { projectId })),
 	createCharacter: (input: CreateCharacterInput) => typedError<Character, IpcError>(__TAURI_INVOKE("create_character", { input })),
 	/**
 	 *  Delete a character. Schema `ON DELETE CASCADE` removes its costumes;
@@ -56,6 +78,27 @@ export const commands = {
 };
 
 /* Types */
+export type Asset = {
+	id: string,
+	project_id: string,
+	shot_id: string | null,
+	asset_type: AssetType,
+	original_name: string,
+	/**
+	 *  Stored relative to the project root (e.g. `assets/{id}.png`), always
+	 *  `/`-separated for cross-platform stability.
+	 */
+	file_path: string,
+	thumbnail_path: string | null,
+	file_size: number,
+	content_hash: string | null,
+	metadata_json: string | null,
+	created_at: string,
+	updated_at: string,
+};
+
+export type AssetType = "image" | "video" | "audio" | "script";
+
 export type Character = {
 	id: string,
 	project_id: string,
@@ -125,6 +168,17 @@ export type CreateSceneInput = {
 	reference_image_path?: string | null,
 };
 
+export type ImportAssetInput = {
+	project_id: string,
+	/**  Absolute path of the external source file (drag-drop or file picker). */
+	source_path: string,
+	/**
+	 *  Optional shot binding; MS1 reference-image flows leave this unset.
+	 *  Empty strings are normalised to None.
+	 */
+	shot_id?: string | null,
+};
+
 /**
  *  IPC error payload — must implement `Serialize` to cross the IPC boundary,
  *  and `Type` so tauri-specta emits a matching TypeScript definition.
@@ -132,6 +186,13 @@ export type CreateSceneInput = {
 export type IpcError = {
 	message: string,
 	code: string,
+};
+
+export type ListAssetsOptions = {
+	project_id: string,
+	asset_type?: AssetType | null,
+	limit?: number | null,
+	offset?: number | null,
 };
 
 export type ListCharactersOptions = {
