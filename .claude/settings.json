@@ -1,0 +1,14 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "mkdir -p \"$CLAUDE_PROJECT_DIR/docs/worklog\" && jq -r --arg ts \"$(date '+%Y-%m-%d %H:%M:%S')\" --arg br \"$(cd \"$CLAUDE_PROJECT_DIR\" && git branch --show-current 2>/dev/null || echo none)\" '\"\\n## \\($ts) · session:\\(.session_id[0:8]) · branch:\\($br)\\n\"' >> \"$CLAUDE_PROJECT_DIR/docs/worklog/$(date '+%Y-%m-%d').md\""
+          }
+        ]
+      }
+    ]
+  }
+}
