@@ -1,5 +1,9 @@
+pub mod character;
+pub mod costume;
 pub mod dialog;
 pub mod project;
+pub mod prop;
+pub mod scene;
 
 use crate::error::IpcError;
 use crate::state::AppState;

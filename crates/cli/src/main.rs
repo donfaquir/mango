@@ -21,6 +21,8 @@ struct Cli {
 enum Commands {
     /// Project management
     Project(commands::project::ProjectArgs),
+    /// Character management
+    Character(commands::character::CharacterArgs),
 }
 
 fn main() {
@@ -58,6 +60,7 @@ fn run() -> anyhow::Result<()> {
 
     match cli.command {
         Commands::Project(args) => commands::project::execute(&conn, &app_data_dir, args)?,
+        Commands::Character(args) => commands::character::execute(&conn, args)?,
     }
 
     Ok(())

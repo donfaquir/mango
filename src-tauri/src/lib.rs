@@ -12,13 +12,33 @@ const METADATA_DB_FILENAME: &str = "mango.db";
 
 fn make_builder() -> Builder<tauri::Wry> {
     Builder::<tauri::Wry>::new().commands(collect_commands![
+        commands::character::create_character,
+        commands::character::delete_character,
+        commands::character::get_character,
+        commands::character::list_characters,
+        commands::character::update_character,
+        commands::costume::create_costume,
+        commands::costume::delete_costume,
+        commands::costume::get_costume,
+        commands::costume::list_costumes,
+        commands::costume::update_costume,
         commands::dialog::pick_project_directory,
         commands::dialog::suggest_project_root,
         commands::project::create_project,
+        commands::project::delete_project,
         commands::project::get_project,
         commands::project::list_projects,
         commands::project::update_project,
-        commands::project::delete_project,
+        commands::prop::create_prop,
+        commands::prop::delete_prop,
+        commands::prop::get_prop,
+        commands::prop::list_props,
+        commands::prop::update_prop,
+        commands::scene::create_scene,
+        commands::scene::delete_scene,
+        commands::scene::get_scene,
+        commands::scene::list_scenes,
+        commands::scene::update_scene,
     ])
 }
 

@@ -4,6 +4,20 @@ import { invoke as __TAURI_INVOKE } from "@tauri-apps/api/core";
 
 /** Commands */
 export const commands = {
+	createCharacter: (input: CreateCharacterInput) => typedError<Character, IpcError>(__TAURI_INVOKE("create_character", { input })),
+	/**
+	 *  Delete a character. Schema `ON DELETE CASCADE` removes its costumes;
+	 *  callers display the affected count by querying costumes first.
+	 */
+	deleteCharacter: (id: string) => typedError<null, IpcError>(__TAURI_INVOKE("delete_character", { id })),
+	getCharacter: (id: string) => typedError<Character, IpcError>(__TAURI_INVOKE("get_character", { id })),
+	listCharacters: (opts: ListCharactersOptions) => typedError<Character[], IpcError>(__TAURI_INVOKE("list_characters", { opts })),
+	updateCharacter: (id: string, input: UpdateCharacterInput_Deserialize) => typedError<Character, IpcError>(__TAURI_INVOKE("update_character", { id, input })),
+	createCostume: (input: CreateCostumeInput) => typedError<Costume, IpcError>(__TAURI_INVOKE("create_costume", { input })),
+	deleteCostume: (id: string) => typedError<null, IpcError>(__TAURI_INVOKE("delete_costume", { id })),
+	getCostume: (id: string) => typedError<Costume, IpcError>(__TAURI_INVOKE("get_costume", { id })),
+	listCostumes: (opts: ListCostumesOptions) => typedError<Costume[], IpcError>(__TAURI_INVOKE("list_costumes", { opts })),
+	updateCostume: (id: string, input: UpdateCostumeInput_Deserialize) => typedError<Costume, IpcError>(__TAURI_INVOKE("update_costume", { id, input })),
 	/**
 	 *  Open a native directory picker. Returns `None` if the user cancelled.
 	 * 
@@ -18,20 +32,72 @@ export const commands = {
 	 */
 	suggestProjectRoot: (projectName: string) => typedError<string, IpcError>(__TAURI_INVOKE("suggest_project_root", { projectName })),
 	createProject: (input: CreateProjectInput) => typedError<Project, IpcError>(__TAURI_INVOKE("create_project", { input })),
+	/**
+	 *  Delete project metadata only. The on-disk root_path directory and its
+	 *  contents are intentionally preserved; V2 will add an explicit purge flag.
+	 */
+	deleteProject: (id: string) => typedError<null, IpcError>(__TAURI_INVOKE("delete_project", { id })),
 	getProject: (id: string) => typedError<Project, IpcError>(__TAURI_INVOKE("get_project", { id })),
 	listProjects: (opts: {
 	limit?: number | null,
 	offset?: number | null,
 } | null) => typedError<Project[], IpcError>(__TAURI_INVOKE("list_projects", { opts })),
 	updateProject: (id: string, input: UpdateProjectInput_Deserialize) => typedError<Project, IpcError>(__TAURI_INVOKE("update_project", { id, input })),
-	/**
-	 *  Delete project metadata only. The on-disk root_path directory and its
-	 *  contents are intentionally preserved; V2 will add an explicit purge flag.
-	 */
-	deleteProject: (id: string) => typedError<null, IpcError>(__TAURI_INVOKE("delete_project", { id })),
+	createProp: (input: CreatePropInput) => typedError<Prop, IpcError>(__TAURI_INVOKE("create_prop", { input })),
+	deleteProp: (id: string) => typedError<null, IpcError>(__TAURI_INVOKE("delete_prop", { id })),
+	getProp: (id: string) => typedError<Prop, IpcError>(__TAURI_INVOKE("get_prop", { id })),
+	listProps: (opts: ListPropsOptions) => typedError<Prop[], IpcError>(__TAURI_INVOKE("list_props", { opts })),
+	updateProp: (id: string, input: UpdatePropInput_Deserialize) => typedError<Prop, IpcError>(__TAURI_INVOKE("update_prop", { id, input })),
+	createScene: (input: CreateSceneInput) => typedError<Scene, IpcError>(__TAURI_INVOKE("create_scene", { input })),
+	deleteScene: (id: string) => typedError<null, IpcError>(__TAURI_INVOKE("delete_scene", { id })),
+	getScene: (id: string) => typedError<Scene, IpcError>(__TAURI_INVOKE("get_scene", { id })),
+	listScenes: (opts: ListScenesOptions) => typedError<Scene[], IpcError>(__TAURI_INVOKE("list_scenes", { opts })),
+	updateScene: (id: string, input: UpdateSceneInput_Deserialize) => typedError<Scene, IpcError>(__TAURI_INVOKE("update_scene", { id, input })),
 };
 
 /* Types */
+export type Character = {
+	id: string,
+	project_id: string,
+	name: string,
+	description: string,
+	appearance_prompt: string,
+	reference_image_path: string | null,
+	created_at: string,
+	updated_at: string,
+};
+
+export type Costume = {
+	id: string,
+	project_id: string,
+	character_id: string,
+	name: string,
+	description: string,
+	reference_image_path: string | null,
+	created_at: string,
+	updated_at: string,
+};
+
+export type CreateCharacterInput = {
+	project_id: string,
+	name: string,
+	description?: string | null,
+	appearance_prompt?: string | null,
+	reference_image_path?: string | null,
+};
+
+export type CreateCostumeInput = {
+	project_id: string,
+	/**
+	 *  Required and must belong to the same `project_id`. Enforced at the
+	 *  query layer; cross-project association is rejected with Validation.
+	 */
+	character_id: string,
+	name: string,
+	description?: string | null,
+	reference_image_path?: string | null,
+};
+
 export type CreateProjectInput = {
 	name: string,
 	/**
@@ -44,6 +110,21 @@ export type CreateProjectInput = {
 	global_seed?: number | null,
 };
 
+export type CreatePropInput = {
+	project_id: string,
+	name: string,
+	description?: string | null,
+	reference_image_path?: string | null,
+};
+
+export type CreateSceneInput = {
+	project_id: string,
+	name: string,
+	description?: string | null,
+	environment_prompt?: string | null,
+	reference_image_path?: string | null,
+};
+
 /**
  *  IPC error payload — must implement `Serialize` to cross the IPC boundary,
  *  and `Type` so tauri-specta emits a matching TypeScript definition.
@@ -53,7 +134,32 @@ export type IpcError = {
 	code: string,
 };
 
+export type ListCharactersOptions = {
+	project_id: string,
+	limit?: number | null,
+	offset?: number | null,
+};
+
+export type ListCostumesOptions = {
+	project_id: string,
+	character_id?: string | null,
+	limit?: number | null,
+	offset?: number | null,
+};
+
 export type ListProjectsOptions = {
+	limit?: number | null,
+	offset?: number | null,
+};
+
+export type ListPropsOptions = {
+	project_id: string,
+	limit?: number | null,
+	offset?: number | null,
+};
+
+export type ListScenesOptions = {
+	project_id: string,
 	limit?: number | null,
 	offset?: number | null,
 };
@@ -74,6 +180,61 @@ export type Project = {
 	updated_at: string,
 };
 
+export type Prop = {
+	id: string,
+	project_id: string,
+	name: string,
+	description: string,
+	reference_image_path: string | null,
+	created_at: string,
+	updated_at: string,
+};
+
+export type Scene = {
+	id: string,
+	project_id: string,
+	name: string,
+	description: string,
+	environment_prompt: string,
+	reference_image_path: string | null,
+	created_at: string,
+	updated_at: string,
+};
+
+export type UpdateCharacterInput = UpdateCharacterInput_Serialize | UpdateCharacterInput_Deserialize;
+
+export type UpdateCharacterInput_Deserialize = {
+	name?: string | null,
+	description?: string | null,
+	appearance_prompt?: string | null,
+	/**  None = don't modify, Some(None) = clear to NULL, Some(Some(v)) = set to v */
+	reference_image_path?: string | null,
+};
+
+export type UpdateCharacterInput_Serialize = {
+	name?: string | null,
+	description?: string | null,
+	appearance_prompt?: string | null,
+	/**  None = don't modify, Some(None) = clear to NULL, Some(Some(v)) = set to v */
+	reference_image_path?: string | null,
+};
+
+export type UpdateCostumeInput = UpdateCostumeInput_Serialize | UpdateCostumeInput_Deserialize;
+
+export type UpdateCostumeInput_Deserialize = {
+	name?: string | null,
+	description?: string | null,
+	/**  None = don't modify, Some(None) = clear to NULL, Some(Some(v)) = set to v */
+	reference_image_path?: string | null,
+};
+
+export type UpdateCostumeInput_Serialize = {
+	name?: string | null,
+	description?: string | null,
+	/**  None = don't modify, Some(None) = clear to NULL, Some(Some(v)) = set to v */
+	reference_image_path?: string | null,
+};
+
 export type UpdateProjectInput = UpdateProjectInput_Serialize | UpdateProjectInput_Deserialize;
 
 export type UpdateProjectInput_Deserialize = {
@@ -90,6 +251,40 @@ export type UpdateProjectInput_Serialize = {
 	style_prompt?: string | null,
 	/**  None = don't modify, Some(None) = clear to NULL, Some(Some(v)) = set to v */
 	global_seed?: number | null,
+};
+
+export type UpdatePropInput = UpdatePropInput_Serialize | UpdatePropInput_Deserialize;
+
+export type UpdatePropInput_Deserialize = {
+	name?: string | null,
+	description?: string | null,
+	/**  None = don't modify, Some(None) = clear to NULL, Some(Some(v)) = set to v */
+	reference_image_path?: string | null,
+};
+
+export type UpdatePropInput_Serialize = {
+	name?: string | null,
+	description?: string | null,
+	/**  None = don't modify, Some(None) = clear to NULL, Some(Some(v)) = set to v */
+	reference_image_path?: string | null,
+};
+
+export type UpdateSceneInput = UpdateSceneInput_Serialize | UpdateSceneInput_Deserialize;
+
+export type UpdateSceneInput_Deserialize = {
+	name?: string | null,
+	description?: string | null,
+	environment_prompt?: string | null,
+	/**  None = don't modify, Some(None) = clear to NULL, Some(Some(v)) = set to v */
+	reference_image_path?: string | null,
+};
+
+export type UpdateSceneInput_Serialize = {
+	name?: string | null,
+	description?: string | null,
+	environment_prompt?: string | null,
+	/**  None = don't modify, Some(None) = clear to NULL, Some(Some(v)) = set to v */
+	reference_image_path?: string | null,
 };
 
 /* Tauri Specta runtime */
