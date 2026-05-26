@@ -10,6 +10,9 @@ const ProjectWorkspacePage = lazy(
 );
 const SubjectLibraryPage = lazy(() => import("@/pages/SubjectLibraryPage"));
 const SubjectDetailPage = lazy(() => import("@/pages/SubjectDetailPage"));
+const GenerationWorkspacePage = lazy(
+  () => import("@/pages/GenerationWorkspacePage"),
+);
 const SettingsPage = lazy(() => import("@/pages/SettingsPage"));
 
 export const router = createBrowserRouter([
@@ -33,6 +36,10 @@ export const router = createBrowserRouter([
                 element: <SubjectDetailPage />,
               },
             ],
+          },
+          {
+            path: "generation",
+            element: <GenerationWorkspacePage />,
           },
         ],
       },

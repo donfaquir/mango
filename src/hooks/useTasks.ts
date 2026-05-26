@@ -8,6 +8,7 @@ import {
   type GenerationTaskStatus,
 } from "@/lib/bindings/commands";
 import { unwrap } from "@/lib/ipc";
+import { toast } from "sonner";
 
 export const taskKeys = {
   all: () => ["tasks"] as const,
@@ -56,6 +57,32 @@ export function useCancelTask() {
     onSuccess: (_data, taskId) => {
       qc.invalidateQueries({ queryKey: taskKeys.all() });
       qc.invalidateQueries({ queryKey: taskKeys.detail(taskId) });
+    },
+  });
+}
+
+/**
+ * Retry a failed task by reading the original task params and submitting a new
+ * task with the same configuration.
+ */
+export function useRetryTask() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (taskId: string) => {
+      const task = await unwrap(commands.getTask(taskId));
+      const params: CreateGenerationTaskInput = {
+        shot_id: task.shot_id,
+        provider_id: task.provider_id,
+        model_id: task.model_id,
+        account_id: task.account_id,
+        task_type: task.task_type,
+        params_json: task.params_json,
+      };
+      return unwrap(commands.submitTask(params));
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: taskKeys.all() });
+      toast.success("重试任务已提交");
     },
   });
 }

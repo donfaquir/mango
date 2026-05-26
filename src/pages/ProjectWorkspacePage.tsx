@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { Outlet, useParams } from "react-router-dom";
 import { useRegisterProjectAssetScope } from "@/hooks/useAssets";
+import { WorkspaceNav } from "@/components/layout/WorkspaceNav";
 
 export default function ProjectWorkspacePage() {
   const { projectId } = useParams<{ projectId: string }>();
@@ -14,5 +15,12 @@ export default function ProjectWorkspacePage() {
     registerScope(projectId);
   }, [projectId, registerScope]);
 
-  return <Outlet />;
+  return (
+    <div className="flex h-full flex-col gap-4">
+      <WorkspaceNav />
+      <div className="flex-1 overflow-auto">
+        <Outlet />
+      </div>
+    </div>
+  );
 }

@@ -16,6 +16,10 @@ function getTitle(pathname: string): string {
 
   if (pathname.startsWith("/project/")) {
     const parts = pathname.split("/");
+    // /project/:id/generation
+    if (parts[3] === "generation") {
+      return "AI 生成";
+    }
     // /project/:id/subjects/:kind[/:subjectId]
     if (parts[3] === "subjects") {
       const kind = parts[4];
