@@ -25,6 +25,8 @@ enum Commands {
     Character(commands::character::CharacterArgs),
     /// API account management (keyring-backed)
     Account(commands::account::AccountArgs),
+    /// AI generation tasks (submit / status / list / cancel)
+    Task(commands::task::TaskArgs),
 }
 
 fn main() {
@@ -64,6 +66,7 @@ fn run() -> anyhow::Result<()> {
         Commands::Project(args) => commands::project::execute(&conn, &app_data_dir, args)?,
         Commands::Character(args) => commands::character::execute(&conn, args)?,
         Commands::Account(args) => commands::account::execute(&conn, args)?,
+        Commands::Task(args) => commands::task::execute(&conn, &app_data_dir, args)?,
     }
 
     Ok(())
