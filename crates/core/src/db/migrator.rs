@@ -31,6 +31,11 @@ const MIGRATIONS: &[Migration] = &[
         name: "add_api_account_key_last4",
         sql: include_str!("migrations/003_add_api_account_key_last4.sql"),
     },
+    Migration {
+        version: 4,
+        name: "add_api_account_params_json",
+        sql: include_str!("migrations/004_add_api_account_params_json.sql"),
+    },
 ];
 
 /// Execute all pending migrations. Each migration runs in its own transaction.

@@ -1,62 +1,72 @@
 mod commands;
 mod error;
+mod events;
 mod state;
 
 use std::sync::Arc;
 
 use mango_core::account::keyring::SystemKeyring;
+use mango_core::provider::ProviderRegistry;
+use mango_core::task_engine::{TaskEngineHandle, TaskEvent};
 use specta_typescript::Typescript;
 use tauri::Manager;
-use tauri_specta::{collect_commands, Builder};
+use tauri_specta::{collect_commands, collect_events, Builder};
+use tauri_specta::Event;
 
 /// Filename of the global metadata database in the app data directory.
 /// Per-project databases live elsewhere and are opened on demand.
 const METADATA_DB_FILENAME: &str = "mango.db";
 
 fn make_builder() -> Builder<tauri::Wry> {
-    Builder::<tauri::Wry>::new().commands(collect_commands![
-        commands::account::create_api_account,
-        commands::account::delete_api_account,
-        commands::account::get_api_account,
-        commands::account::list_api_accounts,
-        commands::account::update_api_account,
-        commands::account::verify_api_account_storage,
-        commands::asset::delete_asset,
-        commands::asset::get_asset,
-        commands::asset::import_asset,
-        commands::asset::list_assets,
-        commands::asset::register_project_asset_scope,
-        commands::character::create_character,
-        commands::character::delete_character,
-        commands::character::get_character,
-        commands::character::list_characters,
-        commands::character::update_character,
-        commands::costume::create_costume,
-        commands::costume::delete_costume,
-        commands::costume::get_costume,
-        commands::costume::list_costumes,
-        commands::costume::update_costume,
-        commands::dialog::pick_image_file,
-        commands::dialog::pick_project_directory,
-        commands::dialog::suggest_project_root,
-        commands::project::create_project,
-        commands::project::delete_project,
-        commands::project::get_project,
-        commands::project::list_projects,
-        commands::project::update_project,
-        commands::prop::create_prop,
-        commands::prop::delete_prop,
-        commands::prop::get_prop,
-        commands::prop::list_props,
-        commands::prop::update_prop,
-        commands::provider::list_models,
-        commands::provider::list_providers,
-        commands::scene::create_scene,
-        commands::scene::delete_scene,
-        commands::scene::get_scene,
-        commands::scene::list_scenes,
-        commands::scene::update_scene,
-    ])
+    Builder::<tauri::Wry>::new()
+        .commands(collect_commands![
+            commands::account::create_api_account,
+            commands::account::delete_api_account,
+            commands::account::get_api_account,
+            commands::account::list_api_accounts,
+            commands::account::update_api_account,
+            commands::account::verify_api_account_storage,
+            commands::asset::delete_asset,
+            commands::asset::get_asset,
+            commands::asset::import_asset,
+            commands::asset::list_assets,
+            commands::asset::register_project_asset_scope,
+            commands::character::create_character,
+            commands::character::delete_character,
+            commands::character::get_character,
+            commands::character::list_characters,
+            commands::character::update_character,
+            commands::costume::create_costume,
+            commands::costume::delete_costume,
+            commands::costume::get_costume,
+            commands::costume::list_costumes,
+            commands::costume::update_costume,
+            commands::dialog::pick_image_file,
+            commands::dialog::pick_project_directory,
+            commands::dialog::suggest_project_root,
+            commands::project::create_project,
+            commands::project::delete_project,
+            commands::project::get_project,
+            commands::project::list_projects,
+            commands::project::update_project,
+            commands::prop::create_prop,
+            commands::prop::delete_prop,
+            commands::prop::get_prop,
+            commands::prop::list_props,
+            commands::prop::update_prop,
+            commands::provider::list_models,
+            commands::provider::list_providers,
+            commands::scene::create_scene,
+            commands::scene::delete_scene,
+            commands::scene::get_scene,
+            commands::scene::list_scenes,
+            commands::scene::update_scene,
+            commands::task::cancel_task,
+            commands::task::get_task,
+            commands::task::list_tasks,
+            commands::task::submit_task,
+        ])
+        .events(collect_events![events::TaskStatusChanged])
 }
 
 pub fn run() {
@@ -111,10 +121,48 @@ pub fn run() {
             });
             init_result.expect("Failed to run startup initialize");
 
+            // Provider registry is empty until spec-17 wires real providers in.
+            // Submitting a task in the meantime will fail with
+            // `provider not registered: <id>` — expected behavior.
+            let providers = ProviderRegistry::builder().build();
+            let keyring: Arc<dyn mango_core::account::keyring::KeyringStore> =
+                Arc::new(SystemKeyring);
+            let (engine, mut event_rx) = TaskEngineHandle::spawn(
+                db.clone(),
+                providers,
+                keyring.clone(),
+                4,
+            );
+            let app_handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                while let Some(ev) = event_rx.recv().await {
+                    match ev {
+                        TaskEvent::StatusChanged {
+                            task_id,
+                            status,
+                            progress,
+                            error_message,
+                        } => {
+                            if let Err(e) = (events::TaskStatusChanged {
+                                task_id,
+                                status,
+                                progress,
+                                error_message,
+                            })
+                            .emit(&app_handle)
+                            {
+                                tracing::warn!(error = %e, "failed to emit TaskStatusChanged");
+                            }
+                        }
+                    }
+                }
+            });
+
             app.manage(state::AppState {
                 db,
                 app_data_dir: app_dir,
-                keyring: Arc::new(SystemKeyring),
+                keyring,
+                task_engine: Arc::new(engine),
             });
             Ok(())
         })

@@ -17,8 +17,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import type { CreateApiAccountInput } from "@/lib/bindings/commands";
 import { useCreateAccount } from "@/hooks/useAccounts";
 import { useProviderList } from "@/hooks/useProviders";
+import { EMPTY_OSS_DRAFT, OssFields, type OssDraft } from "./OssFields";
+import { providerNeedsOss } from "./providersWithOss";
 
 interface Props {
   open: boolean;
@@ -37,30 +40,55 @@ export function AddAccountDialog({
   const [providerId, setProviderId] = useState(defaultProviderId ?? "");
   const [label, setLabel] = useState("");
   const [apiKey, setApiKey] = useState("");
+  const [oss, setOss] = useState<OssDraft>(EMPTY_OSS_DRAFT);
 
   useEffect(() => {
     if (open) {
       setProviderId(defaultProviderId ?? "");
       setLabel("");
       setApiKey("");
+      setOss(EMPTY_OSS_DRAFT);
       create.reset();
     }
   }, [open, defaultProviderId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const trimmedLabel = label.trim();
   const trimmedKey = apiKey.trim();
+  const showOss = providerNeedsOss(providerId);
+  const ossValid =
+    !showOss ||
+    (oss.endpoint.trim() !== "" &&
+      oss.bucket.trim() !== "" &&
+      oss.accessKeyId.trim() !== "" &&
+      oss.accessKeySecret.trim() !== "");
+
   const disabled =
-    create.isPending || !providerId || !trimmedLabel || !trimmedKey;
+    create.isPending ||
+    !providerId ||
+    !trimmedLabel ||
+    !trimmedKey ||
+    !ossValid;
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     if (disabled) return;
     try {
-      const account = await create.mutateAsync({
+      const payload: CreateApiAccountInput = {
         provider_id: providerId,
         label: trimmedLabel,
         api_key: trimmedKey,
-      });
+        oss: showOss
+          ? {
+              endpoint: oss.endpoint.trim(),
+              bucket: oss.bucket.trim(),
+              access_key_id: oss.accessKeyId.trim(),
+              access_key_secret: oss.accessKeySecret.trim(),
+              region: oss.region.trim() ? oss.region.trim() : null,
+              url_expires_seconds: oss.urlExpiresSeconds,
+            }
+          : null,
+      };
+      const account = await create.mutateAsync(payload);
       toast.success(`已添加账号「${account.label}」`);
       onOpenChange(false);
     } catch (err) {
@@ -123,6 +151,13 @@ export function AddAccountDialog({
               密钥仅保存在系统 keyring，本机不留明文，云端不上传。
             </p>
           </div>
+          {showOss && (
+            <OssFields
+              value={oss}
+              onChange={setOss}
+              disabled={create.isPending}
+            />
+          )}
           <DialogFooter>
             <Button
               type="button"

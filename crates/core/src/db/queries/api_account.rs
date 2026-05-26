@@ -1,24 +1,54 @@
 use rusqlite::{params, Connection};
 
 use crate::error::{CoreError, Result};
-use crate::models::api_account::ApiAccount;
+use crate::models::api_account::{ApiAccount, OssConfigPublic};
 
 /// `api_key_ref` is intentionally omitted — it must never reach the IPC layer.
 /// The column stays in the schema as an audit copy and is only managed by
 /// `account::service`.
-const SELECT_COLUMNS: &str = "id, provider_id, label, key_last4, \
+///
+/// `params_json` is read so we can project the (public) `oss_config` field;
+/// the JSON itself never leaves this module — we materialize the typed view.
+const SELECT_COLUMNS: &str = "id, provider_id, label, key_last4, params_json, \
                               usage_quota, usage_used, last_used_at, created_at";
 
 fn map_row(row: &rusqlite::Row) -> rusqlite::Result<ApiAccount> {
+    let params_json: String = row.get(4)?;
+    let oss_config = parse_oss_config(&params_json);
     Ok(ApiAccount {
         id: row.get(0)?,
         provider_id: row.get(1)?,
         label: row.get(2)?,
         key_last4: row.get(3)?,
-        usage_quota: row.get(4)?,
-        usage_used: row.get(5)?,
-        last_used_at: row.get(6)?,
-        created_at: row.get(7)?,
+        oss_config,
+        usage_quota: row.get(5)?,
+        usage_used: row.get(6)?,
+        last_used_at: row.get(7)?,
+        created_at: row.get(8)?,
+    })
+}
+
+/// Best-effort projection: a corrupt `params_json` row yields `None` rather
+/// than poisoning the entire list query. `account::service::resolve_credentials`
+/// is the strict path that surfaces the parse error to the caller.
+fn parse_oss_config(json: &str) -> Option<OssConfigPublic> {
+    if json.is_empty() || json == "{}" {
+        return None;
+    }
+    let v: serde_json::Value = serde_json::from_str(json).ok()?;
+    let oss = v.get("oss")?;
+    Some(OssConfigPublic {
+        endpoint: oss.get("endpoint")?.as_str()?.to_string(),
+        bucket: oss.get("bucket")?.as_str()?.to_string(),
+        access_key_id: oss.get("access_key_id")?.as_str()?.to_string(),
+        region: oss
+            .get("region")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string()),
+        url_expires_seconds: oss
+            .get("url_expires_seconds")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(3600) as u32,
     })
 }
 
@@ -27,6 +57,24 @@ pub fn get_by_id(conn: &Connection, id: &str) -> Result<ApiAccount> {
         &format!("SELECT {SELECT_COLUMNS} FROM api_account WHERE id = ?1"),
         params![id],
         map_row,
+    )
+    .map_err(|e| match e {
+        rusqlite::Error::QueryReturnedNoRows => CoreError::NotFound {
+            entity: "api_account",
+            id: id.to_string(),
+        },
+        other => CoreError::Sqlite(other),
+    })
+}
+
+/// Read just `params_json` so the service layer can hydrate
+/// `ProviderCredentials.extra_json`. Kept separate from `get_by_id` because
+/// callers needing only the raw JSON must not pay for the public projection.
+pub fn get_params_json(conn: &Connection, id: &str) -> Result<String> {
+    conn.query_row(
+        "SELECT params_json FROM api_account WHERE id = ?1",
+        params![id],
+        |r| r.get::<_, String>(0),
     )
     .map_err(|e| match e {
         rusqlite::Error::QueryReturnedNoRows => CoreError::NotFound {
@@ -116,5 +164,33 @@ mod tests {
         // api_key_ref. This is a guardrail against accidentally leaking the
         // backend-only column out through the IPC boundary.
         assert!(!SELECT_COLUMNS.contains("api_key_ref"));
+    }
+
+    #[test]
+    fn empty_params_json_yields_no_oss_config() {
+        let conn = conn_with_provider();
+        insert_raw(&conn, "a1", "p1", "1234");
+        let a = get_by_id(&conn, "a1").unwrap();
+        assert!(a.oss_config.is_none());
+    }
+
+    #[test]
+    fn populated_params_json_projects_oss_config() {
+        let conn = conn_with_provider();
+        insert_raw(&conn, "a1", "p1", "1234");
+        conn.execute(
+            "UPDATE api_account SET params_json = ?1 WHERE id = 'a1'",
+            params![
+                r#"{"oss":{"endpoint":"oss-cn-hangzhou.aliyuncs.com","bucket":"b1","access_key_id":"akid","url_expires_seconds":1800}}"#
+            ],
+        )
+        .unwrap();
+
+        let a = get_by_id(&conn, "a1").unwrap();
+        let oss = a.oss_config.expect("oss_config");
+        assert_eq!(oss.endpoint, "oss-cn-hangzhou.aliyuncs.com");
+        assert_eq!(oss.bucket, "b1");
+        assert_eq!(oss.access_key_id, "akid");
+        assert_eq!(oss.url_expires_seconds, 1800);
     }
 }

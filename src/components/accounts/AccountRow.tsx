@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { CheckCircle2, KeyRound, Trash2 } from "lucide-react";
+import { CheckCircle2, Cloud, KeyRound, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import type { ApiAccount } from "@/lib/bindings/commands";
@@ -34,7 +34,18 @@ export function AccountRow({ account, providerName }: Props) {
         <div className="flex min-w-0 flex-1 items-center gap-3">
           <KeyRound className="h-4 w-4 shrink-0 text-muted-foreground" />
           <div className="min-w-0 flex-1">
-            <p className="truncate font-medium">{account.label}</p>
+            <div className="flex items-center gap-2">
+              <p className="truncate font-medium">{account.label}</p>
+              {account.oss_config && (
+                <span
+                  className="inline-flex shrink-0 items-center gap-1 rounded-full border border-sky-200 bg-sky-50 px-1.5 py-0.5 text-[10px] font-medium text-sky-700 dark:border-sky-900 dark:bg-sky-950/40 dark:text-sky-300"
+                  title={`OSS: ${account.oss_config.bucket} @ ${account.oss_config.endpoint}`}
+                >
+                  <Cloud className="h-3 w-3" />
+                  OSS
+                </span>
+              )}
+            </div>
             <p className="text-xs text-muted-foreground">
               ****{account.key_last4}
               {account.last_used_at &&

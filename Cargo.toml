@@ -18,6 +18,7 @@ tokio-rusqlite = "0.7"
 uuid = { version = "1", features = ["v4", "serde"] }
 thiserror = "2"
 anyhow = "1"
+async-trait = "0.1.89"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 chrono = { version = "0.4", features = ["serde"] }
@@ -25,7 +26,7 @@ sha2 = "0.11"
 slug = "0.1"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
 ts-rs = { version = "12", features = ["chrono-impl", "uuid-impl"] }
-specta = { version = "2.0.0-rc.25", features = ["derive"] }
+specta = { version = "2.0.0-rc.25", features = ["derive", "serde_json"] }
 specta-typescript = "0.0.12"
 # keyring 4 is the latest release. The top-level crate registers a default
 # native store via `use_native_store(...)`; the real Entry API lives in
@@ -33,3 +34,12 @@ specta-typescript = "0.0.12"
 keyring = "4"
 keyring-core = "1"
 rpassword = "7.5"
+# OSS upload (spec-16). aliyun-oss-client 0.13.1 is the picked SDK; reqwest is
+# already pulled transitively (0.13.x) for `Client` use. The hand-rolled
+# presigned URL signer needs hmac/sha1/base64/percent-encoding because the SDK
+# does NOT expose presigned URL generation in 0.13.
+aliyun-oss-client = "0.13.1"
+hmac = "0.12"
+sha1 = "0.10"
+base64 = "0.22"
+percent-encoding = "2"

@@ -15,6 +15,15 @@ pub fn user_id(account_id: &str) -> String {
     format!("api_account:{account_id}")
 }
 
+/// spec-16: the OSS access_key_secret rides in a *separate* keyring entry so
+/// it can be added/rotated/removed independently of the main API key. Callers
+/// should pass the result to `keyring.store(...)` etc. — `SystemKeyring`
+/// prepends `api_account:` automatically, so the final entry name is
+/// `api_account:<account_id>:oss_secret`.
+pub fn oss_secret_storage_id(account_id: &str) -> String {
+    format!("{account_id}:oss_secret")
+}
+
 pub trait KeyringStore: Send + Sync {
     fn store(&self, account_id: &str, key: &str) -> Result<()>;
     fn fetch(&self, account_id: &str) -> Result<String>;
@@ -94,6 +103,15 @@ pub mod tests {
     #[test]
     fn user_id_uses_account_prefix() {
         assert_eq!(user_id("abc"), "api_account:abc");
+    }
+
+    #[test]
+    fn oss_secret_storage_id_distinct_from_user_id() {
+        // The OS keyring entry name expands to `api_account:abc:oss_secret`,
+        // i.e. the suffix string passed to SystemKeyring; this guards the
+        // contract spec-16 relies on.
+        assert_eq!(oss_secret_storage_id("abc"), "abc:oss_secret");
+        assert_ne!(user_id("abc"), user_id(&oss_secret_storage_id("abc")));
     }
 
     #[test]

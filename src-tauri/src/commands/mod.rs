@@ -7,6 +7,7 @@ pub mod project;
 pub mod provider;
 pub mod prop;
 pub mod scene;
+pub mod task;
 
 use crate::error::IpcError;
 use crate::state::AppState;

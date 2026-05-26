@@ -2,6 +2,7 @@ pub mod api_account;
 pub mod asset;
 pub mod character;
 pub mod costume;
+pub mod generation_task;
 pub mod project;
 pub mod provider;
 pub mod prop;

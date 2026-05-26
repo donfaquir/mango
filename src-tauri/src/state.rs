@@ -2,6 +2,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use mango_core::account::keyring::KeyringStore;
+use mango_core::task_engine::TaskEngineHandle;
 use tokio_rusqlite::Connection as AsyncConnection;
 
 /// Tauri global managed state.
@@ -17,8 +18,14 @@ use tokio_rusqlite::Connection as AsyncConnection;
 /// `keyring` is an `Arc<dyn KeyringStore>` so the production setup wires the
 /// system keyring (via `keyring::use_native_store`) and tests can inject a
 /// `InMemoryKeyring`.
+///
+/// `task_engine` is an `Arc<TaskEngineHandle>` because the handle itself is
+/// already cheap to clone (its inner state is refcounted) but the forwarder
+/// coroutine and command layer both need long-lived references; `Arc` keeps
+/// the call sites uniform with `keyring`.
 pub struct AppState {
     pub db: AsyncConnection,
     pub app_data_dir: PathBuf,
     pub keyring: Arc<dyn KeyringStore>,
+    pub task_engine: Arc<TaskEngineHandle>,
 }

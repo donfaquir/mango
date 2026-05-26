@@ -42,6 +42,22 @@ impl From<CoreError> for IpcError {
                 message: format!("Keyring error: {msg}"),
                 code: "KEYRING_ERROR".into(),
             },
+            CoreError::Provider(msg) => IpcError {
+                message: format!("Provider error: {msg}"),
+                code: "PROVIDER_ERROR".into(),
+            },
+            CoreError::TaskEngine(msg) => IpcError {
+                message: format!("Task engine error: {msg}"),
+                code: "TASK_ENGINE_ERROR".into(),
+            },
+            CoreError::Cancelled => IpcError {
+                message: "task cancelled".into(),
+                code: "TASK_CANCELLED".into(),
+            },
+            CoreError::Upload(msg) => IpcError {
+                message: format!("Upload error: {msg}"),
+                code: "UPLOAD_ERROR".into(),
+            },
         }
     }
 }

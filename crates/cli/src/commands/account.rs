@@ -75,6 +75,7 @@ fn add(
             provider_id,
             label,
             api_key,
+            oss: None,
         },
     )?;
     println!("账号已创建");

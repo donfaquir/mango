@@ -16,9 +16,15 @@ use crate::paths;
 /// Run all startup hooks. Currently:
 /// 1. Backfill `project.root_path` for rows with NULL (legacy MS0 data).
 /// 2. Apply Provider/Model seed rows (kling / jimeng + their models).
+/// 3. Reset orphan `running` generation_task rows back to `pending` — the
+///    runner coroutines that owned them died with the previous process.
 pub fn initialize(conn: &Connection, app_data_dir: &Path) -> Result<()> {
     backfill_project_roots(conn, app_data_dir)?;
     crate::seed::providers::apply(conn)?;
+    let n = crate::db::queries::generation_task::reset_orphan_running(conn)?;
+    if n > 0 {
+        tracing::warn!("reset {n} orphan running task(s) to pending after restart");
+    }
     Ok(())
 }
 
@@ -121,5 +127,50 @@ mod tests {
             )
             .unwrap();
         assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn initialize_resets_orphan_running() {
+        let conn = conn();
+        let app_data = tempdir().unwrap();
+
+        // Seed minimum FK chain for a generation_task row.
+        conn.execute(
+            "INSERT INTO provider (id, name) VALUES ('p1', 'P1')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO model (id, provider_id, name, model_type) \
+             VALUES ('m1', 'p1', 'M', 'image')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO api_account (id, provider_id, label, api_key_ref, key_last4) \
+             VALUES ('a1', 'p1', 'L', 'api_account:a1', '0000')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO generation_task \
+                (id, provider_id, model_id, account_id, task_type, status) \
+             VALUES ('t1', 'p1', 'm1', 'a1', 'image', 'running')",
+            [],
+        )
+        .unwrap();
+
+        initialize(&conn, app_data.path()).unwrap();
+
+        let (status, retry, err): (String, i64, Option<String>) = conn
+            .query_row(
+                "SELECT status, retry_count, error_message FROM generation_task WHERE id = 't1'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(status, "pending");
+        assert_eq!(retry, 1);
+        assert!(err.unwrap_or_default().contains("orphan reset on startup"));
     }
 }
