@@ -6,41 +6,42 @@ use crate::models::generation_task::{
     CreateGenerationTaskInput, GenerationTask, GenerationTaskStatus, TaskKind,
 };
 
-const SELECT_COLUMNS: &str = "id, shot_id, provider_id, model_id, account_id, task_type, \
+const SELECT_COLUMNS: &str = "id, project_id, shot_id, provider_id, model_id, account_id, task_type, \
                               params_json, status, result_asset_id, external_task_id, \
                               started_at, finished_at, error_message, retry_count, created_at";
 
 fn map_row(row: &rusqlite::Row) -> rusqlite::Result<GenerationTask> {
-    let task_type_str: String = row.get(5)?;
-    let status_str: String = row.get(7)?;
+    let task_type_str: String = row.get(6)?;
+    let status_str: String = row.get(8)?;
     Ok(GenerationTask {
         id: row.get(0)?,
-        shot_id: row.get(1)?,
-        provider_id: row.get(2)?,
-        model_id: row.get(3)?,
-        account_id: row.get(4)?,
+        project_id: row.get(1)?,
+        shot_id: row.get(2)?,
+        provider_id: row.get(3)?,
+        model_id: row.get(4)?,
+        account_id: row.get(5)?,
         task_type: TaskKind::from_db_str(&task_type_str).ok_or_else(|| {
             rusqlite::Error::FromSqlConversionFailure(
-                5,
+                6,
                 rusqlite::types::Type::Text,
                 Box::new(InvalidEnumValue(task_type_str.clone())),
             )
         })?,
-        params_json: row.get(6)?,
+        params_json: row.get(7)?,
         status: GenerationTaskStatus::from_db_str(&status_str).ok_or_else(|| {
             rusqlite::Error::FromSqlConversionFailure(
-                7,
+                8,
                 rusqlite::types::Type::Text,
                 Box::new(InvalidEnumValue(status_str.clone())),
             )
         })?,
-        result_asset_id: row.get(8)?,
-        external_task_id: row.get(9)?,
-        started_at: row.get(10)?,
-        finished_at: row.get(11)?,
-        error_message: row.get(12)?,
-        retry_count: row.get(13)?,
-        created_at: row.get(14)?,
+        result_asset_id: row.get(9)?,
+        external_task_id: row.get(10)?,
+        started_at: row.get(11)?,
+        finished_at: row.get(12)?,
+        error_message: row.get(13)?,
+        retry_count: row.get(14)?,
+        created_at: row.get(15)?,
     })
 }
 
@@ -68,10 +69,11 @@ pub fn create(conn: &Connection, input: CreateGenerationTaskInput) -> Result<Gen
     let id = Uuid::new_v4().to_string();
     conn.execute(
         "INSERT INTO generation_task \
-            (id, shot_id, provider_id, model_id, account_id, task_type, params_json, status) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'pending')",
+            (id, project_id, shot_id, provider_id, model_id, account_id, task_type, params_json, status) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'pending')",
         params![
             id,
+            input.project_id,
             input.shot_id,
             input.provider_id,
             input.model_id,
@@ -106,29 +108,22 @@ pub fn list(
 ) -> Result<Vec<GenerationTask>> {
     let limit = limit.unwrap_or(100).clamp(1, 500);
 
-    // project_id requires joining shot → episode → project; rows with shot_id=NULL
-    // are filtered out when project_id is set (they have no project association).
+    // Filter directly by project_id column; no JOIN needed.
     let (sql, has_project, has_status) = match (project_id.is_some(), status.is_some()) {
         (true, true) => (
             format!(
-                "SELECT {prefixed} FROM generation_task t \
-                 INNER JOIN shot s ON s.id = t.shot_id \
-                 INNER JOIN episode e ON e.id = s.episode_id \
-                 WHERE e.project_id = ?1 AND t.status = ?2 \
-                 ORDER BY t.created_at DESC LIMIT ?3",
-                prefixed = prefixed_columns()
+                "SELECT {SELECT_COLUMNS} FROM generation_task \
+                 WHERE project_id = ?1 AND status = ?2 \
+                 ORDER BY created_at DESC LIMIT ?3"
             ),
             true,
             true,
         ),
         (true, false) => (
             format!(
-                "SELECT {prefixed} FROM generation_task t \
-                 INNER JOIN shot s ON s.id = t.shot_id \
-                 INNER JOIN episode e ON e.id = s.episode_id \
-                 WHERE e.project_id = ?1 \
-                 ORDER BY t.created_at DESC LIMIT ?2",
-                prefixed = prefixed_columns()
+                "SELECT {SELECT_COLUMNS} FROM generation_task \
+                 WHERE project_id = ?1 \
+                 ORDER BY created_at DESC LIMIT ?2"
             ),
             true,
             false,
@@ -163,14 +158,6 @@ pub fn list(
     };
     rows.collect::<std::result::Result<Vec<_>, _>>()
         .map_err(CoreError::from)
-}
-
-fn prefixed_columns() -> String {
-    SELECT_COLUMNS
-        .split(", ")
-        .map(|c| format!("t.{c}"))
-        .collect::<Vec<_>>()
-        .join(", ")
 }
 
 /// Apply a state-machine transition. Allowed:
@@ -313,29 +300,9 @@ mod tests {
         ("prov1".into(), "mod1".into(), "acc1".into())
     }
 
-    fn seed_project_episode_shot(conn: &Connection, project_id: &str) -> String {
-        let shot_id = format!("shot-{}", Uuid::new_v4());
-        let episode_id = format!("ep-{}", Uuid::new_v4());
-        conn.execute(
-            "INSERT INTO project (id, name) VALUES (?1, 'P')",
-            params![project_id],
-        )
-        .unwrap();
-        conn.execute(
-            "INSERT INTO episode (id, project_id, title) VALUES (?1, ?2, 'E')",
-            params![episode_id, project_id],
-        )
-        .unwrap();
-        conn.execute(
-            "INSERT INTO shot (id, episode_id) VALUES (?1, ?2)",
-            params![shot_id, episode_id],
-        )
-        .unwrap();
-        shot_id
-    }
-
     fn make_input(provider: &str, model: &str, account: &str) -> CreateGenerationTaskInput {
         CreateGenerationTaskInput {
+            project_id: None,
             shot_id: None,
             provider_id: provider.into(),
             model_id: model.into(),
@@ -503,21 +470,30 @@ mod tests {
     }
 
     #[test]
-    fn list_filter_by_project_joins_through_shot() {
+    fn list_filter_by_project_uses_project_id_column() {
         let conn = open_sync(Path::new(":memory:")).unwrap();
         let (p, m, a) = seed_provider_chain(&conn);
-        let shot_a = seed_project_episode_shot(&conn, "proj-a");
-        let shot_b = seed_project_episode_shot(&conn, "proj-b");
+        // Seed two projects
+        conn.execute(
+            "INSERT INTO project (id, name) VALUES ('proj-a', 'PA')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO project (id, name) VALUES ('proj-b', 'PB')",
+            [],
+        )
+        .unwrap();
 
-        // Two tasks in proj-a, one in proj-b, one without shot.
+        // Two tasks in proj-a, one in proj-b, one without project.
         let mut input_a1 = make_input(&p, &m, &a);
-        input_a1.shot_id = Some(shot_a.clone());
+        input_a1.project_id = Some("proj-a".into());
         create(&conn, input_a1).unwrap();
         let mut input_a2 = make_input(&p, &m, &a);
-        input_a2.shot_id = Some(shot_a.clone());
+        input_a2.project_id = Some("proj-a".into());
         create(&conn, input_a2).unwrap();
         let mut input_b = make_input(&p, &m, &a);
-        input_b.shot_id = Some(shot_b);
+        input_b.project_id = Some("proj-b".into());
         create(&conn, input_b).unwrap();
         create(&conn, make_input(&p, &m, &a)).unwrap();
 

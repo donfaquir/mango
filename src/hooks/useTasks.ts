@@ -71,6 +71,7 @@ export function useRetryTask() {
     mutationFn: async (taskId: string) => {
       const task = await unwrap(commands.getTask(taskId));
       const params: CreateGenerationTaskInput = {
+        project_id: task.project_id,
         shot_id: task.shot_id,
         provider_id: task.provider_id,
         model_id: task.model_id,

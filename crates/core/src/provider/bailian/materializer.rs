@@ -12,6 +12,7 @@ use crate::error::{CoreError, Result};
 use crate::models::generation_task::{GenerationTask, TaskKind};
 use crate::provider::asset_uploader::oss::OssUploader;
 use crate::provider::asset_uploader::traits::AssetUploader;
+use crate::provider::traits::ProviderCredentials;
 use crate::task_engine::materializer::ResultMaterializer;
 
 pub struct BailianResultMaterializer {
@@ -54,7 +55,7 @@ impl ResultMaterializer for BailianResultMaterializer {
         Ok(asset.id)
     }
 
-    async fn cleanup(&self, task: &GenerationTask) -> Result<()> {
+    async fn cleanup(&self, task: &GenerationTask, credentials: Option<ProviderCredentials>) -> Result<()> {
         // Parse _internal.uploaded_remote_ids from params_json.
         let params: serde_json::Value = match serde_json::from_str(&task.params_json) {
             Ok(v) => v,
@@ -76,27 +77,38 @@ impl ResultMaterializer for BailianResultMaterializer {
             return Ok(());
         }
 
-        // Resolve OSS credentials from the account.
-        let account_id = task.account_id.clone();
-        let keyring = self.keyring.clone();
-        let creds_json: Option<String> = self
-            .db
-            .call(move |conn| {
-                Ok(crate::account::service::resolve_credentials(
-                    conn,
-                    keyring.as_ref(),
-                    &account_id,
-                ).map(|c| c.extra_json))
-            })
-            .await
-            .map_err(|e: tokio_rusqlite::Error<rusqlite::Error>| CoreError::Provider(format!("cleanup creds: {e}")))?
-            .map_err(|e| CoreError::Provider(format!("cleanup creds: {e}")))?;
+        // Prefer pre-resolved credentials to avoid redundant keyring access.
+        let extra = if let Some(creds) = credentials {
+            match creds.extra_json {
+                Some(json) => json,
+                None => {
+                    tracing::warn!("cleanup: no OSS config in pre-resolved credentials; skipping");
+                    return Ok(());
+                }
+            }
+        } else {
+            // Fallback: resolve from keyring (backward-compat path).
+            let account_id = task.account_id.clone();
+            let keyring = self.keyring.clone();
+            let creds_json: Option<String> = self
+                .db
+                .call(move |conn| {
+                    Ok(crate::account::service::resolve_credentials(
+                        conn,
+                        keyring.as_ref(),
+                        &account_id,
+                    ).map(|c| c.extra_json))
+                })
+                .await
+                .map_err(|e: tokio_rusqlite::Error<rusqlite::Error>| CoreError::Provider(format!("cleanup creds: {e}")))?
+                .map_err(|e| CoreError::Provider(format!("cleanup creds: {e}")))?;
 
-        let extra = match creds_json {
-            Some(json) => json,
-            None => {
-                tracing::warn!("cleanup: no OSS config for account; skipping");
-                return Ok(());
+            match creds_json {
+                Some(json) => json,
+                None => {
+                    tracing::warn!("cleanup: no OSS config for account; skipping");
+                    return Ok(());
+                }
             }
         };
 
@@ -116,15 +128,26 @@ impl ResultMaterializer for BailianResultMaterializer {
     }
 }
 
-/// Resolve project_id from task. If task has a shot_id, traverse
-/// shot → episode → project. If no shot_id, return Validation error
-/// (MS2 tasks must have a shot).
+/// Resolve project_id from task.
+///
+/// Strategy (in order):
+/// 1. If task has project_id directly, use it (fast path for standalone tasks).
+/// 2. If task has shot_id, traverse shot → episode → project (for shot-bound tasks).
+/// 3. If neither, return Validation error.
 async fn resolve_project_id(
     db: &tokio_rusqlite::Connection,
     task: &GenerationTask,
 ) -> Result<String> {
+    // Fast path: task carries project_id directly (standalone generation tasks).
+    if let Some(pid) = &task.project_id {
+        return Ok(pid.clone());
+    }
+
+    // Fallback: traverse shot → episode → project (shot-bound tasks).
     let shot_id = task.shot_id.clone().ok_or_else(|| {
-        CoreError::Validation("task without shot_id cannot persist its result".into())
+        CoreError::Validation(
+            "task must have either project_id or shot_id to persist its result".into(),
+        )
     })?;
 
     db.call(move |conn| {

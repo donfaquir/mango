@@ -98,6 +98,7 @@ async fn cancel_running_task_lands_in_cancelled_state() {
 
     let task_id = engine
         .submit(CreateGenerationTaskInput {
+            project_id: None,
             shot_id: None,
             provider_id: "p1".into(),
             model_id: "m1".into(),

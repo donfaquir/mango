@@ -73,6 +73,7 @@ impl TaskKind {
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 pub struct GenerationTask {
     pub id: String,
+    pub project_id: Option<String>,
     pub shot_id: Option<String>,
     pub provider_id: String,
     pub model_id: String,
@@ -92,6 +93,8 @@ pub struct GenerationTask {
 
 #[derive(Debug, Clone, Deserialize, Type)]
 pub struct CreateGenerationTaskInput {
+    #[serde(default)]
+    pub project_id: Option<String>,
     #[serde(default)]
     pub shot_id: Option<String>,
     pub provider_id: String,

@@ -111,6 +111,7 @@ pub async fn run(
 
     // 5. Submit via engine (creates task row + spawns runner)
     let input = CreateGenerationTaskInput {
+        project_id: args.project_id.clone(),
         shot_id: None, // CLI submit without shot association for now
         provider_id: args.provider.clone(),
         model_id: args.model.clone(),

@@ -46,6 +46,10 @@ pub async fn run(engine: TaskEngineHandle, task_id: String) {
         Err(e) => return fail(&engine, &task_id, &e.to_string()).await,
     };
 
+    // Keep a clone for the cleanup phase so the materializer can reuse
+    // already-resolved credentials without hitting the keyring again.
+    let credentials_for_cleanup = credentials.clone();
+
     let params = match build_generation_params(&task, credentials) {
         Ok(p) => p,
         Err(e) => return fail(&engine, &task_id, &e.to_string()).await,
@@ -74,7 +78,7 @@ pub async fn run(engine: TaskEngineHandle, task_id: String) {
         return fail(&engine, &task_id, &e.to_string()).await;
     }
 
-    poll_loop(&engine, &task_id, provider.as_ref(), &external_id).await;
+    poll_loop(&engine, &task_id, provider.as_ref(), &external_id, credentials_for_cleanup).await;
 }
 
 async fn poll_loop(
@@ -82,6 +86,7 @@ async fn poll_loop(
     task_id: &str,
     provider: &dyn ModelProvider,
     external_id: &str,
+    credentials: ProviderCredentials,
 ) {
     loop {
         sleep(engine.poll_interval).await;
@@ -148,10 +153,11 @@ async fn poll_loop(
                 tracing::info!(task_id = %task_id, %result_url, "task succeeded");
 
                 // Best-effort cleanup (e.g. remove uploaded reference images from OSS).
+                // Pass resolved credentials to avoid redundant keyring access.
                 let materializer = engine.materializer.clone();
                 let task_clone = task_for_mat;
                 tokio::spawn(async move {
-                    if let Err(e) = materializer.cleanup(&task_clone).await {
+                    if let Err(e) = materializer.cleanup(&task_clone, Some(credentials)).await {
                         tracing::warn!(task_id = %task_clone.id, error = %e, "materializer cleanup failed");
                     }
                 });

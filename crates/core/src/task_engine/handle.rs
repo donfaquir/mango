@@ -26,9 +26,8 @@ use super::runner;
 /// [`TaskEngineHandle::spawn_with`] to drive the loop faster.
 const DEFAULT_POLL_INTERVAL: Duration = Duration::from_secs(5);
 
-/// Filter passed to [`TaskEngineHandle::list`]. `project_id` joins through
-/// `shot → episode → project`, so tasks with no shot are excluded when a
-/// project filter is set.
+/// Filter passed to [`TaskEngineHandle::list`]. Uses the `project_id` column
+/// directly on the `generation_task` table.
 #[derive(Debug, Default, Clone)]
 pub struct ListFilter {
     pub project_id: Option<String>,

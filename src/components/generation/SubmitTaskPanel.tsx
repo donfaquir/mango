@@ -27,6 +27,7 @@ export function SubmitTaskPanel({ projectId }: SubmitTaskPanelProps) {
     });
     try {
       await submit.mutateAsync({
+        project_id: projectId,
         provider_id: model.providerId,
         model_id: model.modelId,
         account_id: model.accountId,
@@ -55,6 +56,7 @@ export function SubmitTaskPanel({ projectId }: SubmitTaskPanelProps) {
     });
     try {
       await submit.mutateAsync({
+        project_id: projectId,
         provider_id: model.providerId,
         model_id: model.modelId,
         account_id: model.accountId,

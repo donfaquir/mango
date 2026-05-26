@@ -256,6 +256,7 @@ export type CreateCostumeInput = {
 };
 
 export type CreateGenerationTaskInput = {
+	project_id?: string | null,
 	shot_id?: string | null,
 	provider_id: string,
 	model_id: string,
@@ -297,6 +298,7 @@ export type CreateSceneInput = {
 
 export type GenerationTask = {
 	id: string,
+	project_id: string | null,
 	shot_id: string | null,
 	provider_id: string,
 	model_id: string,

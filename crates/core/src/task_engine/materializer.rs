@@ -10,6 +10,7 @@ use async_trait::async_trait;
 
 use crate::error::Result;
 use crate::models::generation_task::GenerationTask;
+use crate::provider::traits::ProviderCredentials;
 
 /// Turns a remote result URL into a persisted local Asset.
 #[async_trait]
@@ -23,8 +24,16 @@ pub trait ResultMaterializer: Send + Sync + 'static {
     /// Allows the provider to clean up remote temporary resources (e.g.
     /// uploaded reference images on OSS). Best-effort — failures are logged,
     /// not propagated.
-    async fn cleanup(&self, task: &GenerationTask) -> Result<()> {
-        let _ = task;
+    ///
+    /// `credentials` — if supplied, reuse the already-resolved credentials
+    /// instead of hitting the keyring again (avoids repeated macOS Keychain
+    /// prompts within the same task lifecycle).
+    async fn cleanup(
+        &self,
+        task: &GenerationTask,
+        credentials: Option<ProviderCredentials>,
+    ) -> Result<()> {
+        let _ = (task, credentials);
         Ok(())
     }
 }

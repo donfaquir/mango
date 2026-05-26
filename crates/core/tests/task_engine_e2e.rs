@@ -118,6 +118,7 @@ async fn submit_drives_to_success_and_persists() {
 
     let task_id = engine
         .submit(CreateGenerationTaskInput {
+            project_id: None,
             shot_id: None,
             provider_id: "p1".into(),
             model_id: "m1".into(),

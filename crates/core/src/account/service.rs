@@ -1,4 +1,5 @@
 use rusqlite::{params, Connection};
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::account::keyring::{oss_secret_storage_id, user_id, KeyringStore};
@@ -8,6 +9,67 @@ use crate::models::api_account::{
     ApiAccount, CreateApiAccountInput, OssConfigInput, UpdateApiAccountInput,
 };
 use crate::provider::traits::ProviderCredentials;
+
+/// Combined keyring payload introduced to fold the API key and the optional
+/// OSS access_key_secret into a *single* keyring entry. macOS triggers a
+/// keychain prompt per `keyring.fetch`, so collapsing the two reads into one
+/// roughly halves the number of authorization popups during task submission.
+///
+/// Backward compatibility: legacy accounts wrote the bare API key string into
+/// the primary entry and (optionally) the OSS secret into a separate
+/// `oss_secret_storage_id` entry. The read path detects that shape by trying
+/// to deserialize as JSON first and falling back to the legacy layout.
+#[derive(Serialize, Deserialize)]
+struct CombinedSecret {
+    api_key: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    oss_secret: Option<String>,
+}
+
+impl CombinedSecret {
+    fn to_json(&self) -> Result<String> {
+        serde_json::to_string(self)
+            .map_err(|e| CoreError::Validation(format!("serialize secrets: {e}")))
+    }
+}
+
+/// Fetch the primary keyring entry and (optionally) the legacy OSS secret.
+///
+/// Returns `(api_key, oss_secret)` where `oss_secret` is `Some` whenever the
+/// caller asked for it (`needs_oss=true`) AND the underlying storage actually
+/// has it. The function performs a single `keyring.fetch` for the new combined
+/// format, and at most two for the legacy split format.
+fn fetch_secrets(
+    keyring: &dyn KeyringStore,
+    account_id: &str,
+    needs_oss: bool,
+) -> Result<(String, Option<String>)> {
+    let raw = keyring.fetch(account_id)?;
+    if let Ok(combined) = serde_json::from_str::<CombinedSecret>(&raw) {
+        return Ok((combined.api_key, combined.oss_secret));
+    }
+    // Legacy path: `raw` is a plain api key string. Pull the OSS secret from
+    // the separate `:oss_secret` entry only when the account actually needs
+    // it, so non-OSS accounts still see a single keyring access.
+    let oss_secret = if needs_oss {
+        Some(keyring.fetch(&oss_secret_storage_id(account_id))?)
+    } else {
+        None
+    };
+    Ok((raw, oss_secret))
+}
+
+/// Cheap structural check on `params_json` without materializing intermediate
+/// values. Returns `true` iff the JSON has an `oss` object key.
+fn params_has_oss(params_json: &str) -> bool {
+    if params_json.is_empty() || params_json == "{}" {
+        return false;
+    }
+    serde_json::from_str::<serde_json::Value>(params_json)
+        .ok()
+        .and_then(|v| v.get("oss").cloned())
+        .is_some()
+}
 
 pub fn create(
     conn: &Connection,
@@ -29,23 +91,17 @@ pub fn create(
     let api_key_ref = user_id(&id);
 
     // 1) keyring first: if this fails the DB stays untouched so we can never
-    //    end up with a row pointing at a missing credential.
-    keyring.store(&id, &input.api_key)?;
-
-    // 1b) OSS secret, if any. On failure we roll back the main key entry so
-    //     the resulting state has neither a half-written keyring nor a DB row.
-    if let Some(oss) = input.oss.as_ref()
-        && let Err(e) = keyring.store(&oss_secret_storage_id(&id), &oss.access_key_secret)
-    {
-        if let Err(re) = keyring.remove(&id) {
-            tracing::warn!("failed to rollback main keyring entry for {id}: {re}");
-        }
-        return Err(e);
-    }
+    //    end up with a row pointing at a missing credential. Both the API
+    //    key and the (optional) OSS secret are folded into a single combined
+    //    entry so resolve_credentials only needs one fetch later.
+    let combined = CombinedSecret {
+        api_key: input.api_key.clone(),
+        oss_secret: input.oss.as_ref().map(|o| o.access_key_secret.clone()),
+    };
+    keyring.store(&id, &combined.to_json()?)?;
 
     // 2) Insert the metadata row (including params_json if oss was given). On
-    //    DB failure, best-effort rollback BOTH keyring entries we may have
-    //    written.
+    //    DB failure, best-effort rollback the keyring entry we just wrote.
     let params_json = match input.oss.as_ref() {
         Some(oss) => oss_params_json(oss),
         None => "{}".to_string(),
@@ -67,11 +123,6 @@ pub fn create(
         if let Err(re) = keyring.remove(&id) {
             tracing::warn!("failed to rollback keyring entry for {id}: {re}");
         }
-        if input.oss.is_some()
-            && let Err(re) = keyring.remove(&oss_secret_storage_id(&id))
-        {
-            tracing::warn!("failed to rollback oss keyring entry for {id}: {re}");
-        }
         return Err(e.into());
     }
 
@@ -91,8 +142,9 @@ pub fn delete(conn: &Connection, keyring: &dyn KeyringStore, id: &str) -> Result
         // operation succeeded. Leave a trace so we can spot keyring drift.
         tracing::warn!("keyring entry orphaned for {id}: {e}");
     }
-    // best-effort: old (pre-spec-16) accounts won't have an OSS entry, so
-    // a "missing" remove is expected and silenced.
+    // best-effort: legacy accounts (pre-combined-secret refactor) may still
+    // have a separate OSS-secret entry. Newer accounts never write one, so a
+    // "missing" remove is the common case and is silenced.
     if let Err(e) = keyring.remove(&oss_secret_storage_id(id)) {
         tracing::debug!("oss secret entry not present for {id}: {e}");
     }
@@ -108,33 +160,65 @@ pub fn update(
     // Touching a non-existent id should NOT silently create a keyring entry.
     let _existing = queries::get_by_id(conn, id)?;
 
-    if let Some(new_key) = input.api_key {
-        if new_key.is_empty() {
-            return Err(CoreError::Validation("api_key cannot be empty".into()));
+    // Validate everything up front so we never partially apply on bad input.
+    if let Some(new_key) = input.api_key.as_deref()
+        && new_key.is_empty()
+    {
+        return Err(CoreError::Validation("api_key cannot be empty".into()));
+    }
+    if let Some(label) = input.label.as_deref()
+        && label.trim().is_empty()
+    {
+        return Err(CoreError::Validation("label cannot be empty".into()));
+    }
+    if let Some(oss) = input.oss.as_ref() {
+        validate_oss(oss)?;
+    }
+
+    // Keyring write: rebuild the combined entry whenever the api_key or the
+    // OSS secret changes. Pull the existing payload so we can preserve the
+    // half that the caller didn't touch. This also opportunistically migrates
+    // legacy split entries to the combined layout.
+    if input.api_key.is_some() || input.oss.is_some() {
+        let final_has_oss = if input.oss.is_some() {
+            true
+        } else {
+            params_has_oss(&queries::get_params_json(conn, id)?)
+        };
+        let (existing_api_key, existing_oss) = fetch_secrets(keyring, id, final_has_oss)?;
+        let api_key = input
+            .api_key
+            .clone()
+            .unwrap_or(existing_api_key);
+        let oss_secret = match input.oss.as_ref() {
+            Some(oss) => Some(oss.access_key_secret.clone()),
+            None => existing_oss,
+        };
+        let combined = CombinedSecret { api_key, oss_secret };
+        keyring.store(id, &combined.to_json()?)?;
+        // Best-effort cleanup: drop the legacy `:oss_secret` entry if any.
+        if let Err(e) = keyring.remove(&oss_secret_storage_id(id)) {
+            tracing::debug!("legacy oss secret entry not present for {id}: {e}");
         }
-        keyring.store(id, &new_key)?;
-        let last4 = last4(&new_key);
+    }
+
+    if let Some(new_key) = input.api_key.as_deref() {
+        let last4 = last4(new_key);
         conn.execute(
             "UPDATE api_account SET key_last4 = ?1 WHERE id = ?2",
             params![last4, id],
         )?;
     }
-    if let Some(label) = input.label {
-        let trimmed = label.trim();
-        if trimmed.is_empty() {
-            return Err(CoreError::Validation("label cannot be empty".into()));
-        }
+    if let Some(label) = input.label.as_deref() {
         conn.execute(
             "UPDATE api_account SET label = ?1 WHERE id = ?2",
-            params![trimmed, id],
+            params![label.trim(), id],
         )?;
     }
-    if let Some(oss) = input.oss {
-        validate_oss(&oss)?;
-        keyring.store(&oss_secret_storage_id(id), &oss.access_key_secret)?;
+    if let Some(oss) = input.oss.as_ref() {
         conn.execute(
             "UPDATE api_account SET params_json = ?1 WHERE id = ?2",
-            params![oss_params_json(&oss), id],
+            params![oss_params_json(oss), id],
         )?;
     }
     queries::get_by_id(conn, id)
@@ -150,8 +234,14 @@ pub fn verify_storage(
     id: &str,
 ) -> Result<()> {
     let _ = queries::get_by_id(conn, id)?;
-    let key = keyring.fetch(id)?;
-    if key.is_empty() {
+    let raw = keyring.fetch(id)?;
+    // The combined-secret payload encodes the api key inside JSON; legacy
+    // entries are plain strings. Treat both as the source of truth.
+    let api_key = match serde_json::from_str::<CombinedSecret>(&raw) {
+        Ok(c) => c.api_key,
+        Err(_) => raw,
+    };
+    if api_key.is_empty() {
         return Err(CoreError::Validation("stored api key is empty".into()));
     }
     Ok(())
@@ -162,14 +252,20 @@ pub fn verify_storage(
 /// the access_key_secret injected back from keyring. The runner is expected to
 /// drop the resulting value as soon as it's been handed to the provider — the
 /// secret never lands in DB or logs.
+///
+/// Performs a single `keyring.fetch` in the common (combined-format) case.
+/// Legacy accounts still incur a second fetch for the OSS secret, but only
+/// until the next `update` migrates them.
 pub fn resolve_credentials(
     conn: &Connection,
     keyring: &dyn KeyringStore,
     account_id: &str,
 ) -> Result<ProviderCredentials> {
     let _exists = queries::get_by_id(conn, account_id)?;
-    let api_key = keyring.fetch(account_id)?;
     let params_json = queries::get_params_json(conn, account_id)?;
+    let needs_oss = params_has_oss(&params_json);
+
+    let (api_key, oss_secret_opt) = fetch_secrets(keyring, account_id, needs_oss)?;
 
     let extra_json = if params_json.is_empty() || params_json == "{}" {
         None
@@ -177,7 +273,9 @@ pub fn resolve_credentials(
         let mut params: serde_json::Value = serde_json::from_str(&params_json)
             .map_err(|e| CoreError::Validation(format!("api_account.params_json: {e}")))?;
         if let Some(oss) = params.get_mut("oss") {
-            let secret = keyring.fetch(&oss_secret_storage_id(account_id))?;
+            let secret = oss_secret_opt.ok_or_else(|| {
+                CoreError::Keyring("oss secret missing for account".into())
+            })?;
             if let Some(obj) = oss.as_object_mut() {
                 obj.insert(
                     "access_key_secret".into(),
@@ -288,7 +386,12 @@ mod tests {
         assert_eq!(a.label, "main");
         assert_eq!(a.key_last4, "ghij");
         assert!(a.oss_config.is_none());
-        assert_eq!(kr.fetch(&a.id).unwrap(), "sk-abcdefghij");
+        // No-OSS accounts still go through the combined-secret payload, so the
+        // raw keyring value is JSON. The api_key field carries the secret.
+        let raw = kr.fetch(&a.id).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&raw).unwrap();
+        assert_eq!(parsed["api_key"], "sk-abcdefghij");
+        assert!(parsed.get("oss_secret").is_none());
 
         // api_key_ref column is set even though it's never returned via ApiAccount.
         let api_key_ref: String = conn
@@ -302,7 +405,7 @@ mod tests {
     }
 
     #[test]
-    fn create_with_oss_writes_two_keyring_entries() {
+    fn create_with_oss_writes_combined_keyring_entry() {
         let (conn, kr, pid) = setup();
         let a = create(
             &conn,
@@ -316,23 +419,25 @@ mod tests {
         )
         .unwrap();
 
-        // Both entries present in keyring.
-        assert_eq!(kr.fetch(&a.id).unwrap(), "sk-abcdefghij");
-        assert_eq!(
-            kr.fetch(&oss_secret_storage_id(&a.id)).unwrap(),
-            "secret-zzzz"
-        );
+        // Single combined entry holds both the api_key and the oss_secret.
+        let raw = kr.fetch(&a.id).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&raw).unwrap();
+        assert_eq!(parsed["api_key"], "sk-abcdefghij");
+        assert_eq!(parsed["oss_secret"], "secret-zzzz");
+
+        // No legacy `:oss_secret` entry should be created.
+        assert!(kr.fetch(&oss_secret_storage_id(&a.id)).is_err());
 
         // params_json must NOT contain the secret.
-        let raw: String = conn
+        let raw_params: String = conn
             .query_row(
                 "SELECT params_json FROM api_account WHERE id = ?1",
                 params![a.id],
                 |r| r.get(0),
             )
             .unwrap();
-        assert!(raw.contains("oss-cn-hangzhou"));
-        assert!(!raw.contains("secret-zzzz"));
+        assert!(raw_params.contains("oss-cn-hangzhou"));
+        assert!(!raw_params.contains("secret-zzzz"));
 
         // Public projection contains AK ID, never secret.
         let oss = a.oss_config.expect("oss_config");
@@ -439,7 +544,9 @@ mod tests {
 
         assert_eq!(updated.label, "renamed");
         assert_eq!(updated.key_last4, "9999");
-        assert_eq!(kr.fetch(&a.id).unwrap(), "new-9999");
+        let raw = kr.fetch(&a.id).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&raw).unwrap();
+        assert_eq!(parsed["api_key"], "new-9999");
     }
 
     #[test]
@@ -470,10 +577,12 @@ mod tests {
         )
         .unwrap();
         assert!(updated.oss_config.is_some());
-        assert_eq!(
-            kr.fetch(&oss_secret_storage_id(&a.id)).unwrap(),
-            "secret-zzzz"
-        );
+        let raw = kr.fetch(&a.id).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&raw).unwrap();
+        assert_eq!(parsed["api_key"], "k");
+        assert_eq!(parsed["oss_secret"], "secret-zzzz");
+        // No legacy entry written.
+        assert!(kr.fetch(&oss_secret_storage_id(&a.id)).is_err());
     }
 
     #[test]
@@ -493,7 +602,7 @@ mod tests {
     }
 
     #[test]
-    fn delete_removes_db_and_both_keyring_entries() {
+    fn delete_removes_db_and_keyring_entry() {
         let (conn, kr, pid) = setup();
         let a = create(
             &conn,
@@ -513,6 +622,8 @@ mod tests {
             Err(CoreError::NotFound { .. })
         ));
         assert!(kr.fetch(&a.id).is_err());
+        // The legacy `:oss_secret` key was never written for combined-format
+        // accounts, but `delete` still cleans it up best-effort.
         assert!(kr.fetch(&oss_secret_storage_id(&a.id)).is_err());
     }
 
@@ -637,6 +748,83 @@ mod tests {
             v.pointer("/oss/access_key_id").and_then(|s| s.as_str()),
             Some("LTAI5tFAKE")
         );
+    }
+
+    #[test]
+    fn resolve_credentials_falls_back_to_legacy_split_entries() {
+        // Simulate an account written by the previous (split-entry) format:
+        // a plain api_key string in the primary slot and a separate
+        // `:oss_secret` entry. resolve_credentials must still reconstruct
+        // the credential bundle without any migration step.
+        let (conn, kr, pid) = setup();
+        let a = create(
+            &conn,
+            &kr,
+            CreateApiAccountInput {
+                provider_id: pid,
+                label: "x".into(),
+                api_key: "placeholder".into(),
+                oss: Some(sample_oss()),
+            },
+        )
+        .unwrap();
+        // Overwrite the combined entry with a legacy plain-string payload
+        // and place the OSS secret in the legacy split slot.
+        kr.store(&a.id, "sk-legacy").unwrap();
+        kr.store(&oss_secret_storage_id(&a.id), "legacy-oss").unwrap();
+
+        let creds = resolve_credentials(&conn, &kr, &a.id).unwrap();
+        assert_eq!(creds.api_key, "sk-legacy");
+        let extra: serde_json::Value =
+            serde_json::from_str(&creds.extra_json.expect("extra_json present")).unwrap();
+        assert_eq!(
+            extra.pointer("/oss/access_key_secret").and_then(|s| s.as_str()),
+            Some("legacy-oss")
+        );
+    }
+
+    #[test]
+    fn update_migrates_legacy_split_entries_to_combined() {
+        // A legacy account (api_key in primary, oss_secret in `:oss_secret`)
+        // gets folded into a single combined entry on the next update, even
+        // when only the label is being changed... wait — only writes happen
+        // when api_key or oss is updated. Confirm migration triggers on
+        // api_key rotation.
+        let (conn, kr, pid) = setup();
+        let a = create(
+            &conn,
+            &kr,
+            CreateApiAccountInput {
+                provider_id: pid,
+                label: "x".into(),
+                api_key: "placeholder".into(),
+                oss: Some(sample_oss()),
+            },
+        )
+        .unwrap();
+        // Replace combined entry with legacy split layout.
+        kr.store(&a.id, "sk-legacy").unwrap();
+        kr.store(&oss_secret_storage_id(&a.id), "legacy-oss").unwrap();
+
+        update(
+            &conn,
+            &kr,
+            &a.id,
+            UpdateApiAccountInput {
+                label: None,
+                api_key: Some("sk-rotated".into()),
+                oss: None,
+            },
+        )
+        .unwrap();
+
+        // Combined entry written with the new key plus the existing OSS secret.
+        let raw = kr.fetch(&a.id).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&raw).unwrap();
+        assert_eq!(parsed["api_key"], "sk-rotated");
+        assert_eq!(parsed["oss_secret"], "legacy-oss");
+        // Legacy slot is cleaned up.
+        assert!(kr.fetch(&oss_secret_storage_id(&a.id)).is_err());
     }
 
     #[test]
