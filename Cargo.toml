@@ -43,3 +43,5 @@ hmac = "0.12"
 sha1 = "0.10"
 base64 = "0.22"
 percent-encoding = "2"
+reqwest = { version = "0.12", features = ["json", "gzip"] }
+futures = "0.3"

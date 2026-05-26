@@ -113,6 +113,26 @@ async fn poll_loop(
                 continue;
             }
             Ok(ProviderTaskStatus::Success { result_url }) => {
+                // Materialize the result: download + persist as Asset.
+                let task_for_mat = match state::load(&engine.db, task_id).await {
+                    Ok(t) => t,
+                    Err(e) => return fail(engine, task_id, &e.to_string()).await,
+                };
+                let asset_id = match engine.materializer.materialize(&task_for_mat, &result_url).await {
+                    Ok(id) => id,
+                    Err(e) => {
+                        tracing::error!(task_id = %task_id, error = %e, "materialize failed");
+                        return fail(engine, task_id, &format!("result download failed: {e}")).await;
+                    }
+                };
+
+                // Write result_asset_id if materializer produced one.
+                if !asset_id.is_empty()
+                    && let Err(e) = state::set_result_asset_id(&engine.db, task_id, &asset_id).await
+                {
+                    tracing::error!(task_id = %task_id, error = %e, "set_result_asset_id failed");
+                }
+
                 if let Err(e) = state::transition(
                     &engine.db,
                     &engine.event_tx,
@@ -126,6 +146,15 @@ async fn poll_loop(
                     tracing::error!(task_id = %task_id, error = %e, "transition→success failed");
                 }
                 tracing::info!(task_id = %task_id, %result_url, "task succeeded");
+
+                // Best-effort cleanup (e.g. remove uploaded reference images from OSS).
+                let materializer = engine.materializer.clone();
+                let task_clone = task_for_mat;
+                tokio::spawn(async move {
+                    if let Err(e) = materializer.cleanup(&task_clone).await {
+                        tracing::warn!(task_id = %task_clone.id, error = %e, "materializer cleanup failed");
+                    }
+                });
                 return;
             }
             Ok(ProviderTaskStatus::Failed { message }) => {

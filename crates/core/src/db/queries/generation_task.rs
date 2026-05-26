@@ -253,6 +253,20 @@ pub fn set_external_id(conn: &Connection, id: &str, external_id: &str) -> Result
     Ok(())
 }
 
+pub fn set_result_asset_id(conn: &Connection, id: &str, asset_id: &str) -> Result<()> {
+    let n = conn.execute(
+        "UPDATE generation_task SET result_asset_id = ?1 WHERE id = ?2",
+        params![asset_id, id],
+    )?;
+    if n == 0 {
+        return Err(CoreError::NotFound {
+            entity: "generation_task",
+            id: id.to_string(),
+        });
+    }
+    Ok(())
+}
+
 /// Reset all rows whose `status='running'` to `pending` on startup. The previous
 /// app process owned a runner coroutine that no longer exists, so the row is
 /// orphaned. Marker text is appended to `error_message` and `retry_count`

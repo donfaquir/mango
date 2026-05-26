@@ -6,6 +6,8 @@ mod state;
 use std::sync::Arc;
 
 use mango_core::account::keyring::SystemKeyring;
+use mango_core::provider::bailian::BailianProvider;
+use mango_core::provider::bailian::materializer::BailianResultMaterializer;
 use mango_core::provider::ProviderRegistry;
 use mango_core::task_engine::{TaskEngineHandle, TaskEvent};
 use specta_typescript::Typescript;
@@ -121,16 +123,19 @@ pub fn run() {
             });
             init_result.expect("Failed to run startup initialize");
 
-            // Provider registry is empty until spec-17 wires real providers in.
-            // Submitting a task in the meantime will fail with
-            // `provider not registered: <id>` — expected behavior.
-            let providers = ProviderRegistry::builder().build();
+            // Register BailianProvider for the "bailian" provider id.
+            let providers = ProviderRegistry::builder()
+                .register("bailian", Arc::new(BailianProvider::new()))
+                .build();
             let keyring: Arc<dyn mango_core::account::keyring::KeyringStore> =
                 Arc::new(SystemKeyring);
+            let materializer: Arc<dyn mango_core::task_engine::ResultMaterializer> =
+                Arc::new(BailianResultMaterializer::new(db.clone(), keyring.clone()));
             let (engine, mut event_rx) = TaskEngineHandle::spawn(
                 db.clone(),
                 providers,
                 keyring.clone(),
+                materializer,
                 4,
             );
             let app_handle = app.handle().clone();

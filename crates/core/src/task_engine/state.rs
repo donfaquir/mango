@@ -34,6 +34,14 @@ pub async fn set_external_id(db: &AsyncConnection, task_id: &str, external_id: &
         .map_err(map_async_err)?
 }
 
+pub async fn set_result_asset_id(db: &AsyncConnection, task_id: &str, asset_id: &str) -> Result<()> {
+    let id = task_id.to_string();
+    let aid = asset_id.to_string();
+    db.call(move |conn| Ok(q::set_result_asset_id(conn, &id, &aid)))
+        .await
+        .map_err(map_async_err)?
+}
+
 /// Apply a state-machine transition and emit a [`TaskEvent::StatusChanged`].
 /// `progress` is informational only — the DB does not store it; it rides along
 /// in the event so the UI can render a percentage during `Running`.

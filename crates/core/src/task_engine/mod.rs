@@ -6,8 +6,10 @@
 
 pub mod events;
 pub mod handle;
+pub mod materializer;
 pub mod runner;
 pub mod state;
 
 pub use events::TaskEvent;
 pub use handle::{ListFilter, TaskEngineHandle};
+pub use materializer::{NoopMaterializer, ResultMaterializer};

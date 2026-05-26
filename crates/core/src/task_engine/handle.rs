@@ -19,6 +19,7 @@ use crate::models::generation_task::{
 use crate::provider::registry::ProviderRegistry;
 
 use super::events::TaskEvent;
+use super::materializer::ResultMaterializer;
 use super::runner;
 
 /// Default poll interval when [`TaskEngineHandle::spawn`] is used. Tests use
@@ -42,6 +43,7 @@ pub struct TaskEngineHandle {
     pub(super) semaphore: Arc<Semaphore>,
     pub(super) event_tx: UnboundedSender<TaskEvent>,
     pub(super) keyring: Arc<dyn KeyringStore>,
+    pub(super) materializer: Arc<dyn ResultMaterializer>,
     pub(super) poll_interval: Duration,
 }
 
@@ -53,12 +55,14 @@ impl TaskEngineHandle {
         db: AsyncConnection,
         providers: ProviderRegistry,
         keyring: Arc<dyn KeyringStore>,
+        materializer: Arc<dyn ResultMaterializer>,
         max_concurrency: usize,
     ) -> (Self, UnboundedReceiver<TaskEvent>) {
         Self::spawn_with(
             db,
             providers,
             keyring,
+            materializer,
             max_concurrency,
             DEFAULT_POLL_INTERVAL,
         )
@@ -70,6 +74,7 @@ impl TaskEngineHandle {
         db: AsyncConnection,
         providers: ProviderRegistry,
         keyring: Arc<dyn KeyringStore>,
+        materializer: Arc<dyn ResultMaterializer>,
         max_concurrency: usize,
         poll_interval: Duration,
     ) -> (Self, UnboundedReceiver<TaskEvent>) {
@@ -80,6 +85,7 @@ impl TaskEngineHandle {
             semaphore: Arc::new(Semaphore::new(max_concurrency)),
             event_tx: tx,
             keyring,
+            materializer,
             poll_interval,
         };
         (handle, rx)

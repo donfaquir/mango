@@ -2,6 +2,7 @@
 //! concrete impls (Bailian, etc.) live in separate modules added by spec-17+.
 
 pub mod asset_uploader;
+pub mod bailian;
 pub mod registry;
 pub mod traits;
 

@@ -16,7 +16,7 @@ use mango_core::models::generation_task::{
 use mango_core::provider::{
     GenerationParams, ModelProvider, ProviderRegistry, ProviderTaskStatus,
 };
-use mango_core::task_engine::{TaskEngineHandle, TaskEvent};
+use mango_core::task_engine::{NoopMaterializer, TaskEngineHandle, TaskEvent};
 use tempfile::tempdir;
 use tokio::time::timeout;
 
@@ -91,6 +91,7 @@ async fn cancel_running_task_lands_in_cancelled_state() {
         db.clone(),
         providers,
         keyring,
+        Arc::new(NoopMaterializer),
         4,
         Duration::from_millis(50),
     );
