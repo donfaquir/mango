@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FFF3D6"/>
+      <stop offset="55%" stop-color="#FFD37A"/>
+      <stop offset="100%" stop-color="#FF9F1C"/>
+    </linearGradient>
+    <radialGradient id="bgGlow" cx="50%" cy="46%" r="55%">
+      <stop offset="0%" stop-color="#FFFBE6" stop-opacity="0.85"/>
+      <stop offset="60%" stop-color="#FFFBE6" stop-opacity="0.15"/>
+      <stop offset="100%" stop-color="#FFFBE6" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="mangoGrad" x1="20%" y1="5%" x2="85%" y2="100%">
+      <stop offset="0%"  stop-color="#FFE066"/>
+      <stop offset="35%" stop-color="#FFC107"/>
+      <stop offset="75%" stop-color="#FF8A1F"/>
+      <stop offset="100%" stop-color="#E55B0A"/>
+    </linearGradient>
+    <radialGradient id="blush" cx="78%" cy="78%" r="55%">
+      <stop offset="0%"  stop-color="#FF4E2A" stop-opacity="0.55"/>
+      <stop offset="60%" stop-color="#FF4E2A" stop-opacity="0.12"/>
+      <stop offset="100%" stop-color="#FF4E2A" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="leafGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%"  stop-color="#86D26A"/>
+      <stop offset="60%" stop-color="#3FA34D"/>
+      <stop offset="100%" stop-color="#1F6B2E"/>
+    </linearGradient>
+    <linearGradient id="gloss" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%"  stop-color="#FFFFFF" stop-opacity="0.85"/>
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+    <clipPath id="mangoClip">
+      <path d="M 250,560 C 230,360, 360,210, 540,200 C 720,190, 830,330, 830,520 C 830,720, 690,860, 510,860 C 320,860, 270,760, 250,560 Z"/>
+    </clipPath>
+  </defs>
+  <rect width="1024" height="1024" rx="224" ry="224" fill="url(#bgGrad)"/>
+  <rect width="1024" height="1024" rx="224" ry="224" fill="url(#bgGlow)"/>
+  <g opacity="0.18" fill="#FFFFFF">
+    <circle cx="160" cy="180" r="6"/>
+    <circle cx="880" cy="170" r="4"/>
+    <circle cx="120" cy="860" r="5"/>
+    <circle cx="900" cy="900" r="7"/>
+    <circle cx="220" cy="320" r="3"/>
+    <circle cx="820" cy="700" r="3"/>
+  </g>
+  <path d="M 525,220 C 528,190 540,170 562,160" stroke="#5B3A1E" stroke-width="14" stroke-linecap="round" fill="none"/>
+  <g transform="translate(560 175) rotate(28)">
+    <path d="M 0,0 C -10,-60, 80,-130, 175,-120 C 165,-50, 90,-10, 0,0 Z" fill="url(#leafGrad)"/>
+    <path d="M 5,-5 C 50,-40, 110,-80, 165,-110" stroke="#114B22" stroke-width="5" stroke-linecap="round" fill="none" opacity="0.55"/>
+    <path d="M 60,-50 C 80,-60, 95,-55, 105,-45" stroke="#114B22" stroke-width="3" stroke-linecap="round" fill="none" opacity="0.35"/>
+  </g>
+  <g>
+    <path d="M 250,560 C 230,360, 360,210, 540,200 C 720,190, 830,330, 830,520 C 830,720, 690,860, 510,860 C 320,860, 270,760, 250,560 Z" fill="url(#mangoGrad)"/>
+    <g clip-path="url(#mangoClip)">
+      <rect x="250" y="200" width="600" height="700" fill="url(#blush)"/>
+      <ellipse cx="420" cy="320" rx="120" ry="60" fill="url(#gloss)" opacity="0.75" transform="rotate(-28 420 320)"/>
+      <ellipse cx="360" cy="430" rx="22" ry="10" fill="#FFFFFF" opacity="0.55" transform="rotate(-30 360 430)"/>
+    </g>
+    <path d="M 250,560 C 230,360, 360,210, 540,200 C 720,190, 830,330, 830,520 C 830,720, 690,860, 510,860 C 320,860, 270,760, 250,560 Z" fill="none" stroke="#B84A05" stroke-width="6" opacity="0.18"/>
+  </g>
+</svg>
