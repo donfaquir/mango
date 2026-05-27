@@ -3,6 +3,7 @@ use crate::state::AppState;
 use mango_core::models::generation_task::{
     CreateGenerationTaskInput, GenerationTask, GenerationTaskStatus,
 };
+use mango_core::models::generation_task_event::GenerationTaskEvent;
 use mango_core::task_engine::ListFilter;
 use tauri::State;
 
@@ -60,6 +61,19 @@ pub async fn list_tasks(
             status,
             limit,
         })
+        .await
+        .map_err(IpcError::from)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn list_task_events(
+    state: State<'_, AppState>,
+    task_id: String,
+) -> Result<Vec<GenerationTaskEvent>, IpcError> {
+    state
+        .task_engine
+        .list_events(&task_id)
         .await
         .map_err(IpcError::from)
 }

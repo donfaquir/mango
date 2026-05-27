@@ -7,6 +7,12 @@ vi.mock("@/lib/bindings/commands", () => ({
     taskStatusChanged: {
       listen: vi.fn(() => Promise.resolve(() => {})),
     },
+    taskEventLogged: {
+      listen: vi.fn(() => Promise.resolve(() => {})),
+    },
+    taskProgressTick: {
+      listen: vi.fn(() => Promise.resolve(() => {})),
+    },
   },
 }));
 

@@ -5,6 +5,7 @@ import {
   events,
   type CreateGenerationTaskInput,
   type GenerationTask,
+  type GenerationTaskEvent,
   type GenerationTaskStatus,
 } from "@/lib/bindings/commands";
 import { unwrap } from "@/lib/ipc";
@@ -15,6 +16,10 @@ export const taskKeys = {
   list: (projectId?: string, status?: GenerationTaskStatus) =>
     ["tasks", "list", projectId ?? null, status ?? null] as const,
   detail: (id: string) => ["task", id] as const,
+};
+
+export const taskEventKeys = {
+  byTask: (taskId: string) => ["task", taskId, "events"] as const,
 };
 
 export function useTaskList(
@@ -105,6 +110,43 @@ export function useTaskStatusListener() {
     });
     return () => {
       void unlisten.then((fn) => fn());
+    };
+  }, [qc]);
+}
+
+export function useTaskEvents(taskId: string | undefined) {
+  return useQuery<GenerationTaskEvent[]>({
+    queryKey: taskId ? taskEventKeys.byTask(taskId) : ["task-events", "none"],
+    queryFn: () => unwrap(commands.listTaskEvents(taskId as string)),
+    enabled: !!taskId,
+  });
+}
+
+/**
+ * Mounts a single global listener for `task-event-logged` and
+ * `task-progress-tick` events. On `EventLogged` we patch the cached event
+ * timeline directly (avoids a roundtrip refetch). On `ProgressTick` we just
+ * invalidate the task detail so the card re-renders with the latest hint —
+ * progress is not stored, so there's nothing to patch.
+ */
+export function useTaskEventListener() {
+  const qc = useQueryClient();
+  useEffect(() => {
+    const unlistenLogged = events.taskEventLogged.listen((e) => {
+      const { task_id, event } = e.payload;
+      qc.setQueryData<GenerationTaskEvent[]>(
+        taskEventKeys.byTask(task_id),
+        (prev) => (prev ? [...prev, event] : [event]),
+      );
+    });
+    const unlistenProgress = events.taskProgressTick.listen((e) => {
+      qc.invalidateQueries({
+        queryKey: taskKeys.detail(e.payload.task_id),
+      });
+    });
+    return () => {
+      void unlistenLogged.then((fn) => fn());
+      void unlistenProgress.then((fn) => fn());
     };
   }, [qc]);
 }

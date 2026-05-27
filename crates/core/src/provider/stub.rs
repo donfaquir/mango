@@ -9,7 +9,9 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 
-use super::traits::{GenerationParams, ModelProvider, ProviderTaskStatus};
+use super::traits::{
+    GenerationParams, ModelProvider, PollOutcome, ProviderTaskStatus, SubmitOutcome,
+};
 use crate::error::Result;
 
 /// Polls 3 times: Running(30%) → Running(60%) → Success.
@@ -20,21 +22,22 @@ pub struct StubProvider {
 
 #[async_trait]
 impl ModelProvider for StubProvider {
-    async fn submit(&self, _params: GenerationParams) -> Result<String> {
-        Ok(format!("stub-{}", uuid::Uuid::new_v4()))
+    async fn submit(&self, _params: GenerationParams) -> Result<SubmitOutcome> {
+        Ok(SubmitOutcome::new(format!("stub-{}", uuid::Uuid::new_v4())))
     }
 
-    async fn poll(&self, _external_task_id: &str) -> Result<ProviderTaskStatus> {
+    async fn poll(&self, _external_task_id: &str) -> Result<PollOutcome> {
         let n = self.polls.fetch_add(1, Ordering::SeqCst);
-        if n < 2 {
-            Ok(ProviderTaskStatus::Running {
+        let status = if n < 2 {
+            ProviderTaskStatus::Running {
                 progress: Some((n + 1) * 30),
-            })
+            }
         } else {
-            Ok(ProviderTaskStatus::Success {
+            ProviderTaskStatus::Success {
                 result_url: "stub://ok".into(),
-            })
-        }
+            }
+        };
+        Ok(PollOutcome::bare(status))
     }
 
     async fn cancel(&self, _external_task_id: &str) -> Result<()> {
@@ -71,15 +74,15 @@ mod tests {
         let p = StubProvider::default();
         let _ = p.submit(fake_params()).await.unwrap();
 
-        match p.poll("x").await.unwrap() {
+        match p.poll("x").await.unwrap().status {
             ProviderTaskStatus::Running { progress } => assert_eq!(progress, Some(30)),
             other => panic!("expected Running(30), got {other:?}"),
         }
-        match p.poll("x").await.unwrap() {
+        match p.poll("x").await.unwrap().status {
             ProviderTaskStatus::Running { progress } => assert_eq!(progress, Some(60)),
             other => panic!("expected Running(60), got {other:?}"),
         }
-        match p.poll("x").await.unwrap() {
+        match p.poll("x").await.unwrap().status {
             ProviderTaskStatus::Success { result_url } => assert_eq!(result_url, "stub://ok"),
             other => panic!("expected Success, got {other:?}"),
         }

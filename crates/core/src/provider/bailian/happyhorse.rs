@@ -41,18 +41,20 @@ pub(super) async fn submit(
     }
 
     // 2) Upload all reference images in parallel.
+    let upload_started = std::time::Instant::now();
     let upload_futures = media_entries.iter().map(|m| {
         let path = std::path::PathBuf::from(&m.local_path);
         let up = uploader.clone();
         async move { up.upload(&path).await }
     });
     let uploads: Vec<UploadedAsset> = futures::future::try_join_all(upload_futures).await?;
+    let upload_duration_ms = upload_started.elapsed().as_millis() as u64;
 
     // 3) Build DashScope request body.
     let body = build_happyhorse_body(params, &uploads)?;
 
     // 4) POST with async header.
-    let task_resp: AsyncSubmitResponse = match client
+    let (task_resp, meta): (AsyncSubmitResponse, _) = match client
         .post_json_async("/services/aigc/video-generation/video-synthesis", &body)
         .await
     {
@@ -66,31 +68,46 @@ pub(super) async fn submit(
         }
     };
 
-    // 5) Collect remote_ids for later cleanup.
+    // 5) Collect remote_ids and aggregate byte counts for the runner's
+    //    `submit_upload` event.
     let remote_ids: Vec<String> = uploads.iter().map(|u| u.remote_id.clone()).collect();
+    let upload_total_bytes: u64 = uploads.iter().map(|u| u.bytes).sum();
 
     Ok(SubmitResult {
         external_task_id: task_resp.output.task_id,
         uploaded_remote_ids: remote_ids,
+        upload_count: uploads.len(),
+        upload_total_bytes,
+        upload_duration_ms,
+        request_id: meta.request_id,
+        http_status: meta.http_status,
     })
 }
 
-/// Result from happyhorse submit — caller persists `uploaded_remote_ids` to DB.
+/// Result from happyhorse submit — caller persists `uploaded_remote_ids` to DB
+/// and writes `submit_upload`/`submit_call` events using the timing + meta.
 pub(super) struct SubmitResult {
     pub external_task_id: String,
     pub uploaded_remote_ids: Vec<String>,
+    pub upload_count: usize,
+    pub upload_total_bytes: u64,
+    pub upload_duration_ms: u64,
+    pub request_id: Option<String>,
+    pub http_status: u16,
 }
 
-/// Poll DashScope for task status.
+/// Poll DashScope for task status. The returned tuple's second element carries
+/// the upstream `request_id`/`http_status` so the runner can attribute warn
+/// events (e.g. transient 429 during poll) to the correct upstream call.
 pub(super) async fn poll(
     client: &BailianClient<'_>,
     external_task_id: &str,
-) -> Result<ProviderTaskStatus> {
-    let resp: AsyncPollResponse = client
+) -> Result<(ProviderTaskStatus, super::client::ResponseMeta)> {
+    let (resp, meta): (AsyncPollResponse, _) = client
         .get_json(&format!("/tasks/{external_task_id}"))
         .await?;
 
-    Ok(match resp.output.task_status.as_str() {
+    let status = match resp.output.task_status.as_str() {
         "PENDING" | "QUEUED" => ProviderTaskStatus::Pending,
         "RUNNING" => ProviderTaskStatus::Running { progress: None },
         "SUCCEEDED" => ProviderTaskStatus::Success {
@@ -105,7 +122,8 @@ pub(super) async fn poll(
         other => ProviderTaskStatus::Failed {
             message: format!("unknown DashScope task_status '{other}'"),
         },
-    })
+    };
+    Ok((status, meta))
 }
 
 /// Best-effort cancel via DashScope DELETE.

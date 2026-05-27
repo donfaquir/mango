@@ -10,12 +10,15 @@ use std::time::Duration;
 use async_trait::async_trait;
 use mango_core::account::keyring::KeyringStore;
 use mango_core::db::open_async;
+use mango_core::db::queries::generation_task_event as event_queries;
 use mango_core::error::{CoreError, Result};
 use mango_core::models::generation_task::{
     CreateGenerationTaskInput, GenerationTaskStatus, TaskKind,
 };
+use mango_core::models::generation_task_event::{EventPhase, EventSeverity};
 use mango_core::provider::{
-    GenerationParams, ModelProvider, ProviderRegistry, ProviderTaskStatus,
+    GenerationParams, ModelProvider, PollOutcome, ProviderRegistry, ProviderTaskStatus,
+    SubmitOutcome,
 };
 use mango_core::task_engine::{NoopMaterializer, TaskEngineHandle, TaskEvent};
 use tempfile::tempdir;
@@ -57,20 +60,21 @@ struct TestStubProvider {
 
 #[async_trait]
 impl ModelProvider for TestStubProvider {
-    async fn submit(&self, _params: GenerationParams) -> Result<String> {
-        Ok("ext-test-1".into())
+    async fn submit(&self, _params: GenerationParams) -> Result<SubmitOutcome> {
+        Ok(SubmitOutcome::new("ext-test-1"))
     }
-    async fn poll(&self, _ext: &str) -> Result<ProviderTaskStatus> {
+    async fn poll(&self, _ext: &str) -> Result<PollOutcome> {
         let n = self.polls.fetch_add(1, Ordering::SeqCst);
-        if n < 2 {
-            Ok(ProviderTaskStatus::Running {
+        let status = if n < 2 {
+            ProviderTaskStatus::Running {
                 progress: Some((n + 1) * 30),
-            })
+            }
         } else {
-            Ok(ProviderTaskStatus::Success {
+            ProviderTaskStatus::Success {
                 result_url: "stub://done".into(),
-            })
-        }
+            }
+        };
+        Ok(PollOutcome::bare(status))
     }
     async fn cancel(&self, _ext: &str) -> Result<()> {
         Ok(())
@@ -131,8 +135,10 @@ async fn submit_drives_to_success_and_persists() {
 
     timeout(Duration::from_secs(5), async {
         while let Some(ev) = rx.recv().await {
-            let TaskEvent::StatusChanged { status, task_id: tid, .. } = ev;
-            if tid == task_id && status == GenerationTaskStatus::Success {
+            if let TaskEvent::StatusChanged { status, task_id: tid, .. } = ev
+                && tid == task_id
+                && status == GenerationTaskStatus::Success
+            {
                 return;
             }
         }
@@ -145,4 +151,36 @@ async fn submit_drives_to_success_and_persists() {
     assert_eq!(final_task.status, GenerationTaskStatus::Success);
     assert_eq!(final_task.external_task_id.as_deref(), Some("ext-test-1"));
     assert!(final_task.finished_at.is_some());
+
+    // The diagnostic timeline must include at minimum:
+    //   - submit_call info (after the provider accepted the job)
+    //   - poll info "云端开始生成" (first transition into Running)
+    //   - poll info "生成完成" (terminal Success)
+    let task_id_for_events = task_id.clone();
+    let events = db
+        .call(move |conn| {
+            Ok::<_, rusqlite::Error>(event_queries::list_by_task(conn, &task_id_for_events))
+        })
+        .await
+        .unwrap()
+        .unwrap();
+    let phases: Vec<(EventPhase, EventSeverity)> =
+        events.iter().map(|e| (e.phase, e.severity)).collect();
+    assert!(
+        phases.contains(&(EventPhase::SubmitCall, EventSeverity::Info)),
+        "missing submit_call info; got {phases:?}"
+    );
+    let info_polls = events
+        .iter()
+        .filter(|e| e.phase == EventPhase::Poll && e.severity == EventSeverity::Info)
+        .count();
+    assert!(
+        info_polls >= 2,
+        "expected at least 2 poll info events (running + complete); got {info_polls}"
+    );
+    // No `error` rows on the happy path.
+    assert!(
+        !events.iter().any(|e| e.severity == EventSeverity::Error),
+        "happy path should not record any error events; got {events:?}"
+    );
 }

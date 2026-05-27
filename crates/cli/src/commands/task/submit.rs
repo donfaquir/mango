@@ -6,17 +6,20 @@ use std::time::{Duration, Instant};
 
 use anyhow::{bail, Context};
 use clap::Args;
+use tokio::sync::mpsc::UnboundedReceiver;
 use tokio_rusqlite::Connection as AsyncConnection;
 
 use mango_core::account::keyring::{KeyringStore, SystemKeyring};
 use mango_core::db::queries::api_account as account_queries;
+use mango_core::db::queries::generation_task_event as event_queries;
 use mango_core::models::generation_task::{
     CreateGenerationTaskInput, GenerationTask, GenerationTaskStatus, TaskKind,
 };
+use mango_core::models::generation_task_event::GenerationTaskEvent;
 use mango_core::provider::bailian::materializer::BailianResultMaterializer;
 use mango_core::provider::bailian::BailianProvider;
 use mango_core::provider::ProviderRegistry;
-use mango_core::task_engine::TaskEngineHandle;
+use mango_core::task_engine::{TaskEngineHandle, TaskEvent};
 
 use super::output;
 
@@ -107,7 +110,7 @@ pub async fn run(
     keyring::use_native_store(false)
         .map_err(|e| anyhow::anyhow!("failed to register native keyring store: {e}"))?;
 
-    let engine = setup_engine(conn.clone()).await?;
+    let (engine, events_rx) = setup_engine(conn.clone()).await?;
 
     // 5. Submit via engine (creates task row + spawns runner)
     let input = CreateGenerationTaskInput {
@@ -140,9 +143,32 @@ pub async fn run(
             );
         }
 
-        let code = wait_for_terminal(&engine, &task.id, args.json).await?;
+        // Spawn a printer that consumes the engine's event channel and prints
+        // events scoped to this task. Outside of `--wait`, the receiver is
+        // dropped immediately (engine still functions; events have nowhere
+        // to go).
+        let printer_handle = if !args.json {
+            let watched = task.id.clone();
+            Some(tokio::spawn(forward_events_to_stderr(events_rx, watched)))
+        } else {
+            // In --json mode, don't spawn a stderr printer; the channel
+            // will be dropped when this scope ends. We still keep the
+            // receiver alive in a parking task so the unbounded channel
+            // doesn't accumulate forever.
+            drop(events_rx);
+            None
+        };
+
+        let code = wait_for_terminal(conn, &engine, &task.id, args.json).await?;
+        if let Some(h) = printer_handle {
+            h.abort();
+            let _ = h.await;
+        }
         Ok(code)
     } else {
+        // Drop the receiver — without --wait the CLI exits before any events
+        // could meaningfully arrive anyway.
+        drop(events_rx);
         // Print submission summary and hint about --wait
         if args.json {
             output::print_task_json(&task);
@@ -153,6 +179,31 @@ pub async fn run(
             eprintln!("or ensure the GUI is running to process it.");
         }
         Ok(0)
+    }
+}
+
+/// Drain the engine's event mpsc channel and print events for `watched_task_id`
+/// to stderr. Status changes render as `↻ status` lines; diagnostic events
+/// render as `format_event_line`. Aborted by the caller once the task reaches
+/// a terminal state.
+async fn forward_events_to_stderr(
+    mut rx: UnboundedReceiver<TaskEvent>,
+    watched_task_id: String,
+) {
+    while let Some(ev) = rx.recv().await {
+        match ev {
+            TaskEvent::EventLogged { task_id, event } if task_id == watched_task_id => {
+                eprintln!("{}", output::format_event_line(&event));
+            }
+            TaskEvent::StatusChanged { task_id, status, .. } if task_id == watched_task_id => {
+                eprintln!(
+                    "{} {}",
+                    output::status_symbol(status),
+                    output::status_display(status)
+                );
+            }
+            _ => {}
+        }
     }
 }
 
@@ -228,7 +279,9 @@ fn build_params(args: &SubmitArgs, prompt: &str) -> anyhow::Result<(TaskKind, St
     }
 }
 
-async fn setup_engine(db: AsyncConnection) -> anyhow::Result<TaskEngineHandle> {
+async fn setup_engine(
+    db: AsyncConnection,
+) -> anyhow::Result<(TaskEngineHandle, UnboundedReceiver<TaskEvent>)> {
     let keyring: Arc<dyn KeyringStore> = Arc::new(SystemKeyring);
     let providers = ProviderRegistry::builder()
         .register("bailian", Arc::new(BailianProvider::new()))
@@ -236,20 +289,21 @@ async fn setup_engine(db: AsyncConnection) -> anyhow::Result<TaskEngineHandle> {
     let materializer: Arc<dyn mango_core::task_engine::ResultMaterializer> =
         Arc::new(BailianResultMaterializer::new(db.clone(), keyring.clone()));
 
-    let (engine, _events_rx) =
+    let (engine, events_rx) =
         TaskEngineHandle::spawn(db, providers, keyring, materializer, 4);
 
-    Ok(engine)
+    Ok((engine, events_rx))
 }
 
 async fn wait_for_terminal(
+    conn: &AsyncConnection,
     engine: &TaskEngineHandle,
     task_id: &str,
     json: bool,
 ) -> anyhow::Result<i32> {
     let started = Instant::now();
-    let mut last_status: Option<GenerationTaskStatus> = None;
-
+    // The forwarder coroutine prints status transitions in real time, so we
+    // only need to poll for the row's terminal status here.
     loop {
         tokio::time::sleep(Duration::from_secs(3)).await;
 
@@ -258,29 +312,37 @@ async fn wait_for_terminal(
             .await
             .map_err(|e| anyhow::anyhow!("failed to get task status: {e}"))?;
 
-        if last_status != Some(task.status) {
-            if !json {
-                eprintln!(
-                    "{} {}",
-                    output::status_symbol(task.status),
-                    output::status_display(task.status)
-                );
-            }
-            last_status = Some(task.status);
-        }
-
         if task.status.is_terminal() {
-            return finish_wait(&task, started.elapsed(), json);
+            let events = if json {
+                load_events(conn, task_id).await.unwrap_or_default()
+            } else {
+                Vec::new()
+            };
+            return finish_wait(&task, &events, started.elapsed(), json);
         }
     }
 }
 
+async fn load_events(
+    conn: &AsyncConnection,
+    task_id: &str,
+) -> anyhow::Result<Vec<GenerationTaskEvent>> {
+    let id = task_id.to_string();
+    conn.call(move |c| Ok(event_queries::list_by_task(c, &id)))
+        .await
+        .map_err(|e: tokio_rusqlite::Error<rusqlite::Error>| anyhow::anyhow!("db error: {e}"))?
+        .map_err(|e| anyhow::anyhow!("{e}"))
+}
+
 fn finish_wait(
     task: &GenerationTask,
+    events: &[GenerationTaskEvent],
     elapsed: Duration,
     json: bool,
 ) -> anyhow::Result<i32> {
     if json {
+        let events_value =
+            serde_json::to_value(events).unwrap_or(serde_json::Value::Array(vec![]));
         let out = serde_json::json!({
             "task_id": task.id,
             "status": output::status_display(task.status),
@@ -288,6 +350,7 @@ fn finish_wait(
             "result_asset_id": task.result_asset_id,
             "model_id": task.model_id,
             "task_type": output::kind_display(task.task_type),
+            "events": events_value,
         });
         println!("{}", serde_json::to_string(&out)?);
     } else {

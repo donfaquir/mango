@@ -5,23 +5,47 @@ import * as __TAURI_EVENT from "@tauri-apps/api/event";
 
 /** Commands */
 export const commands = {
-	createApiAccount: (input: CreateApiAccountInput_Deserialize) => typedError<ApiAccount_Serialize, IpcError>(__TAURI_INVOKE("create_api_account", { input })),
-	deleteApiAccount: (id: string) => typedError<null, IpcError>(__TAURI_INVOKE("delete_api_account", { id })),
-	getApiAccount: (id: string) => typedError<ApiAccount_Serialize, IpcError>(__TAURI_INVOKE("get_api_account", { id })),
-	listApiAccounts: (providerId: string | null) => typedError<ApiAccount_Serialize[], IpcError>(__TAURI_INVOKE("list_api_accounts", { providerId })),
-	updateApiAccount: (id: string, input: UpdateApiAccountInput_Deserialize) => typedError<ApiAccount_Serialize, IpcError>(__TAURI_INVOKE("update_api_account", { id, input })),
+	createApiAccount: (input: CreateApiAccountInput_Deserialize) => typedError<ApiAccount_Serialize, IpcError_Serialize>(__TAURI_INVOKE("create_api_account", { input })),
+	deleteApiAccount: (id: string) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("delete_api_account", { id })),
+	getApiAccount: (id: string) => typedError<ApiAccount_Serialize, IpcError_Serialize>(__TAURI_INVOKE("get_api_account", { id })),
+	listApiAccounts: (providerId: string | null) => typedError<ApiAccount_Serialize[], IpcError_Serialize>(__TAURI_INVOKE("list_api_accounts", { providerId })),
+	updateApiAccount: (id: string, input: UpdateApiAccountInput_Deserialize) => typedError<ApiAccount_Serialize, IpcError_Serialize>(__TAURI_INVOKE("update_api_account", { id, input })),
 	/**
 	 *  Confirms that the keyring still holds a non-empty credential for this
 	 *  account. NOT a network test — that arrives in MS2 under a different name
 	 *  (`test_connection`) so the UI can offer both without collision.
 	 */
-	verifyApiAccountStorage: (id: string) => typedError<null, IpcError>(__TAURI_INVOKE("verify_api_account_storage", { id })),
+	verifyApiAccountStorage: (id: string) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("verify_api_account_storage", { id })),
 	/**
 	 *  Delete an asset row. Files on disk are intentionally not removed; a future
 	 *  GC sweep (V2) reconciles orphaned files. See spec-12 §"错误场景".
 	 */
-	deleteAsset: (id: string) => typedError<null, IpcError>(__TAURI_INVOKE("delete_asset", { id })),
-	getAsset: (id: string) => typedError<Asset, IpcError>(__TAURI_INVOKE("get_asset", { id })),
+	deleteAsset: (id: string) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("delete_asset", { id })),
+	/**
+	 *  Translate a project-root-relative `file_path` (as stored on rows like
+	 *  `character.reference_image_path`) back to the canonical asset row. Returns
+	 *  `Ok(None)` when no asset matches — callers decide how to surface that to
+	 *  the user (e.g. "selected reference image is not in the asset library").
+	 */
+	findAssetByPath: (projectId: string, filePath: string) => typedError<{
+	id: string,
+	project_id: string,
+	shot_id: string | null,
+	asset_type: AssetType,
+	original_name: string,
+	/**
+	 *  Stored relative to the project root (e.g. `assets/{id}.png`), always
+	 *  `/`-separated for cross-platform stability.
+	 */
+	file_path: string,
+	thumbnail_path: string | null,
+	file_size: number,
+	content_hash: string | null,
+	metadata_json: string | null,
+	created_at: string,
+	updated_at: string,
+} | null, IpcError_Serialize>(__TAURI_INVOKE("find_asset_by_path", { projectId, filePath })),
+	getAsset: (id: string) => typedError<Asset, IpcError_Serialize>(__TAURI_INVOKE("get_asset", { id })),
 	/**
 	 *  Import an external image into the project.
 	 * 
@@ -30,79 +54,82 @@ export const commands = {
 	 *  and 3 are short DB-bound calls; stage 2 is `spawn_blocking` filesystem
 	 *  work. See spec-12 §"导入流水线（三段式）" for the design rationale.
 	 */
-	importAsset: (input: ImportAssetInput) => typedError<Asset, IpcError>(__TAURI_INVOKE("import_asset", { input })),
-	listAssets: (opts: ListAssetsOptions) => typedError<Asset[], IpcError>(__TAURI_INVOKE("list_assets", { opts })),
+	importAsset: (input: ImportAssetInput) => typedError<Asset, IpcError_Serialize>(__TAURI_INVOKE("import_asset", { input })),
+	listAssets: (opts: ListAssetsOptions) => typedError<Asset[], IpcError_Serialize>(__TAURI_INVOKE("list_assets", { opts })),
 	/**
 	 *  Allow the asset protocol to read files under `project_root`. The webview
 	 *  needs this before `convertFileSrc(<absolute path>)` URLs can resolve.
 	 *  Safe to call repeatedly; `allow_directory` is idempotent.
 	 */
-	registerProjectAssetScope: (projectId: string) => typedError<null, IpcError>(__TAURI_INVOKE("register_project_asset_scope", { projectId })),
-	createCharacter: (input: CreateCharacterInput) => typedError<Character, IpcError>(__TAURI_INVOKE("create_character", { input })),
+	registerProjectAssetScope: (projectId: string) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("register_project_asset_scope", { projectId })),
+	createCharacter: (input: CreateCharacterInput) => typedError<Character, IpcError_Serialize>(__TAURI_INVOKE("create_character", { input })),
 	/**
 	 *  Delete a character. Schema `ON DELETE CASCADE` removes its costumes;
 	 *  callers display the affected count by querying costumes first.
 	 */
-	deleteCharacter: (id: string) => typedError<null, IpcError>(__TAURI_INVOKE("delete_character", { id })),
-	getCharacter: (id: string) => typedError<Character, IpcError>(__TAURI_INVOKE("get_character", { id })),
-	listCharacters: (opts: ListCharactersOptions) => typedError<Character[], IpcError>(__TAURI_INVOKE("list_characters", { opts })),
-	updateCharacter: (id: string, input: UpdateCharacterInput_Deserialize) => typedError<Character, IpcError>(__TAURI_INVOKE("update_character", { id, input })),
-	createCostume: (input: CreateCostumeInput) => typedError<Costume, IpcError>(__TAURI_INVOKE("create_costume", { input })),
-	deleteCostume: (id: string) => typedError<null, IpcError>(__TAURI_INVOKE("delete_costume", { id })),
-	getCostume: (id: string) => typedError<Costume, IpcError>(__TAURI_INVOKE("get_costume", { id })),
-	listCostumes: (opts: ListCostumesOptions) => typedError<Costume[], IpcError>(__TAURI_INVOKE("list_costumes", { opts })),
-	updateCostume: (id: string, input: UpdateCostumeInput_Deserialize) => typedError<Costume, IpcError>(__TAURI_INVOKE("update_costume", { id, input })),
+	deleteCharacter: (id: string) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("delete_character", { id })),
+	getCharacter: (id: string) => typedError<Character, IpcError_Serialize>(__TAURI_INVOKE("get_character", { id })),
+	listCharacters: (opts: ListCharactersOptions) => typedError<Character[], IpcError_Serialize>(__TAURI_INVOKE("list_characters", { opts })),
+	updateCharacter: (id: string, input: UpdateCharacterInput_Deserialize) => typedError<Character, IpcError_Serialize>(__TAURI_INVOKE("update_character", { id, input })),
+	createCostume: (input: CreateCostumeInput) => typedError<Costume, IpcError_Serialize>(__TAURI_INVOKE("create_costume", { input })),
+	deleteCostume: (id: string) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("delete_costume", { id })),
+	getCostume: (id: string) => typedError<Costume, IpcError_Serialize>(__TAURI_INVOKE("get_costume", { id })),
+	listCostumes: (opts: ListCostumesOptions) => typedError<Costume[], IpcError_Serialize>(__TAURI_INVOKE("list_costumes", { opts })),
+	updateCostume: (id: string, input: UpdateCostumeInput_Deserialize) => typedError<Costume, IpcError_Serialize>(__TAURI_INVOKE("update_costume", { id, input })),
 	/**
 	 *  Open a native file picker filtered to common image extensions. Returns
 	 *  `None` if the user cancelled. Mirrors `pick_project_directory` so the
 	 *  frontend keeps a single picker pattern across the app.
 	 */
-	pickImageFile: () => typedError<string | null, IpcError>(__TAURI_INVOKE("pick_image_file")),
+	pickImageFile: () => typedError<string | null, IpcError_Serialize>(__TAURI_INVOKE("pick_image_file")),
 	/**
 	 *  Open a native directory picker. Returns `None` if the user cancelled.
 	 * 
 	 *  Implemented with the non-blocking callback variant + a oneshot channel so
 	 *  the tokio executor thread is not parked while the user is choosing.
 	 */
-	pickProjectDirectory: () => typedError<string | null, IpcError>(__TAURI_INVOKE("pick_project_directory")),
+	pickProjectDirectory: () => typedError<string | null, IpcError_Serialize>(__TAURI_INVOKE("pick_project_directory")),
 	/**
 	 *  Suggest a default project root for a given (display) name. The returned
 	 *  path is `<app_data>/projects/<slug>` where slug is name-derived for human
 	 *  readability; the actual persisted root is whatever the user submits.
 	 */
-	suggestProjectRoot: (projectName: string) => typedError<string, IpcError>(__TAURI_INVOKE("suggest_project_root", { projectName })),
-	createProject: (input: CreateProjectInput) => typedError<Project, IpcError>(__TAURI_INVOKE("create_project", { input })),
+	suggestProjectRoot: (projectName: string) => typedError<string, IpcError_Serialize>(__TAURI_INVOKE("suggest_project_root", { projectName })),
+	createProject: (input: CreateProjectInput) => typedError<Project, IpcError_Serialize>(__TAURI_INVOKE("create_project", { input })),
 	/**
 	 *  Delete project metadata only. The on-disk root_path directory and its
 	 *  contents are intentionally preserved; V2 will add an explicit purge flag.
 	 */
-	deleteProject: (id: string) => typedError<null, IpcError>(__TAURI_INVOKE("delete_project", { id })),
-	getProject: (id: string) => typedError<Project, IpcError>(__TAURI_INVOKE("get_project", { id })),
+	deleteProject: (id: string) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("delete_project", { id })),
+	getProject: (id: string) => typedError<Project, IpcError_Serialize>(__TAURI_INVOKE("get_project", { id })),
 	listProjects: (opts: {
 	limit?: number | null,
 	offset?: number | null,
-} | null) => typedError<Project[], IpcError>(__TAURI_INVOKE("list_projects", { opts })),
-	updateProject: (id: string, input: UpdateProjectInput_Deserialize) => typedError<Project, IpcError>(__TAURI_INVOKE("update_project", { id, input })),
-	createProp: (input: CreatePropInput) => typedError<Prop, IpcError>(__TAURI_INVOKE("create_prop", { input })),
-	deleteProp: (id: string) => typedError<null, IpcError>(__TAURI_INVOKE("delete_prop", { id })),
-	getProp: (id: string) => typedError<Prop, IpcError>(__TAURI_INVOKE("get_prop", { id })),
-	listProps: (opts: ListPropsOptions) => typedError<Prop[], IpcError>(__TAURI_INVOKE("list_props", { opts })),
-	updateProp: (id: string, input: UpdatePropInput_Deserialize) => typedError<Prop, IpcError>(__TAURI_INVOKE("update_prop", { id, input })),
-	listModels: (providerId: string | null) => typedError<Model[], IpcError>(__TAURI_INVOKE("list_models", { providerId })),
-	listProviders: () => typedError<Provider[], IpcError>(__TAURI_INVOKE("list_providers")),
-	createScene: (input: CreateSceneInput) => typedError<Scene, IpcError>(__TAURI_INVOKE("create_scene", { input })),
-	deleteScene: (id: string) => typedError<null, IpcError>(__TAURI_INVOKE("delete_scene", { id })),
-	getScene: (id: string) => typedError<Scene, IpcError>(__TAURI_INVOKE("get_scene", { id })),
-	listScenes: (opts: ListScenesOptions) => typedError<Scene[], IpcError>(__TAURI_INVOKE("list_scenes", { opts })),
-	updateScene: (id: string, input: UpdateSceneInput_Deserialize) => typedError<Scene, IpcError>(__TAURI_INVOKE("update_scene", { id, input })),
-	cancelTask: (taskId: string) => typedError<null, IpcError>(__TAURI_INVOKE("cancel_task", { taskId })),
-	getTask: (taskId: string) => typedError<GenerationTask, IpcError>(__TAURI_INVOKE("get_task", { taskId })),
-	listTasks: (projectId: string | null, status: "pending" | "running" | "success" | "failed" | "cancelled" | null, limit: number | null) => typedError<GenerationTask[], IpcError>(__TAURI_INVOKE("list_tasks", { projectId, status, limit })),
-	submitTask: (input: CreateGenerationTaskInput) => typedError<string, IpcError>(__TAURI_INVOKE("submit_task", { input })),
+} | null) => typedError<Project[], IpcError_Serialize>(__TAURI_INVOKE("list_projects", { opts })),
+	updateProject: (id: string, input: UpdateProjectInput_Deserialize) => typedError<Project, IpcError_Serialize>(__TAURI_INVOKE("update_project", { id, input })),
+	createProp: (input: CreatePropInput) => typedError<Prop, IpcError_Serialize>(__TAURI_INVOKE("create_prop", { input })),
+	deleteProp: (id: string) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("delete_prop", { id })),
+	getProp: (id: string) => typedError<Prop, IpcError_Serialize>(__TAURI_INVOKE("get_prop", { id })),
+	listProps: (opts: ListPropsOptions) => typedError<Prop[], IpcError_Serialize>(__TAURI_INVOKE("list_props", { opts })),
+	updateProp: (id: string, input: UpdatePropInput_Deserialize) => typedError<Prop, IpcError_Serialize>(__TAURI_INVOKE("update_prop", { id, input })),
+	listModels: (providerId: string | null) => typedError<Model[], IpcError_Serialize>(__TAURI_INVOKE("list_models", { providerId })),
+	listProviders: () => typedError<Provider[], IpcError_Serialize>(__TAURI_INVOKE("list_providers")),
+	createScene: (input: CreateSceneInput) => typedError<Scene, IpcError_Serialize>(__TAURI_INVOKE("create_scene", { input })),
+	deleteScene: (id: string) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("delete_scene", { id })),
+	getScene: (id: string) => typedError<Scene, IpcError_Serialize>(__TAURI_INVOKE("get_scene", { id })),
+	listScenes: (opts: ListScenesOptions) => typedError<Scene[], IpcError_Serialize>(__TAURI_INVOKE("list_scenes", { opts })),
+	updateScene: (id: string, input: UpdateSceneInput_Deserialize) => typedError<Scene, IpcError_Serialize>(__TAURI_INVOKE("update_scene", { id, input })),
+	cancelTask: (taskId: string) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("cancel_task", { taskId })),
+	getTask: (taskId: string) => typedError<GenerationTask, IpcError_Serialize>(__TAURI_INVOKE("get_task", { taskId })),
+	listTaskEvents: (taskId: string) => typedError<GenerationTaskEvent[], IpcError_Serialize>(__TAURI_INVOKE("list_task_events", { taskId })),
+	listTasks: (projectId: string | null, status: "pending" | "running" | "success" | "failed" | "cancelled" | null, limit: number | null) => typedError<GenerationTask[], IpcError_Serialize>(__TAURI_INVOKE("list_tasks", { projectId, status, limit })),
+	submitTask: (input: CreateGenerationTaskInput) => typedError<string, IpcError_Serialize>(__TAURI_INVOKE("submit_task", { input })),
 };
 
 /** Events */
 export const events = {
+	taskEventLogged: makeEvent<TaskEventLogged>("task-event-logged"),
+	taskProgressTick: makeEvent<TaskProgressTick>("task-progress-tick"),
 	taskStatusChanged: makeEvent<TaskStatusChanged>("task-status-changed"),
 };
 
@@ -296,6 +323,10 @@ export type CreateSceneInput = {
 	reference_image_path?: string | null,
 };
 
+export type EventPhase = "submit_upload" | "submit_call" | "poll" | "download" | "persist" | "cleanup";
+
+export type EventSeverity = "info" | "warn" | "error";
+
 export type GenerationTask = {
 	id: string,
 	project_id: string | null,
@@ -315,6 +346,18 @@ export type GenerationTask = {
 	created_at: string,
 };
 
+export type GenerationTaskEvent = {
+	id: number,
+	task_id: string,
+	occurred_at: string,
+	phase: EventPhase,
+	severity: EventSeverity,
+	request_id: string | null,
+	http_status: number | null,
+	details_json: string,
+	message: string,
+};
+
 export type GenerationTaskStatus = "pending" | "running" | "success" | "failed" | "cancelled";
 
 export type ImportAssetInput = {
@@ -331,10 +374,46 @@ export type ImportAssetInput = {
 /**
  *  IPC error payload — must implement `Serialize` to cross the IPC boundary,
  *  and `Type` so tauri-specta emits a matching TypeScript definition.
+ * 
+ *  `request_id` / `http_status` / `kind` are populated when the underlying
+ *  failure originated from a structured `ProviderErrorDetail` (provider call
+ *  or OSS upload), so the diagnostics UI can surface "复制 request_id" /
+ *  HTTP code without a second IPC round-trip.
  */
-export type IpcError = {
+export type IpcError = IpcError_Serialize | IpcError_Deserialize;
+
+/**
+ *  IPC error payload — must implement `Serialize` to cross the IPC boundary,
+ *  and `Type` so tauri-specta emits a matching TypeScript definition.
+ * 
+ *  `request_id` / `http_status` / `kind` are populated when the underlying
+ *  failure originated from a structured `ProviderErrorDetail` (provider call
+ *  or OSS upload), so the diagnostics UI can surface "复制 request_id" /
+ *  HTTP code without a second IPC round-trip.
+ */
+export type IpcError_Deserialize = {
 	message: string,
 	code: string,
+	request_id: string | null,
+	http_status: number | null,
+	kind: ProviderErrorKind | null,
+};
+
+/**
+ *  IPC error payload — must implement `Serialize` to cross the IPC boundary,
+ *  and `Type` so tauri-specta emits a matching TypeScript definition.
+ * 
+ *  `request_id` / `http_status` / `kind` are populated when the underlying
+ *  failure originated from a structured `ProviderErrorDetail` (provider call
+ *  or OSS upload), so the diagnostics UI can surface "复制 request_id" /
+ *  HTTP code without a second IPC round-trip.
+ */
+export type IpcError_Serialize = {
+	message: string,
+	code: string,
+	request_id?: string | null,
+	http_status?: number | null,
+	kind?: ProviderErrorKind | null,
 };
 
 export type ListAssetsOptions = {
@@ -478,6 +557,24 @@ export type Provider = {
 	docs_url: string,
 };
 
+export type ProviderErrorKind = 
+/**  401 / 403 — invalid or expired API key, missing scope. */
+"auth" | 
+/**  429 — over rate limit; retryable with backoff. */
+"rate_limited" | 
+/**  403 with quota/balance signal — non-retryable until topped up. */
+"quota" | 
+/**  4xx — schema or business validation failure. */
+"invalid_request" | 
+/**  Connection refused, DNS, TLS — typically transient. */
+"network" | 
+/**  Client-side timeout. */
+"timeout" | 
+/**  2xx with body that does not deserialize. */
+"malformed" | 
+/**  5xx or anything we did not classify. */
+"unknown";
+
 export type Scene = {
 	id: string,
 	project_id: string,
@@ -489,7 +586,27 @@ export type Scene = {
 	updated_at: string,
 };
 
+/**
+ *  A new diagnostic event has been persisted for `task_id`. Carries the full
+ *  row so the front-end can append to the cached timeline without an extra
+ *  `list_task_events` round-trip.
+ */
+export type TaskEventLogged = {
+	task_id: string,
+	event: GenerationTaskEvent,
+};
+
 export type TaskKind = "text" | "image" | "video" | "audio";
+
+/**
+ *  Numeric progress hint emitted in real time during `Running`. Not persisted —
+ *  purely a UI heartbeat. The front-end should display this only while the
+ *  task is in `Running`; cleared on terminal status.
+ */
+export type TaskProgressTick = {
+	task_id: string,
+	progress: number,
+};
 
 export type TaskStatusChanged = {
 	task_id: string,

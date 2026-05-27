@@ -1,10 +1,14 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { TaskStatusBadge } from "./TaskStatusBadge";
-import { TaskProgress } from "./TaskProgress";
 import { ResultPreviewDialog } from "./ResultPreviewDialog";
-import { useCancelTask, useRetryTask } from "@/hooks/useTasks";
-import type { GenerationTask } from "@/lib/bindings/commands";
+import { TaskDiagnosticsDialog } from "./TaskDiagnosticsDialog";
+import {
+  useCancelTask,
+  useRetryTask,
+  useTaskEvents,
+} from "@/hooks/useTasks";
+import type { GenerationTask, GenerationTaskEvent } from "@/lib/bindings/commands";
 
 interface TaskCardProps {
   task: GenerationTask;
@@ -25,7 +29,6 @@ function formatRelative(dateStr: string): string {
   return date.toLocaleDateString("zh-CN");
 }
 
-// Extract prompt from params_json
 function getPrompt(paramsJson: string): string {
   try {
     const params = JSON.parse(paramsJson);
@@ -35,20 +38,27 @@ function getPrompt(paramsJson: string): string {
   }
 }
 
-// Extract progress from event payload stored in task
-// The task status changed event carries progress, but the DB task row
-// may not have it. We'll check if the external_task_id implies progress.
-function getProgress(task: GenerationTask): number {
-  // For now, running tasks without explicit progress show indeterminate
-  // We could store progress in the task row later; for now return 50 for running
-  if (task.status === "running") return 50;
-  return 0;
+function pickLatestInfoEvent(
+  events: GenerationTaskEvent[] | undefined,
+): GenerationTaskEvent | undefined {
+  if (!events || events.length === 0) return undefined;
+  for (let i = events.length - 1; i >= 0; i--) {
+    if (events[i].severity === "info") return events[i];
+  }
+  return events[events.length - 1];
 }
 
 export function TaskCard({ task, projectId }: TaskCardProps) {
   const cancel = useCancelTask();
   const retry = useRetryTask();
   const [previewOpen, setPreviewOpen] = useState(false);
+  const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
+  // Only fetch the timeline for tasks the user is most likely to inspect:
+  // running (so the card can render the latest step) or failed (the dialog
+  // needs to read it on demand).
+  const eventsEnabled = task.status === "running" || task.status === "failed";
+  const eventsQuery = useTaskEvents(eventsEnabled ? task.id : undefined);
+  const latestStep = pickLatestInfoEvent(eventsQuery.data);
 
   const isTerminal = ["success", "failed", "cancelled"].includes(task.status);
   const prompt = getPrompt(task.params_json);
@@ -56,7 +66,6 @@ export function TaskCard({ task, projectId }: TaskCardProps) {
   return (
     <div className="rounded-lg border bg-card p-3">
       <div className="flex gap-3">
-        {/* Thumbnail placeholder or preview trigger */}
         <div className="h-20 w-20 shrink-0 overflow-hidden rounded-md bg-muted">
           {task.status === "success" && task.result_asset_id ? (
             <button
@@ -87,7 +96,11 @@ export function TaskCard({ task, projectId }: TaskCardProps) {
             {task.model_id} · {task.task_type}
           </p>
           {task.status === "running" && (
-            <TaskProgress value={getProgress(task)} />
+            <p className="text-xs text-blue-700 dark:text-blue-300">
+              {latestStep
+                ? `▸ ${latestStep.message}`
+                : "▸ 准备中…"}
+            </p>
           )}
           {task.status === "failed" && task.error_message && (
             <p className="text-xs text-destructive line-clamp-2">
@@ -95,7 +108,6 @@ export function TaskCard({ task, projectId }: TaskCardProps) {
             </p>
           )}
 
-          {/* Actions */}
           <div className="flex gap-2 pt-1">
             {!isTerminal && (
               <Button
@@ -108,14 +120,23 @@ export function TaskCard({ task, projectId }: TaskCardProps) {
               </Button>
             )}
             {task.status === "failed" && (
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => retry.mutate(task.id)}
-                disabled={retry.isPending}
-              >
-                重试
-              </Button>
+              <>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setDiagnosticsOpen(true)}
+                >
+                  诊断
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => retry.mutate(task.id)}
+                  disabled={retry.isPending}
+                >
+                  重试
+                </Button>
+              </>
             )}
             {task.status === "success" && (
               <Button
@@ -135,6 +156,12 @@ export function TaskCard({ task, projectId }: TaskCardProps) {
           task={task}
           projectId={projectId}
           onClose={() => setPreviewOpen(false)}
+        />
+      )}
+      {diagnosticsOpen && (
+        <TaskDiagnosticsDialog
+          task={task}
+          onClose={() => setDiagnosticsOpen(false)}
         />
       )}
     </div>

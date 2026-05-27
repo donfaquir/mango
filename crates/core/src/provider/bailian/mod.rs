@@ -19,7 +19,11 @@ use tokio::sync::Mutex;
 
 use crate::error::{CoreError, Result};
 use crate::provider::asset_uploader::oss::OssUploader;
-use crate::provider::traits::{GenerationParams, ModelProvider, ProviderCredentials, ProviderTaskStatus};
+use crate::provider::error::{ProviderErrorDetail, ProviderErrorKind};
+use crate::provider::traits::{
+    GenerationParams, ModelProvider, PollOutcome, ProviderCredentials, ProviderTaskStatus,
+    SubmitOutcome, UploadSummary,
+};
 use client::BailianClient;
 use wan27::Wan27Cache;
 
@@ -58,30 +62,49 @@ impl Default for BailianProvider {
 
 #[async_trait]
 impl ModelProvider for BailianProvider {
-    async fn submit(&self, params: GenerationParams) -> Result<String> {
+    async fn submit(&self, params: GenerationParams) -> Result<SubmitOutcome> {
         let client = BailianClient::new(&self.http, &params.credentials)?;
         match params.model_id.as_str() {
-            "wan2.7-image-pro" => wan27::submit(&client, &self.wan_cache, &params).await,
+            "wan2.7-image-pro" => {
+                let result = wan27::submit(&client, &self.wan_cache, &params).await?;
+                Ok(SubmitOutcome {
+                    external_task_id: result.external_task_id,
+                    request_id: result.request_id,
+                    http_status: Some(result.http_status as i64),
+                    upload: None,
+                })
+            }
             "happyhorse-1.0-r2v" => {
                 let uploader = build_uploader(&params)?;
                 let result = happyhorse::submit(&client, &params, uploader).await?;
                 // Cache the api_key for subsequent poll/cancel calls.
-                self.creds_cache
-                    .lock()
-                    .await
-                    .insert(result.external_task_id.clone(), params.credentials.api_key.clone());
-                let _ = result.uploaded_remote_ids; // TODO: persist to DB in future
-                Ok(result.external_task_id)
+                self.creds_cache.lock().await.insert(
+                    result.external_task_id.clone(),
+                    params.credentials.api_key.clone(),
+                );
+                Ok(SubmitOutcome {
+                    external_task_id: result.external_task_id,
+                    request_id: result.request_id,
+                    http_status: Some(result.http_status as i64),
+                    upload: Some(UploadSummary {
+                        count: result.upload_count,
+                        total_bytes: result.upload_total_bytes,
+                        duration_ms: result.upload_duration_ms,
+                        remote_ids: result.uploaded_remote_ids,
+                    }),
+                })
             }
-            other => Err(CoreError::Provider(format!(
-                "bailian: unknown model_id '{other}'"
+            other => Err(CoreError::Provider(ProviderErrorDetail::new(
+                ProviderErrorKind::InvalidRequest,
+                format!("不支持的百炼模型: {other}"),
             ))),
         }
     }
 
-    async fn poll(&self, external_task_id: &str) -> Result<ProviderTaskStatus> {
+    async fn poll(&self, external_task_id: &str) -> Result<PollOutcome> {
         if external_task_id.starts_with("wan27:") {
-            wan27::poll(&self.wan_cache, external_task_id).await
+            let status = wan27::poll(&self.wan_cache, external_task_id).await?;
+            Ok(PollOutcome::bare(status))
         } else {
             // happyhorse — retrieve cached api_key.
             let api_key = self
@@ -100,7 +123,7 @@ impl ModelProvider for BailianProvider {
                 extra_json: None,
             };
             let client = BailianClient::new(&self.http, &creds)?;
-            let status = happyhorse::poll(&client, external_task_id).await?;
+            let (status, meta) = happyhorse::poll(&client, external_task_id).await?;
             // Clean up creds cache when task reaches terminal state.
             if matches!(
                 status,
@@ -108,7 +131,11 @@ impl ModelProvider for BailianProvider {
             ) {
                 self.creds_cache.lock().await.remove(external_task_id);
             }
-            Ok(status)
+            Ok(PollOutcome {
+                status,
+                request_id: meta.request_id,
+                http_status: Some(meta.http_status as i64),
+            })
         }
     }
 

@@ -41,6 +41,11 @@ const MIGRATIONS: &[Migration] = &[
         name: "add_generation_task_project_id",
         sql: include_str!("migrations/005_add_generation_task_project_id.sql"),
     },
+    Migration {
+        version: 6,
+        name: "add_generation_task_event",
+        sql: include_str!("migrations/006_add_generation_task_event.sql"),
+    },
 ];
 
 /// Execute all pending migrations. Each migration runs in its own transaction.

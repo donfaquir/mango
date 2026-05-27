@@ -14,6 +14,7 @@ use uuid::Uuid;
 use super::client::BailianClient;
 use super::types::Wan27Response;
 use crate::error::{CoreError, Result};
+use crate::provider::error::{ProviderErrorDetail, ProviderErrorKind};
 use crate::provider::traits::{GenerationParams, ProviderTaskStatus};
 
 /// In-memory cache for wan27 synchronous results.
@@ -41,10 +42,10 @@ pub(super) async fn submit(
     client: &BailianClient<'_>,
     cache: &Mutex<Wan27Cache>,
     params: &GenerationParams,
-) -> Result<String> {
+) -> Result<SubmitResult> {
     let body = build_wan27_body(params)?;
 
-    let resp: Wan27Response = client
+    let (resp, meta): (Wan27Response, _) = client
         .post_json("/services/aigc/multimodal-generation/generation", &body)
         .await?;
 
@@ -56,17 +57,41 @@ pub(super) async fn submit(
         .and_then(|c| c.image.as_deref())
         .ok_or_else(|| {
             CoreError::Provider(
-                "wan27 response missing output.choices[0].message.content[0].image".into(),
+                ProviderErrorDetail::new(
+                    ProviderErrorKind::Malformed,
+                    "wan2.7 响应缺少 output.choices[0].message.content[0].image",
+                )
+                .with_request_id(meta.request_id.clone())
+                .with_http_status(meta.http_status),
             )
         })?
         .to_string();
 
-    let task_id = format!("wan27:{}", Uuid::new_v4());
+    // Embed the upstream request_id in the synthetic external_task_id so the
+    // diagnostics UI's "复制 request_id" button works for wan27 too.
+    let task_id = match meta.request_id.as_deref() {
+        Some(rid) if !rid.is_empty() => format!("wan27:{rid}"),
+        _ => format!("wan27:{}", Uuid::new_v4()),
+    };
     cache.lock().await.put(
         task_id.clone(),
         ProviderTaskStatus::Success { result_url },
     );
-    Ok(task_id)
+    Ok(SubmitResult {
+        external_task_id: task_id,
+        request_id: meta.request_id,
+        http_status: meta.http_status,
+    })
+}
+
+/// Submit outcome surfaced to the runner so it can log a `submit_call` event
+/// alongside the upstream `request_id`. The result URL itself lives in the
+/// cache and is served via `poll()` so the engine's uniform state machine
+/// works without branching.
+pub(super) struct SubmitResult {
+    pub external_task_id: String,
+    pub request_id: Option<String>,
+    pub http_status: u16,
 }
 
 /// Poll the wan27 cache. If the task exists, return its cached status.

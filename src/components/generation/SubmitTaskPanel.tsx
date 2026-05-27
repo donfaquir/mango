@@ -5,6 +5,9 @@ import { ModelPicker, type ModelChoice } from "./ModelPicker";
 import { Wan27Params } from "./params/Wan27Params";
 import { HappyhorseParams } from "./params/HappyhorseParams";
 import { useSubmitTask } from "@/hooks/useTasks";
+import { useCharacterList } from "@/hooks/useCharacters";
+import { resolveCharacterReferenceAssets } from "./resolveCharacterReferenceAssets";
+import type { Character } from "@/lib/bindings/commands";
 import type { Wan27FormValues } from "./params/types";
 import type { HappyhorseFormValues } from "./params/types";
 
@@ -15,6 +18,7 @@ interface SubmitTaskPanelProps {
 export function SubmitTaskPanel({ projectId }: SubmitTaskPanelProps) {
   const [model, setModel] = useState<ModelChoice | null>(null);
   const submit = useSubmitTask();
+  const characters = useCharacterList(projectId);
 
   const handleWan27Submit = async (values: Wan27FormValues) => {
     if (!model) return;
@@ -44,12 +48,30 @@ export function SubmitTaskPanel({ projectId }: SubmitTaskPanelProps) {
 
   const handleHappyhorseSubmit = async (values: HappyhorseFormValues) => {
     if (!model) return;
+
+    // Translate selected character IDs into the asset IDs of their reference
+    // images. The runner's media[] schema expects asset_id, not character.id —
+    // passing character.id directly leaves the task stuck pending after the
+    // runner's asset_q::get_by_id NotFound bubbles up.
+    const charactersForResolve: Character[] = characters.data ?? [];
+    const resolved = await resolveCharacterReferenceAssets(
+      projectId,
+      values.subject_ids,
+      charactersForResolve,
+    );
+    if (resolved.media.length === 0) {
+      toast.error(
+        resolved.errorMessage ?? "所选主体的参考图未在素材库中找到",
+      );
+      return;
+    }
+    if (resolved.errorMessage) {
+      toast.warning(resolved.errorMessage);
+    }
+
     const paramsJson = JSON.stringify({
       prompt: values.prompt,
-      media: values.subject_ids.map((id) => ({
-        asset_id: id,
-        type: "reference_image",
-      })),
+      media: resolved.media,
       resolution: values.resolution,
       ratio: values.ratio,
       duration: values.duration,

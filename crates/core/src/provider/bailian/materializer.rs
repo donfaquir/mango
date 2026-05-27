@@ -12,8 +12,9 @@ use crate::error::{CoreError, Result};
 use crate::models::generation_task::{GenerationTask, TaskKind};
 use crate::provider::asset_uploader::oss::OssUploader;
 use crate::provider::asset_uploader::traits::AssetUploader;
+use crate::provider::error::{ProviderErrorDetail, ProviderErrorKind};
 use crate::provider::traits::ProviderCredentials;
-use crate::task_engine::materializer::ResultMaterializer;
+use crate::task_engine::materializer::{CleanupOutcome, MaterializeOutcome, ResultMaterializer};
 
 pub struct BailianResultMaterializer {
     db: tokio_rusqlite::Connection,
@@ -28,7 +29,11 @@ impl BailianResultMaterializer {
 
 #[async_trait]
 impl ResultMaterializer for BailianResultMaterializer {
-    async fn materialize(&self, task: &GenerationTask, result_url: &str) -> Result<String> {
+    async fn materialize(
+        &self,
+        task: &GenerationTask,
+        result_url: &str,
+    ) -> Result<MaterializeOutcome> {
         // Resolve project_id by traversing shot → episode → project.
         let project_id = resolve_project_id(&self.db, task).await?;
 
@@ -37,13 +42,14 @@ impl ResultMaterializer for BailianResultMaterializer {
             TaskKind::Video => "video",
             TaskKind::Audio => "audio",
             TaskKind::Text => {
-                return Err(CoreError::Provider(
-                    "bailian: text tasks have no downloadable result".into(),
-                ))
+                return Err(CoreError::Provider(ProviderErrorDetail::new(
+                    ProviderErrorKind::InvalidRequest,
+                    "百炼: 文本任务没有可下载的结果",
+                )))
             }
         };
 
-        let asset = download_to_asset(
+        let outcome = download_to_asset(
             &self.db,
             &project_id,
             task.shot_id.as_deref(),
@@ -52,14 +58,22 @@ impl ResultMaterializer for BailianResultMaterializer {
         )
         .await?;
 
-        Ok(asset.id)
+        Ok(MaterializeOutcome {
+            asset_id: outcome.asset.id,
+            bytes: outcome.bytes,
+            duration_ms: outcome.duration_ms,
+        })
     }
 
-    async fn cleanup(&self, task: &GenerationTask, credentials: Option<ProviderCredentials>) -> Result<()> {
+    async fn cleanup(
+        &self,
+        task: &GenerationTask,
+        credentials: Option<ProviderCredentials>,
+    ) -> Result<CleanupOutcome> {
         // Parse _internal.uploaded_remote_ids from params_json.
         let params: serde_json::Value = match serde_json::from_str(&task.params_json) {
             Ok(v) => v,
-            Err(_) => return Ok(()),
+            Err(_) => return Ok(CleanupOutcome::default()),
         };
         let remote_ids = match params
             .get("_internal")
@@ -70,11 +84,11 @@ impl ResultMaterializer for BailianResultMaterializer {
                 .iter()
                 .filter_map(|v| v.as_str().map(|s| s.to_string()))
                 .collect::<Vec<_>>(),
-            None => return Ok(()),
+            None => return Ok(CleanupOutcome::default()),
         };
 
         if remote_ids.is_empty() {
-            return Ok(());
+            return Ok(CleanupOutcome::default());
         }
 
         // Prefer pre-resolved credentials to avoid redundant keyring access.
@@ -83,7 +97,9 @@ impl ResultMaterializer for BailianResultMaterializer {
                 Some(json) => json,
                 None => {
                     tracing::warn!("cleanup: no OSS config in pre-resolved credentials; skipping");
-                    return Ok(());
+                    return Ok(CleanupOutcome {
+                        failed_remote_ids: remote_ids,
+                    });
                 }
             }
         } else {
@@ -97,17 +113,30 @@ impl ResultMaterializer for BailianResultMaterializer {
                         conn,
                         keyring.as_ref(),
                         &account_id,
-                    ).map(|c| c.extra_json))
+                    )
+                    .map(|c| c.extra_json))
                 })
                 .await
-                .map_err(|e: tokio_rusqlite::Error<rusqlite::Error>| CoreError::Provider(format!("cleanup creds: {e}")))?
-                .map_err(|e| CoreError::Provider(format!("cleanup creds: {e}")))?;
+                .map_err(|e: tokio_rusqlite::Error<rusqlite::Error>| {
+                    CoreError::Provider(ProviderErrorDetail::new(
+                        ProviderErrorKind::Unknown,
+                        format!("清理时读取凭据失败: {e}"),
+                    ))
+                })?
+                .map_err(|e| {
+                    CoreError::Provider(ProviderErrorDetail::new(
+                        ProviderErrorKind::Unknown,
+                        format!("清理时解析凭据失败: {e}"),
+                    ))
+                })?;
 
             match creds_json {
                 Some(json) => json,
                 None => {
                     tracing::warn!("cleanup: no OSS config for account; skipping");
-                    return Ok(());
+                    return Ok(CleanupOutcome {
+                        failed_remote_ids: remote_ids,
+                    });
                 }
             }
         };
@@ -116,15 +145,23 @@ impl ResultMaterializer for BailianResultMaterializer {
             Ok(u) => u,
             Err(e) => {
                 tracing::warn!("cleanup: failed to build OssUploader: {e}");
-                return Ok(());
+                return Ok(CleanupOutcome {
+                    failed_remote_ids: remote_ids,
+                });
             }
         };
 
+        let mut failed = Vec::new();
         for remote_id in &remote_ids {
-            let _ = uploader.cleanup(remote_id).await;
+            if let Err(e) = uploader.cleanup(remote_id).await {
+                tracing::warn!(remote_id = %remote_id, error = %e, "oss cleanup failed");
+                failed.push(remote_id.clone());
+            }
         }
 
-        Ok(())
+        Ok(CleanupOutcome {
+            failed_remote_ids: failed,
+        })
     }
 }
 

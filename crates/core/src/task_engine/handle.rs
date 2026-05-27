@@ -12,10 +12,12 @@ use tokio_rusqlite::Connection as AsyncConnection;
 
 use crate::account::keyring::KeyringStore;
 use crate::db::queries::generation_task as q;
+use crate::db::queries::generation_task_event as event_q;
 use crate::error::Result;
 use crate::models::generation_task::{
     CreateGenerationTaskInput, GenerationTask, GenerationTaskStatus,
 };
+use crate::models::generation_task_event::GenerationTaskEvent;
 use crate::provider::registry::ProviderRegistry;
 
 use super::events::TaskEvent;
@@ -101,6 +103,26 @@ impl TaskEngineHandle {
         Ok(id)
     }
 
+    /// Re-spawn runner coroutines for all tasks that are still `pending` in the DB.
+    /// Called once at application startup to recover tasks that lost their runners
+    /// due to a previous app exit/crash.
+    pub async fn recover_pending(&self) -> Result<usize> {
+        let ids: Vec<String> = self
+            .db
+            .call(|conn| Ok(q::list_pending_ids(conn)))
+            .await
+            .map_err(map_async_err)??;
+
+        let count = ids.len();
+        for id in ids {
+            tokio::spawn(runner::run(self.clone(), id));
+        }
+        if count > 0 {
+            tracing::info!("recovered {count} pending task(s) from previous session");
+        }
+        Ok(count)
+    }
+
     pub async fn cancel(&self, task_id: &str) -> Result<()> {
         let id = task_id.to_string();
         let task = self
@@ -160,6 +182,16 @@ impl TaskEngineHandle {
         } = filter;
         self.db
             .call(move |conn| Ok(q::list(conn, project_id.as_deref(), status, limit)))
+            .await
+            .map_err(map_async_err)?
+    }
+
+    /// Return the full diagnostic event timeline for a task, ordered by
+    /// `occurred_at` (insertion order).
+    pub async fn list_events(&self, task_id: &str) -> Result<Vec<GenerationTaskEvent>> {
+        let id = task_id.to_string();
+        self.db
+            .call(move |conn| Ok(event_q::list_by_task(conn, &id)))
             .await
             .map_err(map_async_err)?
     }

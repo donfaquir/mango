@@ -17,7 +17,9 @@ use crate::error::Result;
 /// Result of a successful [`AssetUploader::upload`]. Hands the caller back:
 /// 1. a public HTTPS `url` it can pass to the model;
 /// 2. an opaque `remote_id` used solely to drive `cleanup`;
-/// 3. an `expires_at` timestamp so callers can refuse to forward stale URLs.
+/// 3. an `expires_at` timestamp so callers can refuse to forward stale URLs;
+/// 4. `bytes` + `duration_ms` so the diagnostics event log can show how long
+///    each upload took and how much it pushed.
 ///
 /// Implementations choose what `remote_id` is (OSS object key today). The
 /// trait stays neutral so swapping backends doesn't leak through the value.
@@ -30,6 +32,12 @@ pub struct UploadedAsset {
     pub remote_id: String,
     /// ISO-8601 UTC timestamp at which `url` stops being usable.
     pub expires_at: String,
+    /// Size of the uploaded payload, in bytes.
+    #[specta(type = specta_typescript::Number)]
+    pub bytes: u64,
+    /// Wall-clock time the upload took, in milliseconds.
+    #[specta(type = specta_typescript::Number)]
+    pub duration_ms: u64,
 }
 
 #[async_trait]

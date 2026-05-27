@@ -109,6 +109,33 @@ pub fn find_by_content_hash(
     }
 }
 
+/// Look up an existing asset by `(project_id, file_path)`. The `file_path`
+/// column stores a project-root-relative POSIX path (e.g. `assets/<uuid>.png`),
+/// which is also what other tables (notably `character.reference_image_path`)
+/// persist when the underlying bytes were imported via the asset pipeline.
+/// This lets callers translate such a path back into the canonical asset row
+/// — e.g. to pass `asset_id` into the generation runner instead of a raw path.
+/// Returns `Ok(None)` when no row matches.
+pub fn find_by_file_path(
+    conn: &Connection,
+    project_id: &str,
+    file_path: &str,
+) -> Result<Option<Asset>> {
+    let res = conn.query_row(
+        &format!(
+            "SELECT {SELECT_COLUMNS} FROM asset \
+             WHERE project_id = ?1 AND file_path = ?2 LIMIT 1"
+        ),
+        params![project_id, file_path],
+        map_row,
+    );
+    match res {
+        Ok(a) => Ok(Some(a)),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+        Err(e) => Err(CoreError::Sqlite(e)),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -223,6 +250,73 @@ mod tests {
             delete(&conn, "no-such"),
             Err(CoreError::NotFound { .. })
         ));
+    }
+
+    fn insert_with_path(
+        conn: &Connection,
+        project_id: &str,
+        file_path: &str,
+        hash: &str,
+    ) -> String {
+        let id = uuid::Uuid::new_v4().to_string();
+        conn.execute(
+            "INSERT INTO asset \
+                (id, project_id, asset_type, original_name, file_path, file_size, content_hash) \
+             VALUES (?1, ?2, 'image', 'x', ?3, 0, ?4)",
+            params![id, project_id, file_path, hash],
+        )
+        .unwrap();
+        id
+    }
+
+    #[test]
+    fn find_by_file_path_returns_matching_row() {
+        let (conn, _td, pid) = setup();
+        let id = insert_with_path(&conn, &pid, "assets/abc.png", "h-1");
+
+        let found = find_by_file_path(&conn, &pid, "assets/abc.png").unwrap();
+        assert!(found.is_some());
+        assert_eq!(found.unwrap().id, id);
+    }
+
+    #[test]
+    fn find_by_file_path_returns_none_when_missing() {
+        let (conn, _td, pid) = setup();
+        let miss = find_by_file_path(&conn, &pid, "assets/ghost.png").unwrap();
+        assert!(miss.is_none());
+    }
+
+    #[test]
+    fn find_by_file_path_is_scoped_to_project() {
+        // Two projects holding rows at the same relative file_path must not
+        // collide — the query must only return the project-scoped row.
+        let (conn, td, pid_a) = setup();
+        let pid_b = project_queries::create(
+            &conn,
+            td.path(),
+            CreateProjectInput {
+                name: "B".into(),
+                root_path: None,
+                description: None,
+                style_prompt: None,
+                global_seed: None,
+            },
+        )
+        .unwrap()
+        .id;
+
+        let id_a = insert_with_path(&conn, &pid_a, "assets/shared.png", "h-a");
+        let id_b = insert_with_path(&conn, &pid_b, "assets/shared.png", "h-b");
+
+        let from_a = find_by_file_path(&conn, &pid_a, "assets/shared.png")
+            .unwrap()
+            .unwrap();
+        assert_eq!(from_a.id, id_a);
+
+        let from_b = find_by_file_path(&conn, &pid_b, "assets/shared.png")
+            .unwrap()
+            .unwrap();
+        assert_eq!(from_b.id, id_b);
     }
 
     #[test]

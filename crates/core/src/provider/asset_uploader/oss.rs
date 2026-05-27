@@ -19,10 +19,59 @@ use percent_encoding::{utf8_percent_encode, AsciiSet, CONTROLS};
 use sha1::Sha1;
 use sha2::{Digest, Sha256};
 
+use aliyun_oss_client::error::OssError;
 use aliyun_oss_client::{Bucket, Client};
 
 use super::traits::{AssetUploader, UploadedAsset};
 use crate::error::{CoreError, Result};
+use crate::provider::error::{ProviderErrorDetail, ProviderErrorKind};
+
+/// Cap for the Debug-rendered OSS error string we surface as
+/// `body_excerpt`. Matches the 1KB cap used elsewhere in the diagnostic
+/// pipeline.
+const OSS_DEBUG_EXCERPT_LIMIT: usize = 1024;
+
+/// Convert an `aliyun-oss-client` `OssError` into our structured
+/// [`ProviderErrorDetail`].
+///
+/// The SDK's `Display` for `OssError` is hard-coded to the literal string
+/// `"oss error"` (see SDK `src/error.rs:78-82`), which means raw
+/// `format!("{e}")` discards everything useful — request IDs, server-side
+/// `Code`/`Message`, the underlying reqwest cause. We use `{:?}` instead and
+/// classify the variant so the diagnostics dialog can show something
+/// actionable like "InvalidAccessKeyId" / "SignatureDoesNotMatch" / network
+/// timeout. Truncation guards against debug strings ballooning past the
+/// 1KB excerpt cap.
+fn oss_error_detail(prefix: &str, err: &OssError) -> ProviderErrorDetail {
+    let debug = format!("{err:?}");
+    let excerpt = if debug.len() > OSS_DEBUG_EXCERPT_LIMIT {
+        let mut end = OSS_DEBUG_EXCERPT_LIMIT;
+        while !debug.is_char_boundary(end) {
+            end -= 1;
+        }
+        format!("{}…", &debug[..end])
+    } else {
+        debug
+    };
+
+    let kind = match err {
+        OssError::Reqwest(re) if re.is_timeout() => ProviderErrorKind::Timeout,
+        OssError::Reqwest(_) => ProviderErrorKind::Network,
+        OssError::IoError(_) => ProviderErrorKind::Network,
+        OssError::Service(_) => ProviderErrorKind::InvalidRequest,
+        OssError::InvalidEndPoint
+        | OssError::InvalidRegion
+        | OssError::InvalidBucket
+        | OssError::InvalidBucketUrl
+        | OssError::NotSetDefaultBucket
+        | OssError::NoFoundBucket
+        | OssError::BucketName(_) => ProviderErrorKind::InvalidRequest,
+        _ => ProviderErrorKind::Unknown,
+    };
+
+    ProviderErrorDetail::new(kind, format!("{prefix}: {excerpt}"))
+        .with_body_excerpt(excerpt)
+}
 
 type HmacSha1 = Hmac<Sha1>;
 
@@ -150,7 +199,12 @@ impl OssUploader {
         );
 
         let mut mac = HmacSha1::new_from_slice(self.access_key_secret.as_bytes())
-            .map_err(|e| CoreError::Upload(format!("oss hmac key: {e}")))?;
+            .map_err(|e| {
+                CoreError::Upload(ProviderErrorDetail::new(
+                    ProviderErrorKind::Unknown,
+                    format!("OSS HMAC 密钥构造失败: {e}"),
+                ))
+            })?;
         mac.update(string_to_sign.as_bytes());
         let signature = B64.encode(mac.finalize().into_bytes());
         let signature_enc =
@@ -200,35 +254,48 @@ fn hex(bytes: &[u8]) -> String {
 #[async_trait]
 impl AssetUploader for OssUploader {
     async fn upload(&self, local_path: &Path) -> Result<UploadedAsset> {
+        let started = std::time::Instant::now();
         let bytes = tokio::fs::read(local_path)
             .await
             .map_err(CoreError::Io)?;
+        let byte_count = bytes.len() as u64;
         let object_key = self.build_object_key(&bytes, local_path);
 
         let object = self.bucket.object(&object_key);
-        // The SDK returns its own `OssError`; collapse to our `Upload` variant
-        // (string-shaped) rather than leaking SDK types through the IPC.
-        object
-            .upload(bytes)
-            .await
-            .map_err(|e| CoreError::Upload(format!("oss put_object failed: {e}")))?;
+        // The SDK returns its own `OssError` whose `Display` is the literal
+        // "oss error" — see [`oss_error_detail`] for the workaround.
+        object.upload(bytes).await.map_err(|e| {
+            let detail = oss_error_detail(
+                &format!("OSS 上传失败 (object={object_key})"),
+                &e,
+            );
+            CoreError::Upload(detail)
+        })?;
 
         let (url, expires_at) = self.presigned_get_url(&object_key)?;
         Ok(UploadedAsset {
             url,
             remote_id: object_key,
             expires_at: expires_at.to_rfc3339(),
+            bytes: byte_count,
+            duration_ms: started.elapsed().as_millis() as u64,
         })
     }
 
     async fn cleanup(&self, remote_id: &str) -> Result<()> {
         let object = self.bucket.object(remote_id);
-        if let Err(e) = object.delete().await {
-            // Best-effort: surface as warn but DO NOT fail. The orchestrator
-            // already passed terminal status; bubbling here just makes the UI
-            // report a phantom error.
-            tracing::warn!(remote_id = %remote_id, error = %e, "oss cleanup failed");
-        }
+        // Surface delete failure structurally so callers (notably
+        // `BailianResultMaterializer::cleanup`) can collect `failed_remote_ids`
+        // for the runner to emit `cleanup` warn events. The terminal task
+        // status is already persisted by this point, so bubbling here is
+        // never observed by the user as a task failure.
+        object.delete().await.map_err(|e| {
+            let detail = oss_error_detail(
+                &format!("OSS 删除失败 (object={remote_id})"),
+                &e,
+            );
+            CoreError::Upload(detail)
+        })?;
         Ok(())
     }
 }
@@ -310,6 +377,39 @@ mod tests {
         let want_sig_enc =
             utf8_percent_encode(&want_sig, SIGNATURE_ENCODE_SET).to_string();
         assert!(url.contains(&format!("Signature={want_sig_enc}")));
+    }
+
+    #[test]
+    fn oss_error_detail_classifies_invalid_endpoint() {
+        let d = oss_error_detail("OSS 上传失败 (object=k)", &OssError::InvalidEndPoint);
+        assert!(matches!(d.kind, ProviderErrorKind::InvalidRequest));
+        // The Debug repr ("InvalidEndPoint") must reach the user — the SDK's
+        // Display impl is hard-coded to "oss error" otherwise.
+        assert!(d.message.contains("InvalidEndPoint"), "got {:?}", d.message);
+        assert!(d.message.starts_with("OSS 上传失败 (object=k):"));
+    }
+
+    #[test]
+    fn oss_error_detail_classifies_io_error_as_network() {
+        let io_err = std::io::Error::new(std::io::ErrorKind::ConnectionRefused, "boom");
+        let d = oss_error_detail("OSS 上传失败 (object=k)", &OssError::IoError(io_err));
+        assert!(matches!(d.kind, ProviderErrorKind::Network));
+        assert!(d.message.contains("IoError"));
+        assert!(d.message.contains("boom"));
+    }
+
+    #[test]
+    fn oss_error_detail_truncates_oversized_debug_strings() {
+        // Build a Debug string > 1KB by stuffing a long bucket-name error.
+        let bucket = "a".repeat(2048);
+        let d = oss_error_detail(
+            "OSS 上传失败 (object=k)",
+            &OssError::InvalidOssError(bucket),
+        );
+        // body_excerpt is what flows into details_json/diagnostic UI.
+        let excerpt = d.body_excerpt.expect("excerpt populated");
+        assert!(excerpt.len() <= OSS_DEBUG_EXCERPT_LIMIT + 4); // +ellipsis bytes
+        assert!(excerpt.ends_with('…'));
     }
 
     #[test]

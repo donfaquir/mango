@@ -74,6 +74,23 @@ pub async fn get_asset(state: State<'_, AppState>, id: String) -> Result<Asset, 
     with_db(&state, move |conn| asset_queries::get_by_id(conn, &id)).await
 }
 
+/// Translate a project-root-relative `file_path` (as stored on rows like
+/// `character.reference_image_path`) back to the canonical asset row. Returns
+/// `Ok(None)` when no asset matches — callers decide how to surface that to
+/// the user (e.g. "selected reference image is not in the asset library").
+#[tauri::command]
+#[specta::specta]
+pub async fn find_asset_by_path(
+    state: State<'_, AppState>,
+    project_id: String,
+    file_path: String,
+) -> Result<Option<Asset>, IpcError> {
+    with_db(&state, move |conn| {
+        asset_queries::find_by_file_path(conn, &project_id, &file_path)
+    })
+    .await
+}
+
 /// Delete an asset row. Files on disk are intentionally not removed; a future
 /// GC sweep (V2) reconciles orphaned files. See spec-12 §"错误场景".
 #[tauri::command]

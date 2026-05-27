@@ -12,4 +12,5 @@ pub mod state;
 
 pub use events::TaskEvent;
 pub use handle::{ListFilter, TaskEngineHandle};
-pub use materializer::{NoopMaterializer, ResultMaterializer};
+pub use materializer::{CleanupOutcome, MaterializeOutcome, NoopMaterializer, ResultMaterializer};
+pub use state::EventBuilder;

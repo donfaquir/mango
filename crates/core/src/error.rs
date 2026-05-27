@@ -1,5 +1,7 @@
 use thiserror::Error;
 
+use crate::provider::error::ProviderErrorDetail;
+
 #[derive(Error, Debug)]
 pub enum CoreError {
     #[error("sqlite error: {0}")]
@@ -21,11 +23,11 @@ pub enum CoreError {
     Validation(String),
 
     // Wraps any error a `ModelProvider` implementation surfaces (HTTP, auth,
-    // remote business). Concrete implementations use `thiserror` internally and
-    // collapse to String at the core boundary so trait-object variance does not
-    // leak through.
+    // remote business). Concrete implementations populate `ProviderErrorDetail`
+    // with `kind`/`request_id`/`http_status` so the diagnostics UI and CLI can
+    // render rich failure context.
     #[error("provider error: {0}")]
-    Provider(String),
+    Provider(ProviderErrorDetail),
 
     // Task engine internal failures: registry misses, illegal state-machine
     // transitions, and other invariants the engine must enforce.
@@ -36,13 +38,12 @@ pub enum CoreError {
     #[error("task cancelled")]
     Cancelled,
 
-    // OSS upload / cleanup failure (spec-16). The asset_uploader layer
-    // collapses SDK / network / signature errors to String here so the IPC
-    // boundary stays free of provider-specific variants. Distinct from
-    // `Provider`: this lets the UI tell "OSS misconfigured" apart from
-    // "Bailian rejected the request".
+    // OSS upload / cleanup failure (spec-16). Distinct from `Provider` so the
+    // UI can tell "OSS misconfigured" apart from "Bailian rejected the
+    // request"; same structured shape so diagnostics can render request_id /
+    // http_status uniformly.
     #[error("upload error: {0}")]
-    Upload(String),
+    Upload(ProviderErrorDetail),
 }
 
 pub type Result<T> = std::result::Result<T, CoreError>;

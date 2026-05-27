@@ -29,6 +29,7 @@ fn make_builder() -> Builder<tauri::Wry> {
             commands::account::update_api_account,
             commands::account::verify_api_account_storage,
             commands::asset::delete_asset,
+            commands::asset::find_asset_by_path,
             commands::asset::get_asset,
             commands::asset::import_asset,
             commands::asset::list_assets,
@@ -65,10 +66,15 @@ fn make_builder() -> Builder<tauri::Wry> {
             commands::scene::update_scene,
             commands::task::cancel_task,
             commands::task::get_task,
+            commands::task::list_task_events,
             commands::task::list_tasks,
             commands::task::submit_task,
         ])
-        .events(collect_events![events::TaskStatusChanged])
+        .events(collect_events![
+            events::TaskStatusChanged,
+            events::TaskEventLogged,
+            events::TaskProgressTick,
+        ])
 }
 
 pub fn run() {
@@ -138,6 +144,17 @@ pub fn run() {
                 materializer,
                 4,
             );
+
+            // Re-spawn runner coroutines for any pending tasks left over from
+            // a previous session. Runs in the background so setup() returns
+            // promptly even if the DB has many pending rows.
+            let engine_for_recovery = engine.clone();
+            tauri::async_runtime::spawn(async move {
+                if let Err(e) = engine_for_recovery.recover_pending().await {
+                    tracing::error!("failed to recover pending tasks: {e}");
+                }
+            });
+
             let app_handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 while let Some(ev) = event_rx.recv().await {
@@ -157,6 +174,20 @@ pub fn run() {
                             .emit(&app_handle)
                             {
                                 tracing::warn!(error = %e, "failed to emit TaskStatusChanged");
+                            }
+                        }
+                        TaskEvent::EventLogged { task_id, event } => {
+                            if let Err(e) = (events::TaskEventLogged { task_id, event })
+                                .emit(&app_handle)
+                            {
+                                tracing::warn!(error = %e, "failed to emit TaskEventLogged");
+                            }
+                        }
+                        TaskEvent::ProgressTick { task_id, progress } => {
+                            if let Err(e) = (events::TaskProgressTick { task_id, progress })
+                                .emit(&app_handle)
+                            {
+                                tracing::warn!(error = %e, "failed to emit TaskProgressTick");
                             }
                         }
                     }

@@ -14,7 +14,8 @@ use mango_core::models::generation_task::{
     CreateGenerationTaskInput, GenerationTaskStatus, TaskKind,
 };
 use mango_core::provider::{
-    GenerationParams, ModelProvider, ProviderRegistry, ProviderTaskStatus,
+    GenerationParams, ModelProvider, PollOutcome, ProviderRegistry, ProviderTaskStatus,
+    SubmitOutcome,
 };
 use mango_core::task_engine::{NoopMaterializer, TaskEngineHandle, TaskEvent};
 use tempfile::tempdir;
@@ -48,11 +49,11 @@ struct StuckProvider;
 
 #[async_trait]
 impl ModelProvider for StuckProvider {
-    async fn submit(&self, _params: GenerationParams) -> Result<String> {
-        Ok("ext-stuck".into())
+    async fn submit(&self, _params: GenerationParams) -> Result<SubmitOutcome> {
+        Ok(SubmitOutcome::new("ext-stuck"))
     }
-    async fn poll(&self, _ext: &str) -> Result<ProviderTaskStatus> {
-        Ok(ProviderTaskStatus::Running { progress: None })
+    async fn poll(&self, _ext: &str) -> Result<PollOutcome> {
+        Ok(PollOutcome::bare(ProviderTaskStatus::Running { progress: None }))
     }
     async fn cancel(&self, _ext: &str) -> Result<()> {
         Ok(())
@@ -113,8 +114,10 @@ async fn cancel_running_task_lands_in_cancelled_state() {
     // the running→cancelled path (not pending→cancelled).
     timeout(Duration::from_secs(2), async {
         while let Some(ev) = rx.recv().await {
-            let TaskEvent::StatusChanged { status, task_id: tid, .. } = ev;
-            if tid == task_id && status == GenerationTaskStatus::Running {
+            if let TaskEvent::StatusChanged { status, task_id: tid, .. } = ev
+                && tid == task_id
+                && status == GenerationTaskStatus::Running
+            {
                 return;
             }
         }

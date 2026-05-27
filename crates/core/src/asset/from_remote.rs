@@ -16,17 +16,31 @@ use crate::asset::thumbnail;
 use crate::error::{CoreError, Result};
 use crate::models::asset::Asset;
 use crate::paths;
+use crate::provider::error::{ProviderErrorDetail, ProviderErrorKind};
+
+/// Outcome of a successful [`download_to_asset`] call. The runner threads the
+/// `bytes` + `duration_ms` into a `download` event so the diagnostics UI can
+/// show how big the result was and how long it took to fetch.
+#[derive(Debug, Clone)]
+pub struct DownloadOutcome {
+    pub asset: Asset,
+    pub bytes: u64,
+    pub duration_ms: u64,
+}
 
 /// Download a result URL and persist it as a local asset file + DB row.
 ///
-/// Returns the newly created [`Asset`].
+/// Returns the newly created [`Asset`] together with the raw byte count and
+/// wall-clock download duration so callers can record diagnostic events.
 pub async fn download_to_asset(
     db: &tokio_rusqlite::Connection,
     project_id: &str,
     shot_id: Option<&str>,
     url: &str,
     asset_type: &str, // "image" | "video" | "audio"
-) -> Result<Asset> {
+) -> Result<DownloadOutcome> {
+    let download_started = std::time::Instant::now();
+
     // 1) Resolve project root from DB.
     let pid = project_id.to_string();
     let project_root: PathBuf = db
@@ -53,14 +67,22 @@ pub async fn download_to_asset(
     paths::ensure_project_layout(&project_root)?;
 
     // 2) HTTP GET the result URL.
-    let resp = reqwest::get(url)
-        .await
-        .map_err(|e| CoreError::Provider(format!("download failed: {e}")))?;
+    let resp = reqwest::get(url).await.map_err(|e| {
+        CoreError::Provider(
+            ProviderErrorDetail::new(ProviderErrorKind::Network, format!("下载失败: {e}"))
+                .with_body_excerpt(url.to_string()),
+        )
+    })?;
     if !resp.status().is_success() {
-        return Err(CoreError::Provider(format!(
-            "download HTTP {}: result url may have expired",
-            resp.status()
-        )));
+        let status = resp.status().as_u16();
+        return Err(CoreError::Provider(
+            ProviderErrorDetail::new(
+                ProviderErrorKind::Unknown,
+                format!("下载失败 (HTTP {status}): 结果 URL 可能已过期"),
+            )
+            .with_http_status(status)
+            .with_body_excerpt(url.to_string()),
+        ));
     }
     let ext = ext_from_content_type(resp.headers(), asset_type);
     let asset_id = Uuid::new_v4().to_string();
@@ -68,10 +90,12 @@ pub async fn download_to_asset(
     let file_relative = format!("{}/{file_name}", paths::ASSETS_SUBDIR);
     let dest = paths::assets_dir(&project_root).join(&file_name);
 
-    let bytes = resp
-        .bytes()
-        .await
-        .map_err(|e| CoreError::Provider(format!("download body: {e}")))?;
+    let bytes = resp.bytes().await.map_err(|e| {
+        CoreError::Provider(ProviderErrorDetail::new(
+            ProviderErrorKind::Network,
+            format!("读取下载内容失败: {e}"),
+        ))
+    })?;
     let file_size = bytes.len() as i64;
 
     // Write file (blocking IO, but the file is typically small <100MB).
@@ -131,7 +155,11 @@ pub async fn download_to_asset(
         .await
         .map_err(|e: tokio_rusqlite::Error<rusqlite::Error>| CoreError::TaskEngine(format!("db worker error: {e}")))??;
 
-    Ok(asset)
+    Ok(DownloadOutcome {
+        asset,
+        bytes: file_size as u64,
+        duration_ms: download_started.elapsed().as_millis() as u64,
+    })
 }
 
 fn ext_from_content_type(headers: &reqwest::header::HeaderMap, asset_type: &str) -> &'static str {

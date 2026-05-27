@@ -161,8 +161,12 @@ pub fn list(
 }
 
 /// Apply a state-machine transition. Allowed:
-///   pending → running | cancelled
+///   pending → running | failed | cancelled
 ///   running → success | failed | cancelled
+/// `pending → failed` covers early failures the runner detects before it can
+/// transition the task to running (credential resolution, param validation,
+/// asset path resolution). Without this edge those failures are silently
+/// dropped and the task stays pending forever.
 /// Any other source state (terminal, or non-matching pair) returns
 /// `CoreError::TaskEngine("invalid transition: ...")`.
 ///
@@ -222,7 +226,12 @@ fn is_valid_transition(from: GenerationTaskStatus, to: GenerationTaskStatus) -> 
     use GenerationTaskStatus::*;
     matches!(
         (from, to),
-        (Pending, Running) | (Pending, Cancelled) | (Running, Success) | (Running, Failed) | (Running, Cancelled)
+        (Pending, Running)
+            | (Pending, Failed)
+            | (Pending, Cancelled)
+            | (Running, Success)
+            | (Running, Failed)
+            | (Running, Cancelled)
     )
 }
 
@@ -252,6 +261,32 @@ pub fn set_result_asset_id(conn: &Connection, id: &str, asset_id: &str) -> Resul
         });
     }
     Ok(())
+}
+
+/// Overwrite the `params_json` column verbatim. The caller is responsible for
+/// merging in fields like `_internal.uploaded_remote_ids` — this helper is the
+/// dumbest possible writer so it can't mistake the caller's intent.
+pub fn set_params_json(conn: &Connection, id: &str, params_json: &str) -> Result<()> {
+    let n = conn.execute(
+        "UPDATE generation_task SET params_json = ?1 WHERE id = ?2",
+        params![params_json, id],
+    )?;
+    if n == 0 {
+        return Err(CoreError::NotFound {
+            entity: "generation_task",
+            id: id.to_string(),
+        });
+    }
+    Ok(())
+}
+
+/// Return IDs of all tasks still in `pending` status (used for recovery on startup).
+pub fn list_pending_ids(conn: &Connection) -> rusqlite::Result<Vec<String>> {
+    let mut stmt = conn.prepare("SELECT id FROM generation_task WHERE status = 'pending'")?;
+    let ids = stmt
+        .query_map([], |row| row.get(0))?
+        .collect::<rusqlite::Result<Vec<String>>>()?;
+    Ok(ids)
 }
 
 /// Reset all rows whose `status='running'` to `pending` on startup. The previous
@@ -386,6 +421,30 @@ mod tests {
         transition_status(&conn, &task.id, GenerationTaskStatus::Cancelled, None).unwrap();
         let after = get_by_id(&conn, &task.id).unwrap();
         assert_eq!(after.status, GenerationTaskStatus::Cancelled);
+    }
+
+    /// Regression: an early failure in the runner (credential / param /
+    /// asset path resolution) must be allowed to transition the still-pending
+    /// task straight to failed. Previously this edge was missing and tasks
+    /// stayed pending forever.
+    #[test]
+    fn transition_pending_to_failed_is_allowed() {
+        let conn = open_sync(Path::new(":memory:")).unwrap();
+        let (p, m, a) = seed_provider_chain(&conn);
+        let task = create(&conn, make_input(&p, &m, &a)).unwrap();
+
+        transition_status(
+            &conn,
+            &task.id,
+            GenerationTaskStatus::Failed,
+            Some("asset not found"),
+        )
+        .unwrap();
+        let after = get_by_id(&conn, &task.id).unwrap();
+        assert_eq!(after.status, GenerationTaskStatus::Failed);
+        assert_eq!(after.error_message.as_deref(), Some("asset not found"));
+        assert!(after.finished_at.is_some());
+        assert!(after.started_at.is_none());
     }
 
     #[test]
