@@ -9,7 +9,7 @@ use clap::Args;
 use tokio::sync::mpsc::UnboundedReceiver;
 use tokio_rusqlite::Connection as AsyncConnection;
 
-use mango_core::account::keyring::{KeyringStore, SystemKeyring};
+use mango_core::account::keyring::{CachedKeyringStore, KeyringStore, SystemKeyring};
 use mango_core::db::queries::api_account as account_queries;
 use mango_core::db::queries::generation_task_event as event_queries;
 use mango_core::models::generation_task::{
@@ -282,7 +282,8 @@ fn build_params(args: &SubmitArgs, prompt: &str) -> anyhow::Result<(TaskKind, St
 async fn setup_engine(
     db: AsyncConnection,
 ) -> anyhow::Result<(TaskEngineHandle, UnboundedReceiver<TaskEvent>)> {
-    let keyring: Arc<dyn KeyringStore> = Arc::new(SystemKeyring);
+    let keyring: Arc<dyn KeyringStore> =
+        Arc::new(CachedKeyringStore::new(Box::new(SystemKeyring)));
     let providers = ProviderRegistry::builder()
         .register("bailian", Arc::new(BailianProvider::new()))
         .build();

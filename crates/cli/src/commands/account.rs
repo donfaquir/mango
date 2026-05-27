@@ -2,7 +2,7 @@ use clap::{Args, Subcommand};
 use comfy_table::{presets::UTF8_FULL_CONDENSED, Table};
 use rusqlite::Connection;
 
-use mango_core::account::keyring::SystemKeyring;
+use mango_core::account::keyring::{CachedKeyringStore, KeyringStore, SystemKeyring};
 use mango_core::account::service as account_service;
 use mango_core::db::queries::api_account as account_queries;
 use mango_core::models::api_account::CreateApiAccountInput;
@@ -44,7 +44,10 @@ pub fn execute(conn: &Connection, args: AccountArgs) -> anyhow::Result<()> {
     keyring::use_native_store(false)
         .map_err(|e| anyhow::anyhow!("failed to register native keyring store: {e}"))?;
 
-    let keyring = SystemKeyring;
+    // Wrap with CachedKeyringStore so a single CLI invocation that hits the
+    // keychain multiple times (e.g. add-then-verify) only prompts once per
+    // logical entry within the same process.
+    let keyring = CachedKeyringStore::new(Box::new(SystemKeyring));
     match args.action {
         AccountAction::Add {
             provider_id,
@@ -59,7 +62,7 @@ pub fn execute(conn: &Connection, args: AccountArgs) -> anyhow::Result<()> {
 
 fn add(
     conn: &Connection,
-    keyring: &SystemKeyring,
+    keyring: &dyn KeyringStore,
     provider_id: String,
     label: String,
     key: Option<String>,
@@ -108,13 +111,13 @@ fn list(conn: &Connection, provider_id: Option<String>) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn remove(conn: &Connection, keyring: &SystemKeyring, id: &str) -> anyhow::Result<()> {
+fn remove(conn: &Connection, keyring: &dyn KeyringStore, id: &str) -> anyhow::Result<()> {
     account_service::delete(conn, keyring, id)?;
     println!("账号已删除");
     Ok(())
 }
 
-fn verify(conn: &Connection, keyring: &SystemKeyring, id: &str) -> anyhow::Result<()> {
+fn verify(conn: &Connection, keyring: &dyn KeyringStore, id: &str) -> anyhow::Result<()> {
     account_service::verify_storage(conn, keyring, id)?;
     println!("ok");
     Ok(())

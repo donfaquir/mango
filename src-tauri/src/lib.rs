@@ -5,7 +5,7 @@ mod state;
 
 use std::sync::Arc;
 
-use mango_core::account::keyring::SystemKeyring;
+use mango_core::account::keyring::{CachedKeyringStore, SystemKeyring};
 use mango_core::provider::bailian::BailianProvider;
 use mango_core::provider::bailian::materializer::BailianResultMaterializer;
 use mango_core::provider::ProviderRegistry;
@@ -133,8 +133,11 @@ pub fn run() {
             let providers = ProviderRegistry::builder()
                 .register("bailian", Arc::new(BailianProvider::new()))
                 .build();
+            // Wrap the OS-backed keyring in a session-level cache so repeated
+            // fetches within one app session don't each trigger a macOS
+            // Keychain authorization popup.
             let keyring: Arc<dyn mango_core::account::keyring::KeyringStore> =
-                Arc::new(SystemKeyring);
+                Arc::new(CachedKeyringStore::new(Box::new(SystemKeyring)));
             let materializer: Arc<dyn mango_core::task_engine::ResultMaterializer> =
                 Arc::new(BailianResultMaterializer::new(db.clone(), keyring.clone()));
             let (engine, mut event_rx) = TaskEngineHandle::spawn(

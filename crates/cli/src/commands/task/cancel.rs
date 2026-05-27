@@ -6,7 +6,7 @@ use std::sync::Arc;
 use clap::Args;
 use tokio_rusqlite::Connection as AsyncConnection;
 
-use mango_core::account::keyring::{KeyringStore, SystemKeyring};
+use mango_core::account::keyring::{CachedKeyringStore, KeyringStore, SystemKeyring};
 use mango_core::db::queries::generation_task as task_queries;
 use mango_core::provider::bailian::BailianProvider;
 use mango_core::provider::ProviderRegistry;
@@ -63,7 +63,8 @@ pub async fn run(conn: &AsyncConnection, args: CancelArgs) -> anyhow::Result<i32
     keyring::use_native_store(false)
         .map_err(|e| anyhow::anyhow!("failed to register native keyring store: {e}"))?;
 
-    let keyring: Arc<dyn KeyringStore> = Arc::new(SystemKeyring);
+    let keyring: Arc<dyn KeyringStore> =
+        Arc::new(CachedKeyringStore::new(Box::new(SystemKeyring)));
     let providers = ProviderRegistry::builder()
         .register("bailian", Arc::new(BailianProvider::new()))
         .build();
