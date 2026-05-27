@@ -1,4 +1,5 @@
 use std::io::{self, Write};
+use std::path::{Path, PathBuf};
 
 use clap::{Args, Subcommand};
 use comfy_table::{Table, presets::UTF8_FULL_CONDENSED};
@@ -19,6 +20,10 @@ enum ProjectAction {
     Create {
         #[arg(long)]
         name: String,
+        /// Project root directory. If omitted, the project is created under
+        /// `<app_data>/projects/{uuid}/`.
+        #[arg(long)]
+        root_path: Option<PathBuf>,
         #[arg(long, default_value = "")]
         description: String,
         #[arg(long, default_value = "")]
@@ -37,13 +42,18 @@ enum ProjectAction {
     },
 }
 
-pub fn execute(conn: &Connection, args: ProjectArgs) -> anyhow::Result<()> {
+pub fn execute(
+    conn: &Connection,
+    app_data_dir: &Path,
+    args: ProjectArgs,
+) -> anyhow::Result<()> {
     match args.action {
         ProjectAction::Create {
             name,
+            root_path,
             description,
             style_prompt,
-        } => create(conn, name, description, style_prompt),
+        } => create(conn, app_data_dir, name, root_path, description, style_prompt),
         ProjectAction::List => list(conn),
         ProjectAction::Get { id } => get(conn, &id),
         ProjectAction::Delete { id, yes } => delete(conn, &id, yes),
@@ -52,14 +62,18 @@ pub fn execute(conn: &Connection, args: ProjectArgs) -> anyhow::Result<()> {
 
 fn create(
     conn: &Connection,
+    app_data_dir: &Path,
     name: String,
+    root_path: Option<PathBuf>,
     description: String,
     style_prompt: String,
 ) -> anyhow::Result<()> {
     let project = project_queries::create(
         conn,
+        app_data_dir,
         CreateProjectInput {
             name,
+            root_path: root_path.map(|p| p.to_string_lossy().into_owned()),
             description: Some(description),
             style_prompt: Some(style_prompt),
             global_seed: None,
@@ -68,6 +82,7 @@ fn create(
     println!("Project created");
     println!("  ID:   {}", project.id);
     println!("  Name: {}", project.name);
+    println!("  Root: {}", project.root_path);
     Ok(())
 }
 
@@ -106,6 +121,7 @@ fn get(conn: &Connection, id: &str) -> anyhow::Result<()> {
     println!("Name:        {}", project.name);
     println!("Description: {}", project.description);
     println!("Style:       {}", project.style_prompt);
+    println!("Root:        {}", project.root_path);
     if let Some(seed) = project.global_seed {
         println!("Seed:        {seed}");
     }

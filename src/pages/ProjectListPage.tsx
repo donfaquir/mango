@@ -1,8 +1,8 @@
 import { useState } from "react";
-import { Plus } from "lucide-react";
+import { FolderPlus, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { CreateProjectDialog } from "@/components/project/CreateProjectDialog";
-import { EmptyState } from "@/components/project/EmptyState";
+import { EmptyState } from "@/components/common/EmptyState";
 import { ProjectCard } from "@/components/project/ProjectCard";
 import { useProjectList } from "@/hooks/useProjects";
 
@@ -51,7 +51,14 @@ export default function ProjectListPage() {
           ))}
         </div>
       ) : (
-        <EmptyState onCreateClick={() => setCreateDialogOpen(true)} />
+        <EmptyState
+          icon={FolderPlus}
+          title="还没有项目"
+          description="创建你的第一个漫剧项目，开始创作之旅"
+          action={
+            <Button onClick={() => setCreateDialogOpen(true)}>新建项目</Button>
+          }
+        />
       )}
 
       <CreateProjectDialog

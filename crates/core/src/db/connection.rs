@@ -79,7 +79,7 @@ mod tests {
             .collect::<Result<_, _>>()
             .unwrap();
 
-        assert_eq!(tables.len(), 17, "expected 17 tables, got: {tables:?}");
+        assert_eq!(tables.len(), 19, "expected 19 tables, got: {tables:?}");
     }
 
     #[test]
@@ -141,8 +141,8 @@ mod tests {
             .await
             .unwrap();
 
-        // 17 business tables + 1 _migrations table
-        assert!(count >= 17);
+        // 18 business tables + 1 _migrations table
+        assert!(count >= 18);
     }
 
     #[test]

@@ -1,6 +1,21 @@
 import { render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
+
+vi.mock("@/lib/bindings/commands", () => ({
+  events: {
+    taskStatusChanged: {
+      listen: vi.fn(() => Promise.resolve(() => {})),
+    },
+    taskEventLogged: {
+      listen: vi.fn(() => Promise.resolve(() => {})),
+    },
+    taskProgressTick: {
+      listen: vi.fn(() => Promise.resolve(() => {})),
+    },
+  },
+}));
+
 import App from "../App";
 
 function renderWithProviders(ui: React.ReactElement) {

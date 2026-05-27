@@ -13,7 +13,11 @@ pub async fn create_project(
     state: State<'_, AppState>,
     input: CreateProjectInput,
 ) -> Result<Project, IpcError> {
-    with_db(&state, move |conn| project_queries::create(conn, input)).await
+    let app_data_dir = state.app_data_dir.clone();
+    with_db(&state, move |conn| {
+        project_queries::create(conn, &app_data_dir, input)
+    })
+    .await
 }
 
 #[tauri::command]
@@ -45,6 +49,8 @@ pub async fn update_project(
     with_db(&state, move |conn| project_queries::update(conn, &id, input)).await
 }
 
+/// Delete project metadata only. The on-disk root_path directory and its
+/// contents are intentionally preserved; V2 will add an explicit purge flag.
 #[tauri::command]
 #[specta::specta]
 pub async fn delete_project(

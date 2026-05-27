@@ -12,6 +12,10 @@ pub struct Project {
     pub name: String,
     pub description: String,
     pub style_prompt: String,
+    /// Absolute filesystem path to the project root directory. Guaranteed
+    /// non-empty by `startup::backfill_project_roots` for legacy rows and by
+    /// `queries::project::create` for all new rows.
+    pub root_path: String,
     #[specta(type = Option<specta_typescript::Number>)]
     pub global_seed: Option<i64>,
     pub created_at: String,
@@ -21,6 +25,10 @@ pub struct Project {
 #[derive(Debug, Deserialize, Type)]
 pub struct CreateProjectInput {
     pub name: String,
+    /// None → fall back to `<app_data>/projects/{uuid}/` (convention path).
+    /// Some(path) → must be absolute and empty/non-existent (validated).
+    #[serde(default)]
+    pub root_path: Option<String>,
     #[serde(default)]
     pub description: Option<String>,
     #[serde(default)]
