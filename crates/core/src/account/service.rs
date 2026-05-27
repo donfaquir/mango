@@ -129,23 +129,45 @@ pub fn create(
     queries::get_by_id(conn, &id)
 }
 
+/// Soft-delete the account: tombstone the row (so `generation_task.account_id`
+/// FKs and historical task attribution stay intact) but wipe the keyring
+/// secrets — the user's intent is "remove my credentials from this machine",
+/// not "let me restore later". A subsequent `delete` on the same id returns
+/// `NotFound`, matching the previous hard-delete contract.
 pub fn delete(conn: &Connection, keyring: &dyn KeyringStore, id: &str) -> Result<()> {
-    let n = conn.execute("DELETE FROM api_account WHERE id = ?1", params![id])?;
-    if n == 0 {
+    let tombstoned = queries::mark_deleted(conn, id)?;
+    if !tombstoned {
         return Err(CoreError::NotFound {
             entity: "api_account",
             id: id.to_string(),
         });
     }
+
+    // Probe the storage format *before* removing the primary entry. With
+    // `CachedKeyringStore` in front this is free whenever the credential
+    // has already been fetched in this session (the common case for an
+    // account the user just used). When the entry is absent or the fetch
+    // fails we conservatively treat it as the new combined format so we
+    // don't trigger an extra OS keychain prompt for a legacy slot that
+    // almost certainly doesn't exist either.
+    let is_combined_format = match keyring.fetch(id) {
+        Ok(raw) => serde_json::from_str::<CombinedSecret>(&raw).is_ok(),
+        Err(_) => true,
+    };
+
     if let Err(e) = keyring.remove(id) {
-        // Don't bubble up: the metadata row is already gone and the user-facing
-        // operation succeeded. Leave a trace so we can spot keyring drift.
+        // Don't bubble up: the metadata row is already tombstoned and the
+        // user-facing operation succeeded. Leave a trace so we can spot
+        // keyring drift.
         tracing::warn!("keyring entry orphaned for {id}: {e}");
     }
-    // best-effort: legacy accounts (pre-combined-secret refactor) may still
-    // have a separate OSS-secret entry. Newer accounts never write one, so a
-    // "missing" remove is the common case and is silenced.
-    if let Err(e) = keyring.remove(&oss_secret_storage_id(id)) {
+
+    // Only legacy accounts (pre-combined-secret refactor) ever wrote a
+    // separate OSS-secret entry. Skipping the remove for combined-format
+    // accounts saves one keychain access (= one popup on macOS).
+    if !is_combined_format
+        && let Err(e) = keyring.remove(&oss_secret_storage_id(id))
+    {
         tracing::debug!("oss secret entry not present for {id}: {e}");
     }
     Ok(())
@@ -602,7 +624,7 @@ mod tests {
     }
 
     #[test]
-    fn delete_removes_db_and_keyring_entry() {
+    fn delete_tombstones_row_and_removes_keyring() {
         let (conn, kr, pid) = setup();
         let a = create(
             &conn,
@@ -617,14 +639,47 @@ mod tests {
         .unwrap();
 
         delete(&conn, &kr, &a.id).unwrap();
+
+        // Soft-delete: the row stays so `generation_task.account_id` FKs
+        // can still resolve, but it disappears from the public read paths.
         assert!(matches!(
             queries::get_by_id(&conn, &a.id),
             Err(CoreError::NotFound { .. })
         ));
+        let deleted_at: Option<String> = conn
+            .query_row(
+                "SELECT deleted_at FROM api_account WHERE id = ?1",
+                params![a.id],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert!(deleted_at.is_some(), "row must remain with deleted_at set");
+
         assert!(kr.fetch(&a.id).is_err());
         // The legacy `:oss_secret` key was never written for combined-format
         // accounts, but `delete` still cleans it up best-effort.
         assert!(kr.fetch(&oss_secret_storage_id(&a.id)).is_err());
+    }
+
+    #[test]
+    fn delete_on_already_tombstoned_row_returns_not_found() {
+        let (conn, kr, pid) = setup();
+        let a = create(
+            &conn,
+            &kr,
+            CreateApiAccountInput {
+                provider_id: pid,
+                label: "x".into(),
+                api_key: "k".into(),
+                oss: None,
+            },
+        )
+        .unwrap();
+        delete(&conn, &kr, &a.id).unwrap();
+        assert!(matches!(
+            delete(&conn, &kr, &a.id),
+            Err(CoreError::NotFound { .. })
+        ));
     }
 
     #[test]

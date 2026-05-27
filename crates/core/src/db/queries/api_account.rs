@@ -52,9 +52,15 @@ fn parse_oss_config(json: &str) -> Option<OssConfigPublic> {
     })
 }
 
+/// All read paths filter `deleted_at IS NULL`: a soft-deleted account is
+/// gone from the user's perspective even though the row stays in the DB to
+/// preserve FK integrity for `generation_task.account_id`.
 pub fn get_by_id(conn: &Connection, id: &str) -> Result<ApiAccount> {
     conn.query_row(
-        &format!("SELECT {SELECT_COLUMNS} FROM api_account WHERE id = ?1"),
+        &format!(
+            "SELECT {SELECT_COLUMNS} FROM api_account \
+             WHERE id = ?1 AND deleted_at IS NULL"
+        ),
         params![id],
         map_row,
     )
@@ -72,7 +78,7 @@ pub fn get_by_id(conn: &Connection, id: &str) -> Result<ApiAccount> {
 /// callers needing only the raw JSON must not pay for the public projection.
 pub fn get_params_json(conn: &Connection, id: &str) -> Result<String> {
     conn.query_row(
-        "SELECT params_json FROM api_account WHERE id = ?1",
+        "SELECT params_json FROM api_account WHERE id = ?1 AND deleted_at IS NULL",
         params![id],
         |r| r.get::<_, String>(0),
     )
@@ -89,19 +95,34 @@ pub fn list(conn: &Connection, provider_id: Option<String>) -> Result<Vec<ApiAcc
     if let Some(pid) = provider_id {
         let mut stmt = conn.prepare(&format!(
             "SELECT {SELECT_COLUMNS} FROM api_account \
-             WHERE provider_id = ?1 ORDER BY created_at DESC"
+             WHERE provider_id = ?1 AND deleted_at IS NULL \
+             ORDER BY created_at DESC"
         ))?;
         let rows = stmt.query_map(params![pid], map_row)?;
         rows.collect::<std::result::Result<Vec<_>, _>>()
             .map_err(CoreError::from)
     } else {
         let mut stmt = conn.prepare(&format!(
-            "SELECT {SELECT_COLUMNS} FROM api_account ORDER BY created_at DESC"
+            "SELECT {SELECT_COLUMNS} FROM api_account \
+             WHERE deleted_at IS NULL ORDER BY created_at DESC"
         ))?;
         let rows = stmt.query_map([], map_row)?;
         rows.collect::<std::result::Result<Vec<_>, _>>()
             .map_err(CoreError::from)
     }
+}
+
+/// Soft-delete: set `deleted_at = datetime('now')`. The row stays so existing
+/// `generation_task.account_id` FKs still resolve. Returns `Ok(true)` if a
+/// live row was tombstoned, `Ok(false)` if no live row matched (already
+/// deleted or never existed) — callers translate that into `NotFound`.
+pub fn mark_deleted(conn: &Connection, id: &str) -> Result<bool> {
+    let n = conn.execute(
+        "UPDATE api_account SET deleted_at = datetime('now') \
+         WHERE id = ?1 AND deleted_at IS NULL",
+        params![id],
+    )?;
+    Ok(n > 0)
 }
 
 #[cfg(test)]
@@ -172,6 +193,43 @@ mod tests {
         insert_raw(&conn, "a1", "p1", "1234");
         let a = get_by_id(&conn, "a1").unwrap();
         assert!(a.oss_config.is_none());
+    }
+
+    #[test]
+    fn mark_deleted_hides_row_from_list_and_get_by_id() {
+        let conn = conn_with_provider();
+        insert_raw(&conn, "live", "p1", "1111");
+        insert_raw(&conn, "gone", "p1", "2222");
+
+        let did_delete = mark_deleted(&conn, "gone").unwrap();
+        assert!(did_delete);
+
+        let listed = list(&conn, None).unwrap();
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].id, "live");
+
+        assert!(matches!(
+            get_by_id(&conn, "gone"),
+            Err(CoreError::NotFound { .. })
+        ));
+        // The row itself stays so `generation_task.account_id` FKs survive.
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM api_account WHERE id = 'gone'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn mark_deleted_returns_false_when_already_tombstoned_or_missing() {
+        let conn = conn_with_provider();
+        insert_raw(&conn, "a1", "p1", "1234");
+        assert!(mark_deleted(&conn, "a1").unwrap());
+        assert!(!mark_deleted(&conn, "a1").unwrap());
+        assert!(!mark_deleted(&conn, "never-existed").unwrap());
     }
 
     #[test]

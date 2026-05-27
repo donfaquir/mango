@@ -296,9 +296,11 @@ pub fn create(
 }
 
 pub fn delete(conn: &Connection, keyring: &dyn KeyringStore, id: &str) -> Result<()> {
-    // 先删 DB，再删 keyring；keyring 删除失败仅 warn
-    let n = conn.execute("DELETE FROM api_account WHERE id = ?1", params![id])?;
-    if n == 0 {
+    // 软删除：先 tombstone DB 行（保留 generation_task FK 完整性），再删 keyring；
+    // keyring 失败仅 warn。MS2 落地任务表后改为软删除——硬删会撞 FK，CASCADE 又会
+    // 销毁刚做的诊断事件流。详见 migration 007_add_api_account_deleted_at.sql。
+    let tombstoned = queries::mark_deleted(conn, id)?;
+    if !tombstoned {
         return Err(CoreError::NotFound { entity: "api_account", id: id.to_string() });
     }
     if let Err(e) = keyring.remove(id) {

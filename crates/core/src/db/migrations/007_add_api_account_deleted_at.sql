@@ -1,0 +1,13 @@
+-- Soft-delete tombstone for api_account.
+--
+-- Why a column rather than a separate trash table: existing rows in
+-- generation_task hold a NOT NULL FK to api_account(id). Hard-deleting an
+-- account either fails (current ON DELETE RESTRICT) or destroys task history
+-- and the diagnostic events introduced in migration 006. A nullable
+-- `deleted_at` lets the row stay (preserving FK integrity and historical
+-- attribution) while disappearing from list/get queries and being rejected
+-- by resolve_credentials so no new task can pin it.
+--
+-- The column is intentionally NOT exposed through queries::api_account's
+-- public projection — it's an internal liveness flag, not a UI concept.
+ALTER TABLE api_account ADD COLUMN deleted_at TEXT;
