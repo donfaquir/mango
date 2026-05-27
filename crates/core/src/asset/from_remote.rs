@@ -101,19 +101,24 @@ pub async fn download_to_asset(
     // Write file (blocking IO, but the file is typically small <100MB).
     std::fs::write(&dest, &bytes)?;
 
-    // 3) Generate thumbnail for images.
-    let thumb_relative = if asset_type == "image" {
+    // 3) Generate thumbnail for images. The thumbnail helper also returns
+    // the source dimensions so we can persist `{width, height}` into
+    // metadata_json — the asset library uses this for layout hints.
+    let (thumb_relative, metadata_json) = if asset_type == "image" {
         let thumb_name = format!("{asset_id}_thumb.webp");
         let thumb_dest = paths::thumbnails_dir(&project_root).join(&thumb_name);
         match thumbnail::generate_with_metadata(&dest, &thumb_dest) {
-            Ok(_) => Some(format!("{}/{thumb_name}", paths::THUMBNAILS_SUBDIR)),
+            Ok((w, h)) => (
+                Some(format!("{}/{thumb_name}", paths::THUMBNAILS_SUBDIR)),
+                Some(serde_json::json!({ "width": w, "height": h }).to_string()),
+            ),
             Err(e) => {
                 tracing::warn!("thumbnail for remote result failed: {e}");
-                None
+                (None, None)
             }
         }
     } else {
-        None
+        (None, None)
     };
 
     // 4) INSERT asset row.
@@ -124,6 +129,7 @@ pub async fn download_to_asset(
     let insert_file_rel = file_relative;
     let insert_thumb = thumb_relative;
     let insert_size = file_size;
+    let insert_meta = metadata_json;
     let original_name = format!("generated.{ext}");
 
     let asset: Asset = db
@@ -131,8 +137,8 @@ pub async fn download_to_asset(
             let insert_result = conn.execute(
                 "INSERT INTO asset \
                     (id, project_id, shot_id, asset_type, original_name, \
-                     file_path, thumbnail_path, file_size, content_hash, metadata_json) \
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, NULL, NULL)",
+                     file_path, thumbnail_path, file_size, content_hash, metadata_json, source) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, NULL, ?9, 'generated')",
                 params![
                     insert_id,
                     insert_pid,
@@ -142,6 +148,7 @@ pub async fn download_to_asset(
                     insert_file_rel,
                     insert_thumb,
                     insert_size,
+                    insert_meta,
                 ],
             );
             match insert_result {

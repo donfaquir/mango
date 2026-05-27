@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Eye } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { TaskStatusBadge } from "./TaskStatusBadge";
 import { ResultPreviewDialog } from "./ResultPreviewDialog";
@@ -8,6 +9,9 @@ import {
   useRetryTask,
   useTaskEvents,
 } from "@/hooks/useTasks";
+import { useAsset } from "@/hooks/useAssets";
+import { useResolvedAssetUrl } from "@/hooks/useResolvedAssetUrl";
+import { useProject } from "@/hooks/useProjects";
 import type { GenerationTask, GenerationTaskEvent } from "@/lib/bindings/commands";
 
 interface TaskCardProps {
@@ -60,6 +64,17 @@ export function TaskCard({ task, projectId }: TaskCardProps) {
   const eventsQuery = useTaskEvents(eventsEnabled ? task.id : undefined);
   const latestStep = pickLatestInfoEvent(eventsQuery.data);
 
+  // Fetch asset for inline thumbnail on successful tasks
+  const { data: asset } = useAsset(
+    task.status === "success" ? task.result_asset_id : undefined,
+  );
+  const project = useProject(projectId);
+  const thumbnailRelPath = asset?.thumbnail_path ?? asset?.file_path ?? null;
+  const thumbnailUrl = useResolvedAssetUrl(
+    project.data?.root_path,
+    thumbnailRelPath,
+  );
+
   const isTerminal = ["success", "failed", "cancelled"].includes(task.status);
   const prompt = getPrompt(task.params_json);
 
@@ -70,10 +85,25 @@ export function TaskCard({ task, projectId }: TaskCardProps) {
           {task.status === "success" && task.result_asset_id ? (
             <button
               type="button"
-              className="flex h-full w-full items-center justify-center text-xs text-green-600"
+              className="relative h-full w-full group"
               onClick={() => setPreviewOpen(true)}
             >
-              点击预览
+              {thumbnailUrl ? (
+                <>
+                  <img
+                    src={thumbnailUrl}
+                    alt=""
+                    className="h-full w-full object-cover"
+                  />
+                  <div className="absolute inset-0 flex items-center justify-center bg-black/0 group-hover:bg-black/30 transition-colors">
+                    <Eye className="size-5 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
+                  </div>
+                </>
+              ) : (
+                <div className="flex h-full w-full items-center justify-center text-xs text-green-600">
+                  预览
+                </div>
+              )}
             </button>
           ) : (
             <div className="flex h-full w-full items-center justify-center text-xs text-muted-foreground">

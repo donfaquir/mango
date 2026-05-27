@@ -34,6 +34,7 @@ fn make_builder() -> Builder<tauri::Wry> {
             commands::asset::import_asset,
             commands::asset::list_assets,
             commands::asset::register_project_asset_scope,
+            commands::asset::update_asset_label,
             commands::character::create_character,
             commands::character::delete_character,
             commands::character::get_character,

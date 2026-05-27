@@ -31,6 +31,39 @@ impl AssetType {
     }
 }
 
+/// Provenance of an asset row. `Imported` covers user drag-drop / file picker
+/// flows; `Generated` covers artifacts written back by the runner after a
+/// successful generation_task.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "lowercase")]
+pub enum AssetSource {
+    Imported,
+    Generated,
+}
+
+impl AssetSource {
+    pub fn as_db_str(&self) -> &'static str {
+        match self {
+            AssetSource::Imported => "imported",
+            AssetSource::Generated => "generated",
+        }
+    }
+
+    pub fn from_db_str(s: &str) -> Option<Self> {
+        match s {
+            "imported" => Some(AssetSource::Imported),
+            "generated" => Some(AssetSource::Generated),
+            _ => None,
+        }
+    }
+}
+
+impl Default for AssetSource {
+    fn default() -> Self {
+        AssetSource::Imported
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 pub struct Asset {
     pub id: String,
@@ -46,6 +79,9 @@ pub struct Asset {
     pub file_size: i64,
     pub content_hash: Option<String>,
     pub metadata_json: Option<String>,
+    pub source: AssetSource,
+    /// Free-form user classification tag. Empty string when unset.
+    pub label: String,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -59,6 +95,10 @@ pub struct ImportAssetInput {
     /// Empty strings are normalised to None.
     #[serde(default)]
     pub shot_id: Option<String>,
+    /// Defaults to `Imported`. Callers running the AI generation pipeline
+    /// override this to `Generated` so library filters can split the two.
+    #[serde(default)]
+    pub source: AssetSource,
 }
 
 #[derive(Debug, Deserialize, Type)]
@@ -66,6 +106,13 @@ pub struct ListAssetsOptions {
     pub project_id: String,
     #[serde(default)]
     pub asset_type: Option<AssetType>,
+    /// Optional provenance filter (imported / generated). `None` means "any".
+    #[serde(default)]
+    pub source: Option<AssetSource>,
+    /// Optional case-insensitive substring match against `original_name`
+    /// or `label`. Empty / whitespace-only strings are treated as `None`.
+    #[serde(default)]
+    pub keyword: Option<String>,
     #[serde(default)]
     #[specta(type = Option<specta_typescript::Number>)]
     pub limit: Option<i64>,

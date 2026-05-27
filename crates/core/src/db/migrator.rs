@@ -51,6 +51,11 @@ const MIGRATIONS: &[Migration] = &[
         name: "add_api_account_deleted_at",
         sql: include_str!("migrations/007_add_api_account_deleted_at.sql"),
     },
+    Migration {
+        version: 8,
+        name: "asset_source_label",
+        sql: include_str!("migrations/008_asset_source_label.sql"),
+    },
 ];
 
 /// Execute all pending migrations. Each migration runs in its own transaction.

@@ -1,11 +1,12 @@
+use rusqlite::types::ToSql;
 use rusqlite::{params, Connection};
 
 use crate::error::{CoreError, Result};
-use crate::models::asset::{Asset, AssetType, ListAssetsOptions};
+use crate::models::asset::{Asset, AssetSource, AssetType, ListAssetsOptions};
 
 const SELECT_COLUMNS: &str = "id, project_id, shot_id, asset_type, original_name, \
                               file_path, thumbnail_path, file_size, content_hash, \
-                              metadata_json, created_at, updated_at";
+                              metadata_json, source, label, created_at, updated_at";
 
 fn map_row(row: &rusqlite::Row) -> rusqlite::Result<Asset> {
     let type_str: String = row.get(3)?;
@@ -14,6 +15,14 @@ fn map_row(row: &rusqlite::Row) -> rusqlite::Result<Asset> {
             3,
             rusqlite::types::Type::Text,
             format!("unknown asset_type: {type_str}").into(),
+        )
+    })?;
+    let source_str: String = row.get(10)?;
+    let source = AssetSource::from_db_str(&source_str).ok_or_else(|| {
+        rusqlite::Error::FromSqlConversionFailure(
+            10,
+            rusqlite::types::Type::Text,
+            format!("unknown asset source: {source_str}").into(),
         )
     })?;
     Ok(Asset {
@@ -27,8 +36,10 @@ fn map_row(row: &rusqlite::Row) -> rusqlite::Result<Asset> {
         file_size: row.get(7)?,
         content_hash: row.get(8)?,
         metadata_json: row.get(9)?,
-        created_at: row.get(10)?,
-        updated_at: row.get(11)?,
+        source,
+        label: row.get(11)?,
+        created_at: row.get(12)?,
+        updated_at: row.get(13)?,
     })
 }
 
@@ -51,28 +62,61 @@ pub fn list(conn: &Connection, opts: ListAssetsOptions) -> Result<Vec<Asset>> {
     let limit = opts.limit.unwrap_or(50).clamp(1, 200);
     let offset = opts.offset.unwrap_or(0).max(0);
 
+    // Build the WHERE clause dynamically so callers can combine any subset
+    // of (asset_type, source, keyword) without us needing a separate query
+    // per shape. Bind values are pushed in lockstep with their `?N` markers.
+    let mut sql = format!("SELECT {SELECT_COLUMNS} FROM asset WHERE project_id = ?1");
+    let mut args: Vec<Box<dyn ToSql>> = vec![Box::new(opts.project_id.clone())];
+
     if let Some(t) = opts.asset_type {
-        let mut stmt = conn.prepare(&format!(
-            "SELECT {SELECT_COLUMNS} FROM asset \
-             WHERE project_id = ?1 AND asset_type = ?2 \
-             ORDER BY created_at DESC LIMIT ?3 OFFSET ?4"
-        ))?;
-        let rows = stmt.query_map(
-            params![opts.project_id, t.as_db_str(), limit, offset],
-            map_row,
-        )?;
-        rows.collect::<std::result::Result<Vec<_>, _>>()
-            .map_err(CoreError::from)
-    } else {
-        let mut stmt = conn.prepare(&format!(
-            "SELECT {SELECT_COLUMNS} FROM asset \
-             WHERE project_id = ?1 \
-             ORDER BY created_at DESC LIMIT ?2 OFFSET ?3"
-        ))?;
-        let rows = stmt.query_map(params![opts.project_id, limit, offset], map_row)?;
-        rows.collect::<std::result::Result<Vec<_>, _>>()
-            .map_err(CoreError::from)
+        args.push(Box::new(t.as_db_str().to_string()));
+        sql.push_str(&format!(" AND asset_type = ?{}", args.len()));
     }
+    if let Some(s) = opts.source {
+        args.push(Box::new(s.as_db_str().to_string()));
+        sql.push_str(&format!(" AND source = ?{}", args.len()));
+    }
+    if let Some(kw) = opts.keyword.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        // SQLite LIKE is case-insensitive only for ASCII by default, which is
+        // fine for our filenames + labels. Wrap the user input in `%` and
+        // bind a single value reused for both columns.
+        let pattern = format!("%{kw}%");
+        args.push(Box::new(pattern));
+        let n = args.len();
+        sql.push_str(&format!(
+            " AND (original_name LIKE ?{n} OR label LIKE ?{n})"
+        ));
+    }
+
+    args.push(Box::new(limit));
+    let limit_idx = args.len();
+    args.push(Box::new(offset));
+    let offset_idx = args.len();
+    sql.push_str(&format!(
+        " ORDER BY created_at DESC LIMIT ?{limit_idx} OFFSET ?{offset_idx}"
+    ));
+
+    let mut stmt = conn.prepare(&sql)?;
+    let param_refs: Vec<&dyn ToSql> = args.iter().map(|b| b.as_ref()).collect();
+    let rows = stmt.query_map(param_refs.as_slice(), map_row)?;
+    rows.collect::<std::result::Result<Vec<_>, _>>()
+        .map_err(CoreError::from)
+}
+
+/// Update the free-form `label` of an asset. Bumps `updated_at` so library
+/// listings re-sort accordingly.
+pub fn update_label(conn: &Connection, id: &str, label: &str) -> Result<()> {
+    let n = conn.execute(
+        "UPDATE asset SET label = ?1, updated_at = datetime('now') WHERE id = ?2",
+        params![label, id],
+    )?;
+    if n == 0 {
+        return Err(CoreError::NotFound {
+            entity: "asset",
+            id: id.to_string(),
+        });
+    }
+    Ok(())
 }
 
 pub fn delete(conn: &Connection, id: &str) -> Result<()> {
@@ -211,6 +255,8 @@ mod tests {
             ListAssetsOptions {
                 project_id: pid_a.clone(),
                 asset_type: None,
+                source: None,
+                keyword: None,
                 limit: None,
                 offset: None,
             },
@@ -223,6 +269,8 @@ mod tests {
             ListAssetsOptions {
                 project_id: pid_a,
                 asset_type: Some(AssetType::Image),
+                source: None,
+                keyword: None,
                 limit: None,
                 offset: None,
             },
@@ -345,5 +393,133 @@ mod tests {
 
         let miss = find_by_content_hash(&conn, &pid_a, "no-such-hash").unwrap();
         assert!(miss.is_none());
+    }
+
+    fn insert_full(
+        conn: &Connection,
+        project_id: &str,
+        asset_type: &str,
+        original_name: &str,
+        source: &str,
+        label: &str,
+    ) -> String {
+        let id = uuid::Uuid::new_v4().to_string();
+        conn.execute(
+            "INSERT INTO asset \
+                (id, project_id, asset_type, original_name, file_path, file_size, source, label) \
+             VALUES (?1, ?2, ?3, ?4, 'assets/x', 0, ?5, ?6)",
+            params![id, project_id, asset_type, original_name, source, label],
+        )
+        .unwrap();
+        id
+    }
+
+    #[test]
+    fn list_filters_by_source() {
+        let (conn, _td, pid) = setup();
+        insert_full(&conn, &pid, "image", "a.png", "imported", "");
+        insert_full(&conn, &pid, "image", "b.png", "generated", "");
+        insert_full(&conn, &pid, "image", "c.png", "generated", "");
+
+        let imported = list(
+            &conn,
+            ListAssetsOptions {
+                project_id: pid.clone(),
+                asset_type: None,
+                source: Some(AssetSource::Imported),
+                keyword: None,
+                limit: None,
+                offset: None,
+            },
+        )
+        .unwrap();
+        assert_eq!(imported.len(), 1);
+        assert!(imported.iter().all(|a| matches!(a.source, AssetSource::Imported)));
+
+        let generated = list(
+            &conn,
+            ListAssetsOptions {
+                project_id: pid,
+                asset_type: None,
+                source: Some(AssetSource::Generated),
+                keyword: None,
+                limit: None,
+                offset: None,
+            },
+        )
+        .unwrap();
+        assert_eq!(generated.len(), 2);
+    }
+
+    #[test]
+    fn list_filters_by_keyword_against_name_and_label() {
+        let (conn, _td, pid) = setup();
+        insert_full(&conn, &pid, "image", "sunset.png", "imported", "");
+        insert_full(&conn, &pid, "image", "forest.png", "imported", "hero");
+        insert_full(&conn, &pid, "image", "misc.png", "imported", "");
+
+        let by_name = list(
+            &conn,
+            ListAssetsOptions {
+                project_id: pid.clone(),
+                asset_type: None,
+                source: None,
+                keyword: Some("sun".into()),
+                limit: None,
+                offset: None,
+            },
+        )
+        .unwrap();
+        assert_eq!(by_name.len(), 1);
+        assert_eq!(by_name[0].original_name, "sunset.png");
+
+        let by_label = list(
+            &conn,
+            ListAssetsOptions {
+                project_id: pid.clone(),
+                asset_type: None,
+                source: None,
+                keyword: Some("hero".into()),
+                limit: None,
+                offset: None,
+            },
+        )
+        .unwrap();
+        assert_eq!(by_label.len(), 1);
+        assert_eq!(by_label[0].label, "hero");
+
+        // Whitespace-only keyword is treated as no filter.
+        let no_filter = list(
+            &conn,
+            ListAssetsOptions {
+                project_id: pid,
+                asset_type: None,
+                source: None,
+                keyword: Some("   ".into()),
+                limit: None,
+                offset: None,
+            },
+        )
+        .unwrap();
+        assert_eq!(no_filter.len(), 3);
+    }
+
+    #[test]
+    fn update_label_persists_value() {
+        let (conn, _td, pid) = setup();
+        let id = insert_full(&conn, &pid, "image", "a.png", "imported", "");
+
+        update_label(&conn, &id, "hero").unwrap();
+        let row = get_by_id(&conn, &id).unwrap();
+        assert_eq!(row.label, "hero");
+    }
+
+    #[test]
+    fn update_label_missing_returns_not_found() {
+        let (conn, _td, _pid) = setup();
+        assert!(matches!(
+            update_label(&conn, "no-such", "x"),
+            Err(CoreError::NotFound { .. })
+        ));
     }
 }

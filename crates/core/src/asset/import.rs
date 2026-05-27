@@ -10,7 +10,7 @@ use uuid::Uuid;
 use crate::asset::thumbnail;
 use crate::db::queries::asset as queries;
 use crate::error::{CoreError, Result};
-use crate::models::asset::{Asset, ImportAssetInput};
+use crate::models::asset::{Asset, AssetSource, ImportAssetInput};
 use crate::paths;
 
 pub const MAX_FILE_SIZE_BYTES: u64 = 50 * 1024 * 1024;
@@ -130,6 +130,7 @@ pub fn persist_artifacts(
     shot_id: Option<&str>,
     project_root: &Path,
     artifacts: ImportArtifacts,
+    source: AssetSource,
 ) -> Result<Asset> {
     if let Some(existing) =
         queries::find_by_content_hash(conn, project_id, &artifacts.content_hash)?
@@ -145,8 +146,8 @@ pub fn persist_artifacts(
     conn.execute(
         "INSERT INTO asset \
             (id, project_id, shot_id, asset_type, original_name, \
-             file_path, thumbnail_path, file_size, content_hash, metadata_json) \
-         VALUES (?1, ?2, ?3, 'image', ?4, ?5, ?6, ?7, ?8, ?9)",
+             file_path, thumbnail_path, file_size, content_hash, metadata_json, source) \
+         VALUES (?1, ?2, ?3, 'image', ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
         params![
             artifacts.asset_id,
             project_id,
@@ -157,6 +158,7 @@ pub fn persist_artifacts(
             artifacts.file_size,
             artifacts.content_hash,
             artifacts.metadata_json,
+            source.as_db_str(),
         ],
     )?;
 
@@ -170,7 +172,14 @@ pub fn import(conn: &Connection, input: ImportAssetInput) -> Result<Asset> {
     let project_root = resolve_project_root(conn, &input.project_id)?;
     let artifacts = prepare_artifacts(&project_root, &input.source_path)?;
     let shot_id = trim_shot_id(input.shot_id.as_deref());
-    persist_artifacts(conn, &input.project_id, shot_id, &project_root, artifacts)
+    persist_artifacts(
+        conn,
+        &input.project_id,
+        shot_id,
+        &project_root,
+        artifacts,
+        input.source,
+    )
 }
 
 /// Normalise an optional shot_id coming over the IPC boundary: front-end
@@ -343,6 +352,7 @@ mod tests {
                 project_id: pid.clone(),
                 source_path: src.to_str().unwrap().to_string(),
                 shot_id: None,
+                source: AssetSource::Imported,
             },
         )
         .unwrap();
@@ -352,6 +362,7 @@ mod tests {
                 project_id: pid.clone(),
                 source_path: src.to_str().unwrap().to_string(),
                 shot_id: None,
+                source: AssetSource::Imported,
             },
         )
         .unwrap();
@@ -374,6 +385,7 @@ mod tests {
                 project_id: pid,
                 source_path: src.to_str().unwrap().to_string(),
                 shot_id: Some("   ".into()),
+                source: AssetSource::Imported,
             },
         )
         .unwrap();
@@ -389,6 +401,7 @@ mod tests {
                 project_id: "no-such".into(),
                 source_path: "/tmp/whatever.png".into(),
                 shot_id: None,
+                source: AssetSource::Imported,
             },
         );
         assert!(matches!(r, Err(CoreError::NotFound { .. })));

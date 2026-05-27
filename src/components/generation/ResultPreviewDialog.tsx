@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { useAsset } from "@/hooks/useAssets";
 import { useResolvedAssetUrl } from "@/hooks/useResolvedAssetUrl";
 import { useProject } from "@/hooks/useProjects";
 import type { GenerationTask } from "@/lib/bindings/commands";
@@ -27,15 +28,12 @@ export function ResultPreviewDialog({
     // ignore
   }
 
-  // result_asset_id links to an asset; for preview we use the asset path
-  // Since GenerationTask doesn't carry result_asset_path directly, we use
-  // a convention: output is stored at assets/<result_asset_id>.<ext>
-  // For now, we'll resolve via the task's result_asset_id field
-  const resultPath = task.result_asset_id
-    ? `assets/${task.result_asset_id}.${task.task_type === "video" ? "mp4" : "png"}`
-    : null;
+  // Fetch the actual asset to get its real file_path (avoids hardcoded extensions)
+  const { data: asset } = useAsset(task.result_asset_id);
+  const url = useResolvedAssetUrl(project.data?.root_path, asset?.file_path ?? null);
 
-  const url = useResolvedAssetUrl(project.data?.root_path, resultPath);
+  // Determine media type from the asset rather than task_type for accuracy
+  const isVideo = asset?.asset_type === "video";
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
@@ -48,7 +46,7 @@ export function ResultPreviewDialog({
           <p className="p-6 text-center text-sm text-muted-foreground">
             加载中…
           </p>
-        ) : task.task_type === "image" ? (
+        ) : !isVideo ? (
           <img
             src={url}
             alt=""

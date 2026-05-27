@@ -45,6 +45,7 @@ pub async fn import_asset(
     // Stage 3 — dedupe check + INSERT (very short lock hold).
     let project_id_stage3 = input.project_id.clone();
     let shot_id_raw = input.shot_id.clone();
+    let source = input.source;
     let project_root_persist = project_root;
     with_db(&state, move |conn| {
         let shot = import_pipeline::trim_shot_id(shot_id_raw.as_deref());
@@ -54,6 +55,7 @@ pub async fn import_asset(
             shot,
             &project_root_persist,
             artifacts,
+            source,
         )
     })
     .await
@@ -97,6 +99,18 @@ pub async fn find_asset_by_path(
 #[specta::specta]
 pub async fn delete_asset(state: State<'_, AppState>, id: String) -> Result<(), IpcError> {
     with_db(&state, move |conn| asset_queries::delete(conn, &id)).await
+}
+
+/// Update the free-form `label` of an asset (e.g. user-applied tag in the
+/// asset library). An empty string clears the tag.
+#[tauri::command]
+#[specta::specta]
+pub async fn update_asset_label(
+    state: State<'_, AppState>,
+    id: String,
+    label: String,
+) -> Result<(), IpcError> {
+    with_db(&state, move |conn| asset_queries::update_label(conn, &id, &label)).await
 }
 
 /// Allow the asset protocol to read files under `project_root`. The webview

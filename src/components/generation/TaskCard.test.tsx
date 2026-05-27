@@ -16,7 +16,21 @@ vi.mock("@/lib/bindings/commands", () => ({
     cancelTask: vi.fn(() => Promise.resolve({ status: "ok", data: null })),
     getTask: vi.fn(),
     submitTask: vi.fn(),
+    getAsset: vi.fn(() => Promise.resolve({ status: "ok", data: null })),
+    getProject: vi.fn(() => Promise.resolve({ status: "ok", data: { id: "p1", root_path: "/tmp" } })),
   },
+}));
+
+vi.mock("@/hooks/useAssets", () => ({
+  useAsset: () => ({ data: undefined }),
+}));
+
+vi.mock("@/hooks/useResolvedAssetUrl", () => ({
+  useResolvedAssetUrl: () => null,
+}));
+
+vi.mock("@/hooks/useProjects", () => ({
+  useProject: () => ({ data: { id: "p1", root_path: "/tmp" } }),
 }));
 
 vi.mock("./ResultPreviewDialog", () => ({

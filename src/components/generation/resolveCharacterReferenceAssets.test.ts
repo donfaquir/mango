@@ -43,6 +43,8 @@ function makeAsset(id: string, filePath: string): Asset {
     file_size: 1024,
     content_hash: null,
     metadata_json: null,
+    source: "imported",
+    label: "",
     created_at: "2026-05-26 10:00:00",
     updated_at: "2026-05-26 10:00:00",
   };

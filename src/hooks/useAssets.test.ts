@@ -5,11 +5,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const listAssets = vi.fn();
 const importAsset = vi.fn();
+const updateAssetLabel = vi.fn();
 
 vi.mock("@/lib/bindings/commands", () => ({
   commands: {
     listAssets: (...args: unknown[]) => listAssets(...args),
     importAsset: (...args: unknown[]) => importAsset(...args),
+    updateAssetLabel: (...args: unknown[]) => updateAssetLabel(...args),
   },
 }));
 
@@ -35,6 +37,8 @@ const sampleAsset = {
   file_size: 0,
   content_hash: "h",
   metadata_json: null,
+  source: "imported" as const,
+  label: "",
   created_at: "",
   updated_at: "",
 };
@@ -58,6 +62,10 @@ describe("useAssetList", () => {
     expect(listAssets).toHaveBeenCalledWith({
       project_id: "p1",
       asset_type: "image",
+      source: null,
+      keyword: null,
+      limit: null,
+      offset: null,
     });
   });
 

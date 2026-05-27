@@ -42,6 +42,9 @@ export const commands = {
 	file_size: number,
 	content_hash: string | null,
 	metadata_json: string | null,
+	source: AssetSource,
+	/**  Free-form user classification tag. Empty string when unset. */
+	label: string,
 	created_at: string,
 	updated_at: string,
 } | null, IpcError_Serialize>(__TAURI_INVOKE("find_asset_by_path", { projectId, filePath })),
@@ -62,6 +65,11 @@ export const commands = {
 	 *  Safe to call repeatedly; `allow_directory` is idempotent.
 	 */
 	registerProjectAssetScope: (projectId: string) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("register_project_asset_scope", { projectId })),
+	/**
+	 *  Update the free-form `label` of an asset (e.g. user-applied tag in the
+	 *  asset library). An empty string clears the tag.
+	 */
+	updateAssetLabel: (id: string, label: string) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("update_asset_label", { id, label })),
 	createCharacter: (input: CreateCharacterInput) => typedError<Character, IpcError_Serialize>(__TAURI_INVOKE("create_character", { input })),
 	/**
 	 *  Delete a character. Schema `ON DELETE CASCADE` removes its costumes;
@@ -200,9 +208,19 @@ export type Asset = {
 	file_size: number,
 	content_hash: string | null,
 	metadata_json: string | null,
+	source: AssetSource,
+	/**  Free-form user classification tag. Empty string when unset. */
+	label: string,
 	created_at: string,
 	updated_at: string,
 };
+
+/**
+ *  Provenance of an asset row. `Imported` covers user drag-drop / file picker
+ *  flows; `Generated` covers artifacts written back by the runner after a
+ *  successful generation_task.
+ */
+export type AssetSource = "imported" | "generated";
 
 export type AssetType = "image" | "video" | "audio" | "script";
 
@@ -369,6 +387,11 @@ export type ImportAssetInput = {
 	 *  Empty strings are normalised to None.
 	 */
 	shot_id?: string | null,
+	/**
+	 *  Defaults to `Imported`. Callers running the AI generation pipeline
+	 *  override this to `Generated` so library filters can split the two.
+	 */
+	source?: AssetSource,
 };
 
 /**
@@ -419,6 +442,13 @@ export type IpcError_Serialize = {
 export type ListAssetsOptions = {
 	project_id: string,
 	asset_type?: AssetType | null,
+	/**  Optional provenance filter (imported / generated). `None` means "any". */
+	source?: AssetSource | null,
+	/**
+	 *  Optional case-insensitive substring match against `original_name`
+	 *  or `label`. Empty / whitespace-only strings are treated as `None`.
+	 */
+	keyword?: string | null,
 	limit?: number | null,
 	offset?: number | null,
 };
