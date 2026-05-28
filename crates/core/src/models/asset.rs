@@ -34,9 +34,10 @@ impl AssetType {
 /// Provenance of an asset row. `Imported` covers user drag-drop / file picker
 /// flows; `Generated` covers artifacts written back by the runner after a
 /// successful generation_task.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum AssetSource {
+    #[default]
     Imported,
     Generated,
 }
@@ -55,12 +56,6 @@ impl AssetSource {
             "generated" => Some(AssetSource::Generated),
             _ => None,
         }
-    }
-}
-
-impl Default for AssetSource {
-    fn default() -> Self {
-        AssetSource::Imported
     }
 }
 
