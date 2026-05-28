@@ -119,6 +119,29 @@ pub fn update_label(conn: &Connection, id: &str, label: &str) -> Result<()> {
     Ok(())
 }
 
+/// Bind (or unbind) an asset to a shot. `Some(shot_id)` overwrites any existing
+/// `asset.shot_id`; `None` clears it. The previous value is intentionally not
+/// returned here — callers that need overwrite confirmation should `get_by_id`
+/// first and compare. Returns the post-update row so the caller (and frontend
+/// cache) sees the canonical state in a single roundtrip.
+pub fn assign_to_shot(
+    conn: &Connection,
+    id: &str,
+    shot_id: Option<&str>,
+) -> Result<Asset> {
+    let n = conn.execute(
+        "UPDATE asset SET shot_id = ?1, updated_at = datetime('now') WHERE id = ?2",
+        params![shot_id, id],
+    )?;
+    if n == 0 {
+        return Err(CoreError::NotFound {
+            entity: "asset",
+            id: id.to_string(),
+        });
+    }
+    get_by_id(conn, id)
+}
+
 pub fn delete(conn: &Connection, id: &str) -> Result<()> {
     let n = conn.execute("DELETE FROM asset WHERE id = ?1", params![id])?;
     if n == 0 {
@@ -519,6 +542,71 @@ mod tests {
         let (conn, _td, _pid) = setup();
         assert!(matches!(
             update_label(&conn, "no-such", "x"),
+            Err(CoreError::NotFound { .. })
+        ));
+    }
+
+    fn insert_episode(conn: &Connection, project_id: &str) -> String {
+        let id = uuid::Uuid::new_v4().to_string();
+        conn.execute(
+            "INSERT INTO episode (id, project_id, title) VALUES (?1, ?2, 'ep')",
+            params![id, project_id],
+        )
+        .unwrap();
+        id
+    }
+
+    fn insert_shot(conn: &Connection, episode_id: &str) -> String {
+        let id = uuid::Uuid::new_v4().to_string();
+        conn.execute(
+            "INSERT INTO shot (id, episode_id) VALUES (?1, ?2)",
+            params![id, episode_id],
+        )
+        .unwrap();
+        id
+    }
+
+    #[test]
+    fn assign_to_shot_binds_when_empty() {
+        let (conn, _td, pid) = setup();
+        let asset = insert_raw(&conn, &pid, Some("h"), "image");
+        let eid = insert_episode(&conn, &pid);
+        let sid = insert_shot(&conn, &eid);
+
+        let updated = assign_to_shot(&conn, &asset, Some(&sid)).unwrap();
+        assert_eq!(updated.shot_id.as_deref(), Some(sid.as_str()));
+    }
+
+    #[test]
+    fn assign_to_shot_overwrites_existing_binding() {
+        let (conn, _td, pid) = setup();
+        let asset = insert_raw(&conn, &pid, Some("h"), "image");
+        let eid = insert_episode(&conn, &pid);
+        let sid_a = insert_shot(&conn, &eid);
+        let sid_b = insert_shot(&conn, &eid);
+
+        assign_to_shot(&conn, &asset, Some(&sid_a)).unwrap();
+        let updated = assign_to_shot(&conn, &asset, Some(&sid_b)).unwrap();
+        assert_eq!(updated.shot_id.as_deref(), Some(sid_b.as_str()));
+    }
+
+    #[test]
+    fn assign_to_shot_unbinds_with_none() {
+        let (conn, _td, pid) = setup();
+        let asset = insert_raw(&conn, &pid, Some("h"), "image");
+        let eid = insert_episode(&conn, &pid);
+        let sid = insert_shot(&conn, &eid);
+
+        assign_to_shot(&conn, &asset, Some(&sid)).unwrap();
+        let updated = assign_to_shot(&conn, &asset, None).unwrap();
+        assert!(updated.shot_id.is_none());
+    }
+
+    #[test]
+    fn assign_to_shot_returns_not_found_for_missing_asset() {
+        let (conn, _td, _pid) = setup();
+        assert!(matches!(
+            assign_to_shot(&conn, "no-such", None),
             Err(CoreError::NotFound { .. })
         ));
     }

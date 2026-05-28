@@ -92,6 +92,23 @@ export function useDeleteAsset(projectId: string) {
 }
 
 /**
+ * Bind (or unbind) an asset to a shot. Backed by `asset.shot_id` (a single-
+ * valued FK), so any prior binding is silently overwritten — UI callers are
+ * expected to confirm overwrites first. Pass `shotId: null` to unbind.
+ */
+export function useAssignAssetToShot() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, shotId }: { id: string; shotId: string | null }) =>
+      unwrap(commands.assignAssetToShot(id, shotId)),
+    onSuccess: (asset) => {
+      qc.invalidateQueries({ queryKey: ["assets", asset.project_id] });
+      qc.invalidateQueries({ queryKey: assetKeys.detail(asset.id) });
+    },
+  });
+}
+
+/**
  * Register the project's root directory with the asset-protocol scope so
  * `convertFileSrc` URLs from the webview resolve. Idempotent on the Rust
  * side; safe to call on every project mount.

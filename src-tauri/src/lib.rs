@@ -28,6 +28,7 @@ fn make_builder() -> Builder<tauri::Wry> {
             commands::account::list_api_accounts,
             commands::account::update_api_account,
             commands::account::verify_api_account_storage,
+            commands::asset::assign_asset_to_shot,
             commands::asset::delete_asset,
             commands::asset::find_asset_by_path,
             commands::asset::get_asset,

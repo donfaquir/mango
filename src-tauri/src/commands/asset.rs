@@ -113,6 +113,24 @@ pub async fn update_asset_label(
     with_db(&state, move |conn| asset_queries::update_label(conn, &id, &label)).await
 }
 
+/// Bind (or unbind) an asset to a shot. `Some(shot_id)` overwrites the prior
+/// binding silently — UI surfaces (e.g. canvas drag-to-shot) are expected to
+/// confirm overwrites themselves before calling. `None` clears the binding.
+/// Returns the post-update row so the caller's cache can refresh in a single
+/// roundtrip.
+#[tauri::command]
+#[specta::specta]
+pub async fn assign_asset_to_shot(
+    state: State<'_, AppState>,
+    id: String,
+    shot_id: Option<String>,
+) -> Result<Asset, IpcError> {
+    with_db(&state, move |conn| {
+        asset_queries::assign_to_shot(conn, &id, shot_id.as_deref())
+    })
+    .await
+}
+
 /// Allow the asset protocol to read files under `project_root`. The webview
 /// needs this before `convertFileSrc(<absolute path>)` URLs can resolve.
 /// Safe to call repeatedly; `allow_directory` is idempotent.

@@ -17,6 +17,14 @@ export const commands = {
 	 */
 	verifyApiAccountStorage: (id: string) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("verify_api_account_storage", { id })),
 	/**
+	 *  Bind (or unbind) an asset to a shot. `Some(shot_id)` overwrites the prior
+	 *  binding silently — UI surfaces (e.g. canvas drag-to-shot) are expected to
+	 *  confirm overwrites themselves before calling. `None` clears the binding.
+	 *  Returns the post-update row so the caller's cache can refresh in a single
+	 *  roundtrip.
+	 */
+	assignAssetToShot: (id: string, shotId: string | null) => typedError<Asset, IpcError_Serialize>(__TAURI_INVOKE("assign_asset_to_shot", { id, shotId })),
+	/**
 	 *  Delete an asset row. Files on disk are intentionally not removed; a future
 	 *  GC sweep (V2) reconciles orphaned files. See spec-12 §"错误场景".
 	 */

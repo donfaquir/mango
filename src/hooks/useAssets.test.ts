@@ -6,16 +6,22 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const listAssets = vi.fn();
 const importAsset = vi.fn();
 const updateAssetLabel = vi.fn();
+const assignAssetToShot = vi.fn();
 
 vi.mock("@/lib/bindings/commands", () => ({
   commands: {
     listAssets: (...args: unknown[]) => listAssets(...args),
     importAsset: (...args: unknown[]) => importAsset(...args),
     updateAssetLabel: (...args: unknown[]) => updateAssetLabel(...args),
+    assignAssetToShot: (...args: unknown[]) => assignAssetToShot(...args),
   },
 }));
 
-import { useAssetList, useImportAsset } from "./useAssets";
+import {
+  useAssetList,
+  useAssignAssetToShot,
+  useImportAsset,
+} from "./useAssets";
 
 function makeWrapper() {
   const queryClient = new QueryClient({
@@ -100,5 +106,37 @@ describe("useImportAsset", () => {
     const p2 = queryClient.getQueryState(["assets", "p2", "all"]);
     expect(p1?.isInvalidated).toBe(true);
     expect(p2?.isInvalidated).toBe(false);
+  });
+});
+
+describe("useAssignAssetToShot", () => {
+  beforeEach(() => {
+    assignAssetToShot.mockReset();
+  });
+
+  it("forwards id + shotId to the command and invalidates affected caches", async () => {
+    const updated = { ...sampleAsset, shot_id: "s1" };
+    assignAssetToShot.mockResolvedValueOnce({ status: "ok", data: updated });
+    const { queryClient, wrapper } = makeWrapper();
+
+    queryClient.setQueryData(["assets", "p1", "all"], [sampleAsset]);
+    queryClient.setQueryData(["asset", "a1"], sampleAsset);
+
+    const { result } = renderHook(() => useAssignAssetToShot(), { wrapper });
+    const out = await result.current.mutateAsync({ id: "a1", shotId: "s1" });
+
+    expect(assignAssetToShot).toHaveBeenCalledWith("a1", "s1");
+    expect(out.shot_id).toBe("s1");
+    expect(queryClient.getQueryState(["assets", "p1", "all"])?.isInvalidated)
+      .toBe(true);
+    expect(queryClient.getQueryState(["asset", "a1"])?.isInvalidated).toBe(true);
+  });
+
+  it("passes null to unbind", async () => {
+    assignAssetToShot.mockResolvedValueOnce({ status: "ok", data: sampleAsset });
+    const { wrapper } = makeWrapper();
+    const { result } = renderHook(() => useAssignAssetToShot(), { wrapper });
+    await result.current.mutateAsync({ id: "a1", shotId: null });
+    expect(assignAssetToShot).toHaveBeenCalledWith("a1", null);
   });
 });
