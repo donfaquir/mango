@@ -1,4 +1,5 @@
 import { useCallback, useState } from "react";
+import { useParams } from "react-router-dom";
 import { useShallow } from "zustand/react/shallow";
 import {
   Background,
@@ -8,11 +9,14 @@ import {
   useReactFlow,
   type Edge,
   type Viewport,
+  type XYPosition,
 } from "@xyflow/react";
 import { useCanvasStore } from "@/stores/canvasStore";
+import { useProject } from "@/hooks/useProjects";
 import { useAutoSaveLayout } from "./persistence/useAutoSave";
 import { edgeTypes } from "./edgeTypes";
 import { nodeTypes } from "./nodeTypes";
+import { createAssetNode } from "./nodeFactory";
 import {
   PaneContextMenu,
   type PaneMenuState,
@@ -21,6 +25,14 @@ import {
   EdgeContextMenu,
   type EdgeContextMenuState,
 } from "./edges/EdgeContextMenu";
+import { AssetDrawer } from "./drag/AssetDrawer";
+import { DropTargetOverlay } from "./drag/DropTargetOverlay";
+import { useInternalAssetDrop } from "./drag/useInternalAssetDrop";
+import { useSystemFileDrop } from "./drag/useSystemFileDrop";
+import {
+  BindAssetToShotDialog,
+  type BindAssetToShotRequest,
+} from "./drag/BindAssetToShotDialog";
 
 interface Props {
   episodeId: string;
@@ -28,7 +40,11 @@ interface Props {
 }
 
 export function CanvasInner({ episodeId, initialViewport }: Props) {
-  const { nodes, edges, onNodesChange, onEdgesChange, onConnect, setViewport } =
+  const { projectId } = useParams<{ projectId: string }>();
+  const { data: project } = useProject(projectId);
+  const projectRoot = project?.root_path;
+
+  const { nodes, edges, onNodesChange, onEdgesChange, onConnect, setViewport, addNode } =
     useCanvasStore(
       useShallow((s) => ({
         nodes: s.nodes,
@@ -37,6 +53,7 @@ export function CanvasInner({ episodeId, initialViewport }: Props) {
         onEdgesChange: s.onEdgesChange,
         onConnect: s.onConnect,
         setViewport: s.setViewport,
+        addNode: s.addNode,
       })),
     );
 
@@ -45,6 +62,33 @@ export function CanvasInner({ episodeId, initialViewport }: Props) {
   const { screenToFlowPosition } = useReactFlow();
   const [paneMenu, setPaneMenu] = useState<PaneMenuState | null>(null);
   const [edgeMenu, setEdgeMenu] = useState<EdgeContextMenuState | null>(null);
+  const [bindRequest, setBindRequest] =
+    useState<BindAssetToShotRequest | null>(null);
+
+  const handlePlaceAsset = useCallback(
+    (assetId: string, flowPos: XYPosition) => {
+      addNode(createAssetNode(assetId, flowPos));
+    },
+    [addNode],
+  );
+
+  const handleAttachToShot = useCallback(
+    (assetId: string, shotId: string) => {
+      setBindRequest({ assetId, shotId });
+    },
+    [],
+  );
+
+  const internalDrop = useInternalAssetDrop({
+    onPlaceAsset: handlePlaceAsset,
+    onAttachToShot: handleAttachToShot,
+  });
+
+  useSystemFileDrop({
+    projectId: projectId ?? "",
+    onPlaceAsset: handlePlaceAsset,
+    enabled: projectId != null,
+  });
 
   const handlePaneContextMenu = useCallback(
     (event: React.MouseEvent | MouseEvent) => {
@@ -68,7 +112,12 @@ export function CanvasInner({ episodeId, initialViewport }: Props) {
   );
 
   return (
-    <>
+    <div
+      className="relative h-full w-full"
+      onDragOver={internalDrop.onDragOver}
+      onDrop={internalDrop.onDrop}
+      onDragLeave={internalDrop.onDragLeave}
+    >
       <ReactFlow
         nodes={nodes}
         edges={edges}
@@ -89,8 +138,16 @@ export function CanvasInner({ episodeId, initialViewport }: Props) {
         <MiniMap pannable zoomable />
         <Controls />
       </ReactFlow>
+      <DropTargetOverlay show={internalDrop.isOver} />
+      {projectId && projectRoot && (
+        <AssetDrawer projectId={projectId} projectRoot={projectRoot} />
+      )}
       <PaneContextMenu state={paneMenu} onClose={() => setPaneMenu(null)} />
       <EdgeContextMenu state={edgeMenu} onClose={() => setEdgeMenu(null)} />
-    </>
+      <BindAssetToShotDialog
+        request={bindRequest}
+        onClose={() => setBindRequest(null)}
+      />
+    </div>
   );
 }
