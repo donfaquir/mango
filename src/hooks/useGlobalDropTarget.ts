@@ -1,7 +1,11 @@
 import { useEffect } from "react";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
+import type { PhysicalPosition } from "@tauri-apps/api/dpi";
 
-export type DropHandler = (paths: string[]) => void;
+export type DropHandler = (
+  paths: string[],
+  position: PhysicalPosition,
+) => void;
 
 const handlerStack: DropHandler[] = [];
 let listenerInstalled = false;
@@ -13,7 +17,7 @@ function installListener(): void {
   unlistenPromise = getCurrentWebview().onDragDropEvent((event) => {
     if (event.payload.type !== "drop") return;
     const top = handlerStack[handlerStack.length - 1];
-    top?.(event.payload.paths);
+    top?.(event.payload.paths, event.payload.position);
   });
 }
 

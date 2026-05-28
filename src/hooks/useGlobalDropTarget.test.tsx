@@ -1,7 +1,14 @@
 import { renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-type DropEvent = { payload: { type: "drop"; paths: string[] } | { type: "enter" | "over" | "leave" } };
+type Position = { x: number; y: number };
+type DropEvent = {
+  payload:
+    | { type: "drop"; paths: string[]; position: Position }
+    | { type: "enter"; paths: string[]; position: Position }
+    | { type: "over"; position: Position }
+    | { type: "leave" };
+};
 type DropCallback = (event: DropEvent) => void;
 
 const onDragDropEvent = vi.fn<(cb: DropCallback) => Promise<() => void>>();
@@ -18,8 +25,10 @@ import {
   _resetGlobalDropTargetForTests,
 } from "./useGlobalDropTarget";
 
-function fireDrop(paths: string[]): void {
-  registeredCallback?.({ payload: { type: "drop", paths } });
+const ORIGIN: Position = { x: 0, y: 0 };
+
+function fireDrop(paths: string[], position: Position = ORIGIN): void {
+  registeredCallback?.({ payload: { type: "drop", paths, position } });
 }
 
 beforeEach(() => {
@@ -48,8 +57,16 @@ describe("useGlobalDropTarget", () => {
     renderHook(() => useGlobalDropTarget(second));
 
     fireDrop(["/tmp/a.png"]);
-    expect(second).toHaveBeenCalledWith(["/tmp/a.png"]);
+    expect(second).toHaveBeenCalledWith(["/tmp/a.png"], ORIGIN);
     expect(first).not.toHaveBeenCalled();
+  });
+
+  it("forwards the drop position alongside the paths", () => {
+    const handler = vi.fn();
+    renderHook(() => useGlobalDropTarget(handler));
+    const pos = { x: 100, y: 50 };
+    fireDrop(["/tmp/d.png"], pos);
+    expect(handler).toHaveBeenCalledWith(["/tmp/d.png"], pos);
   });
 
   it("restores the previous handler when the top one unmounts", () => {
@@ -60,7 +77,7 @@ describe("useGlobalDropTarget", () => {
 
     top.unmount();
     fireDrop(["/tmp/b.png"]);
-    expect(first).toHaveBeenCalledWith(["/tmp/b.png"]);
+    expect(first).toHaveBeenCalledWith(["/tmp/b.png"], ORIGIN);
     expect(second).not.toHaveBeenCalled();
   });
 
@@ -74,8 +91,8 @@ describe("useGlobalDropTarget", () => {
   it("ignores non-drop drag events", () => {
     const handler = vi.fn();
     renderHook(() => useGlobalDropTarget(handler));
-    registeredCallback?.({ payload: { type: "enter" } });
-    registeredCallback?.({ payload: { type: "over" } });
+    registeredCallback?.({ payload: { type: "enter", paths: [], position: ORIGIN } });
+    registeredCallback?.({ payload: { type: "over", position: ORIGIN } });
     registeredCallback?.({ payload: { type: "leave" } });
     expect(handler).not.toHaveBeenCalled();
   });
