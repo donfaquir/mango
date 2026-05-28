@@ -103,6 +103,12 @@ export const commands = {
 	 *  readability; the actual persisted root is whatever the user submits.
 	 */
 	suggestProjectRoot: (projectName: string) => typedError<string, IpcError_Serialize>(__TAURI_INVOKE("suggest_project_root", { projectName })),
+	createEpisode: (input: CreateEpisodeInput) => typedError<Episode, IpcError_Serialize>(__TAURI_INVOKE("create_episode", { input })),
+	deleteEpisode: (id: string) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("delete_episode", { id })),
+	getEpisode: (id: string) => typedError<Episode, IpcError_Serialize>(__TAURI_INVOKE("get_episode", { id })),
+	listEpisodes: (opts: ListEpisodesOptions) => typedError<Episode[], IpcError_Serialize>(__TAURI_INVOKE("list_episodes", { opts })),
+	reorderEpisodes: (projectId: string, orderedIds: string[]) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("reorder_episodes", { projectId, orderedIds })),
+	updateEpisode: (id: string, input: UpdateEpisodeInput_Deserialize) => typedError<Episode, IpcError_Serialize>(__TAURI_INVOKE("update_episode", { id, input })),
 	createProject: (input: CreateProjectInput) => typedError<Project, IpcError_Serialize>(__TAURI_INVOKE("create_project", { input })),
 	/**
 	 *  Delete project metadata only. The on-disk root_path directory and its
@@ -127,6 +133,15 @@ export const commands = {
 	getScene: (id: string) => typedError<Scene, IpcError_Serialize>(__TAURI_INVOKE("get_scene", { id })),
 	listScenes: (opts: ListScenesOptions) => typedError<Scene[], IpcError_Serialize>(__TAURI_INVOKE("list_scenes", { opts })),
 	updateScene: (id: string, input: UpdateSceneInput_Deserialize) => typedError<Scene, IpcError_Serialize>(__TAURI_INVOKE("update_scene", { id, input })),
+	createShot: (input: CreateShotInput) => typedError<Shot, IpcError_Serialize>(__TAURI_INVOKE("create_shot", { input })),
+	deleteShot: (id: string) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("delete_shot", { id })),
+	getShot: (id: string) => typedError<Shot, IpcError_Serialize>(__TAURI_INVOKE("get_shot", { id })),
+	linkShotSubject: (shotId: string, subjectId: string, subjectKind: SubjectKind) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("link_shot_subject", { shotId, subjectId, subjectKind })),
+	listShotLinks: (shotId: string) => typedError<ShotLinks, IpcError_Serialize>(__TAURI_INVOKE("list_shot_links", { shotId })),
+	listShots: (opts: ListShotsOptions) => typedError<Shot[], IpcError_Serialize>(__TAURI_INVOKE("list_shots", { opts })),
+	reorderShots: (episodeId: string, orderedIds: string[]) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("reorder_shots", { episodeId, orderedIds })),
+	unlinkShotSubject: (shotId: string, subjectId: string, subjectKind: SubjectKind) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("unlink_shot_subject", { shotId, subjectId, subjectKind })),
+	updateShot: (id: string, input: UpdateShotInput_Deserialize) => typedError<Shot, IpcError_Serialize>(__TAURI_INVOKE("update_shot", { id, input })),
 	cancelTask: (taskId: string) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("cancel_task", { taskId })),
 	getTask: (taskId: string) => typedError<GenerationTask, IpcError_Serialize>(__TAURI_INVOKE("get_task", { taskId })),
 	listTaskEvents: (taskId: string) => typedError<GenerationTaskEvent[], IpcError_Serialize>(__TAURI_INVOKE("list_task_events", { taskId })),
@@ -300,6 +315,12 @@ export type CreateCostumeInput = {
 	reference_image_path?: string | null,
 };
 
+export type CreateEpisodeInput = {
+	project_id: string,
+	title: string,
+	script_text?: string | null,
+};
+
 export type CreateGenerationTaskInput = {
 	project_id?: string | null,
 	shot_id?: string | null,
@@ -339,6 +360,21 @@ export type CreateSceneInput = {
 	description?: string | null,
 	environment_prompt?: string | null,
 	reference_image_path?: string | null,
+};
+
+export type CreateShotInput = {
+	episode_id: string,
+	summary?: string | null,
+};
+
+export type Episode = {
+	id: string,
+	project_id: string,
+	title: string,
+	order_index: number,
+	script_text: string,
+	created_at: string,
+	updated_at: string,
 };
 
 export type EventPhase = "submit_upload" | "submit_call" | "poll" | "download" | "persist" | "cleanup";
@@ -466,6 +502,10 @@ export type ListCostumesOptions = {
 	offset?: number | null,
 };
 
+export type ListEpisodesOptions = {
+	project_id: string,
+};
+
 export type ListProjectsOptions = {
 	limit?: number | null,
 	offset?: number | null,
@@ -481,6 +521,10 @@ export type ListScenesOptions = {
 	project_id: string,
 	limit?: number | null,
 	offset?: number | null,
+};
+
+export type ListShotsOptions = {
+	episode_id: string,
 };
 
 export type Model = {
@@ -616,6 +660,38 @@ export type Scene = {
 	updated_at: string,
 };
 
+export type Shot = {
+	id: string,
+	episode_id: string,
+	order_index: number,
+	summary: string,
+	duration_sec: number | null,
+	camera_angle: string,
+	shot_type: string,
+	mood: string,
+	dialogue: string,
+	video_prompt: string,
+	image_prompt: string,
+	status: ShotStatus,
+	created_at: string,
+	updated_at: string,
+};
+
+export type ShotLinks = {
+	character_ids: string[],
+	scene_ids: string[],
+	prop_ids: string[],
+};
+
+export type ShotStatus = "draft" | "ready" | "generating" | "done";
+
+/**
+ *  Which side-table a subject points to. Used by `link_shot_subject` /
+ *  `unlink_shot_subject` to dispatch to the right join table without
+ *  exploding the IPC surface into three near-identical commands.
+ */
+export type SubjectKind = "character" | "scene" | "prop";
+
 /**
  *  A new diagnostic event has been persisted for `task_id`. Carries the full
  *  row so the front-end can append to the cached timeline without an extra
@@ -706,6 +782,18 @@ export type UpdateCostumeInput_Serialize = {
 	reference_image_path?: string | null,
 };
 
+export type UpdateEpisodeInput = UpdateEpisodeInput_Serialize | UpdateEpisodeInput_Deserialize;
+
+export type UpdateEpisodeInput_Deserialize = {
+	title?: string | null,
+	script_text?: string | null,
+};
+
+export type UpdateEpisodeInput_Serialize = {
+	title?: string | null,
+	script_text?: string | null,
+};
+
 export type UpdateProjectInput = UpdateProjectInput_Serialize | UpdateProjectInput_Deserialize;
 
 export type UpdateProjectInput_Deserialize = {
@@ -756,6 +844,34 @@ export type UpdateSceneInput_Serialize = {
 	environment_prompt?: string | null,
 	/**  None = don't modify, Some(None) = clear to NULL, Some(Some(v)) = set to v */
 	reference_image_path?: string | null,
+};
+
+export type UpdateShotInput = UpdateShotInput_Serialize | UpdateShotInput_Deserialize;
+
+export type UpdateShotInput_Deserialize = {
+	summary?: string | null,
+	/**  None = don't modify, Some(None) = clear, Some(Some(v)) = set */
+	duration_sec?: number | null,
+	camera_angle?: string | null,
+	shot_type?: string | null,
+	mood?: string | null,
+	dialogue?: string | null,
+	video_prompt?: string | null,
+	image_prompt?: string | null,
+	status?: ShotStatus | null,
+};
+
+export type UpdateShotInput_Serialize = {
+	summary?: string | null,
+	/**  None = don't modify, Some(None) = clear, Some(Some(v)) = set */
+	duration_sec?: number | null,
+	camera_angle?: string | null,
+	shot_type?: string | null,
+	mood?: string | null,
+	dialogue?: string | null,
+	video_prompt?: string | null,
+	image_prompt?: string | null,
+	status?: ShotStatus | null,
 };
 
 /* Tauri Specta runtime */

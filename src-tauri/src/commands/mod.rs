@@ -3,10 +3,12 @@ pub mod asset;
 pub mod character;
 pub mod costume;
 pub mod dialog;
+pub mod episode;
 pub mod project;
 pub mod provider;
 pub mod prop;
 pub mod scene;
+pub mod shot;
 pub mod task;
 
 use crate::error::IpcError;

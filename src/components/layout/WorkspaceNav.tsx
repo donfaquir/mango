@@ -1,5 +1,5 @@
 import { NavLink, useParams } from "react-router-dom";
-import { FolderOpen, Users, Wand2 } from "lucide-react";
+import { BookOpen, FolderOpen, Users, Wand2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const navItems = [
@@ -7,6 +7,11 @@ const navItems = [
     path: "subjects/character",
     label: "主体库",
     icon: Users,
+  },
+  {
+    path: "episodes",
+    label: "剧本",
+    icon: BookOpen,
   },
   {
     path: "assets",
