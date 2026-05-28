@@ -52,6 +52,17 @@ spec-21 把 `canvas_layout.{nodes_json,edges_json,viewport_json}` 当作不透�
 
 - 系统文件拖入：Tauri 2 的 `tauri::DragDropEvent` 通过 `WebviewWindow::on_drag_drop_event` 在 webview 层暴露给前端，**不需要** `tauri-plugin-fs` 或 `tauri-plugin-dialog` 增量
 - 文件路径校验（白名单 + scope）：复用 MS1 spec-10 的 `paths::project_root` + spec-12 的 `import_asset`
+- spec-23 复用既有 `useGlobalDropTarget`（spec-12 引入），不再新挂 webview-global listener；`DropHandler` 签名从 `(paths) => void` 向后兼容扩展为 `(paths, position) => void`
+
+### 3.1 Tauri command 增量（一览）
+
+| command | 引入 spec | 入参 | 出参 | 用途 |
+|---|---|---|---|---|
+| `link_shot_subject` | spec-22 | `(shot_id, subject_id, subject_kind)` | `()` | character_to_shot 边落地时双写 `shot_character` 表 |
+| `unlink_shot_subject` | spec-22 | `(shot_id, subject_id, subject_kind)` | `()` | 边删除 / 节点删除时反向 unlink |
+| `assign_asset_to_shot` | spec-23 | `(id, shot_id: Option<String>)` | `Asset` | 拖 asset 到 storyboard 节点上时写 `asset.shot_id`；`None` = 解绑 |
+
+所有新 command 走 `tauri-specta` + `ts-rs`，自动生成到 `src/lib/bindings/commands.ts`。
 
 ---
 
