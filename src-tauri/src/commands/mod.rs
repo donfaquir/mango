@@ -1,5 +1,6 @@
 pub mod account;
 pub mod asset;
+pub mod canvas_layout;
 pub mod character;
 pub mod costume;
 pub mod dialog;

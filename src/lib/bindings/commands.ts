@@ -70,6 +70,16 @@ export const commands = {
 	 *  asset library). An empty string clears the tag.
 	 */
 	updateAssetLabel: (id: string, label: string) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("update_asset_label", { id, label })),
+	deleteCanvasLayout: (episodeId: string) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("delete_canvas_layout", { episodeId })),
+	getCanvasLayout: (episodeId: string) => typedError<{
+	id: string,
+	episode_id: string,
+	nodes_json: string,
+	edges_json: string,
+	viewport_json: string,
+	updated_at: string,
+} | null, IpcError_Serialize>(__TAURI_INVOKE("get_canvas_layout", { episodeId })),
+	upsertCanvasLayout: (input: UpsertCanvasLayoutInput) => typedError<CanvasLayout, IpcError_Serialize>(__TAURI_INVOKE("upsert_canvas_layout", { input })),
 	createCharacter: (input: CreateCharacterInput) => typedError<Character, IpcError_Serialize>(__TAURI_INVOKE("create_character", { input })),
 	/**
 	 *  Delete a character. Schema `ON DELETE CASCADE` removes its costumes;
@@ -238,6 +248,21 @@ export type Asset = {
 export type AssetSource = "imported" | "generated";
 
 export type AssetType = "image" | "video" | "audio" | "script";
+
+/**
+ *  Canvas layout for a single episode. `nodes_json` / `edges_json` /
+ *  `viewport_json` are opaque JSON blobs owned by the frontend's React Flow
+ *  state — core never parses their inner structure, only that they are
+ *  well-formed JSON. See spec-21 for rationale.
+ */
+export type CanvasLayout = {
+	id: string,
+	episode_id: string,
+	nodes_json: string,
+	edges_json: string,
+	viewport_json: string,
+	updated_at: string,
+};
 
 export type Character = {
 	id: string,
@@ -872,6 +897,13 @@ export type UpdateShotInput_Serialize = {
 	video_prompt?: string | null,
 	image_prompt?: string | null,
 	status?: ShotStatus | null,
+};
+
+export type UpsertCanvasLayoutInput = {
+	episode_id: string,
+	nodes_json: string,
+	edges_json: string,
+	viewport_json: string,
 };
 
 /* Tauri Specta runtime */

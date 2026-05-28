@@ -12,6 +12,7 @@ const SubjectLibraryPage = lazy(() => import("@/pages/SubjectLibraryPage"));
 const SubjectDetailPage = lazy(() => import("@/pages/SubjectDetailPage"));
 const EpisodeListPage = lazy(() => import("@/pages/EpisodeListPage"));
 const EpisodeDetailPage = lazy(() => import("@/pages/EpisodeDetailPage"));
+const CanvasPage = lazy(() => import("@/pages/CanvasPage"));
 const GenerationWorkspacePage = lazy(
   () => import("@/pages/GenerationWorkspacePage"),
 );
@@ -45,6 +46,7 @@ export const router = createBrowserRouter([
             children: [
               { index: true, element: <EpisodeListPage /> },
               { path: ":episodeId", element: <EpisodeDetailPage /> },
+              { path: ":episodeId/canvas", element: <CanvasPage /> },
             ],
           },
           {

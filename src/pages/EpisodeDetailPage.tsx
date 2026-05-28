@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Navigate, useNavigate, useParams } from "react-router-dom";
+import { Link, Navigate, useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
 import { ArrowLeft, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -97,13 +97,10 @@ export default function EpisodeDetailPage() {
           aria-label="剧集标题"
         />
         <div className="ml-auto flex items-center gap-2">
-          <Button
-            type="button"
-            variant="outline"
-            disabled
-            title="画布即将上线"
-          >
-            打开画布
+          <Button asChild type="button" variant="outline">
+            <Link to={`/project/${projectId}/episodes/${ep.id}/canvas`}>
+              打开画布
+            </Link>
           </Button>
           <Button
             type="button"
