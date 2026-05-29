@@ -3,6 +3,7 @@ import { CheckCircle2, Cloud, KeyRound, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import type { ApiAccount } from "@/lib/bindings/commands";
+import { parseDbDate } from "@/lib/datetime";
 import { useVerifyApiAccountStorage } from "@/hooks/useAccounts";
 import { DeleteAccountDialog } from "./DeleteAccountDialog";
 
@@ -49,7 +50,7 @@ export function AccountRow({ account, providerName }: Props) {
             <p className="text-xs text-muted-foreground">
               ****{account.key_last4}
               {account.last_used_at &&
-                ` · 上次使用 ${new Date(account.last_used_at).toLocaleDateString()}`}
+                ` · 上次使用 ${parseDbDate(account.last_used_at).toLocaleDateString()}`}
             </p>
           </div>
         </div>

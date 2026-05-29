@@ -6,6 +6,7 @@ import { useTaskList } from "@/hooks/useTasks";
 import { TaskCard } from "./TaskCard";
 import { EmptyState } from "@/components/common/EmptyState";
 import type { GenerationTask } from "@/lib/bindings/commands";
+import { parseDbDate } from "@/lib/datetime";
 
 type Filter = "all" | "running" | "failed";
 
@@ -29,10 +30,10 @@ export function TaskListPanel({ projectId }: TaskListPanelProps) {
     } else {
       list = tasks.data;
     }
-    // Sort by created_at descending
     return [...list].sort(
       (a, b) =>
-        new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+        parseDbDate(b.created_at).getTime() -
+        parseDbDate(a.created_at).getTime(),
     );
   }, [tasks.data, filter]);
 

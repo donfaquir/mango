@@ -13,6 +13,7 @@ import { useAsset } from "@/hooks/useAssets";
 import { useResolvedAssetUrl } from "@/hooks/useResolvedAssetUrl";
 import { useProject } from "@/hooks/useProjects";
 import type { GenerationTask, GenerationTaskEvent } from "@/lib/bindings/commands";
+import { parseDbDate } from "@/lib/datetime";
 
 interface TaskCardProps {
   task: GenerationTask;
@@ -20,7 +21,7 @@ interface TaskCardProps {
 }
 
 function formatRelative(dateStr: string): string {
-  const date = new Date(dateStr);
+  const date = parseDbDate(dateStr);
   const now = new Date();
   const diffMs = now.getTime() - date.getTime();
   const diffMin = Math.floor(diffMs / 60000);

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Check, Pencil, Trash2 } from "lucide-react";
 import type { Asset } from "@/lib/bindings/commands";
+import { parseDbDate } from "@/lib/datetime";
 import { useResolvedAssetUrl } from "@/hooks/useResolvedAssetUrl";
 import { useUpdateAssetLabel } from "@/hooks/useAssets";
 import {
@@ -29,9 +30,8 @@ function formatFileSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-// Format ISO date string to locale string
 function formatDate(iso: string): string {
-  return new Date(iso).toLocaleString("zh-CN");
+  return parseDbDate(iso).toLocaleString("zh-CN");
 }
 
 const SOURCE_LABELS: Record<string, string> = {
