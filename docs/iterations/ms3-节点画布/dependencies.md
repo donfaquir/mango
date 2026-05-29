@@ -28,9 +28,10 @@
 | 组件 | 用途 | 引入 spec |
 |---|---|---|
 | `tooltip` | 工具栏按钮 hover 提示 | spec-24 |
+| `separator` | 工具栏按钮分组分隔线（垂直） | spec-24 |
 | `context-menu` | 节点 / Edge 右键菜单（删除、查看详情） | spec-22, spec-24 |
 
-实施时 `pnpm dlx shadcn@latest add tooltip context-menu`（仅这两个新增）。
+实施时 `pnpm dlx shadcn@latest add tooltip separator context-menu`。
 
 ---
 
@@ -61,6 +62,7 @@ spec-21 把 `canvas_layout.{nodes_json,edges_json,viewport_json}` 当作不透�
 | `link_shot_subject` | spec-22 | `(shot_id, subject_id, subject_kind)` | `()` | character_to_shot 边落地时双写 `shot_character` 表 |
 | `unlink_shot_subject` | spec-22 | `(shot_id, subject_id, subject_kind)` | `()` | 边删除 / 节点删除时反向 unlink |
 | `assign_asset_to_shot` | spec-23 | `(id, shot_id: Option<String>)` | `Asset` | 拖 asset 到 storyboard 节点上时写 `asset.shot_id`；`None` = 解绑 |
+| `create_episode_checkpoint` | spec-24 | `CreateCheckpointInput { episode_id, label? }` | `EpisodeCheckpoint` | 「保存版本」按钮：从 DB 读 canvas_layout 快照，写入 `episode_checkpoint` 一行；`version_number` 按 episode 自增；`trigger_type` 固定 `'manual'` |
 
 所有新 command 走 `tauri-specta` + `ts-rs`，自动生成到 `src/lib/bindings/commands.ts`。
 
@@ -103,5 +105,7 @@ MS3 **不写新 migration**。如果在 spec-22 实施过程中发现节点 sche
 
 - **`@xyflow/react` 12.x 的 `viewport` 受控/非受控切换**：spec-21 设计为「打开时非受控初始化 → 用户操作 → onMoveEnd 写库」。如果实测出现 viewport 闪烁（受控值与内部状态争抢），需要切回 `defaultViewport` + 手动 `useReactFlow().setViewport` 在加载时调用
 - **Undo/Redo 栈与持久化的耦合**：zundo 默认对 store 全部状态做 snapshot。spec-24 必须用 `partialize` 仅追踪 `{nodes, edges}` —— 否则 viewport 拖动、临时 UI 状态都会进 undo 栈，体验差
+- **Undo 栈被 init / drag 中间帧污染**：spec-24 决议 `init/reset` 用 `pause/resume + clear` 包裹（否则首次进画布按 Cmd+Z 就清空）；节点拖动期用 React Flow `onNodeDragStart/Stop` 手动 pause/resume（否则一次拖动产生几十帧 snapshot，Cmd+Z 一次只能撤一像素）。zundo 2.3 已具备 `pause/resume/clear` API
+- **`episode_checkpoint` schema 严格对齐 `001_initial.sql`**：实际表是分列存储（`canvas_nodes_json` / `canvas_edges_json` / `canvas_viewport_json`）且 `version_number INTEGER NOT NULL`、`trigger_type CHECK('auto','manual')`。spec-24 早期稿用 `snapshot`/`note` 是错的；实施时务必按 spec-24 §"episode_checkpoint 表实际 schema" 写 INSERT，**不改 migration**
 - **大画布性能**（节点 > 50）：spec-21 §"性能优化" 提到 Web Worker 序列化。优先级低于本里程碑的核心功能，建议在 spec-21 实施 PR 中**先不做** Worker，先用 `requestIdleCallback` 把 JSON.stringify 推到空闲帧；性能不达标再升级到 Worker。决策档案：见 spec-21 §"性能优化决策树"
 - **EpisodeCheckpoint 创建/恢复**：spec-24 工具栏的「保存版本」按钮**仅 emit 事件 + 占位 Tauri command**，真正的 checkpoint 业务由 MS4 实施。MS3 范围内点击该按钮只在 DB 写入一条最小化 checkpoint 行（不实现恢复 / 列表 / 自动清理）
