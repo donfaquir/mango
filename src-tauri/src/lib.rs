@@ -4,7 +4,6 @@ mod events;
 mod state;
 
 use std::sync::Arc;
-use std::time::Instant;
 
 use mango_core::account::keyring::{CachedKeyringStore, SystemKeyring};
 use mango_core::provider::bailian::BailianProvider;
@@ -102,8 +101,8 @@ fn make_builder() -> Builder<tauri::Wry> {
 }
 
 pub fn run() {
-    // Default to INFO so startup timing logs are visible without RUST_LOG.
-    // Users can still narrow with RUST_LOG=mango_core=debug etc.
+    // Default to INFO so migration / orphan-reset / error logs are visible
+    // without setting RUST_LOG. Users can narrow with RUST_LOG=mango_core=debug etc.
     tracing_subscriber::fmt()
         .with_env_filter(
             EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
@@ -111,7 +110,6 @@ pub fn run() {
         .with_writer(std::io::stderr)
         .init();
 
-    let run_start = Instant::now();
     let builder = make_builder();
 
     #[cfg(debug_assertions)]
@@ -127,39 +125,27 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(builder.invoke_handler())
         .setup(move |app| {
-            let setup_start = Instant::now();
-            tracing::info!(
-                elapsed_ms = run_start.elapsed().as_millis() as u64,
-                "tauri setup begin"
-            );
             builder.mount_events(app);
 
             // Register the platform's native credential store as keyring-core's
             // default before we hand out any `SystemKeyring` handles. `false`
             // selects keyutils on Linux (the Secret Service alternative needs
             // dbus and a session bus, which not all setups have).
-            let t = Instant::now();
             keyring::use_native_store(false)
                 .expect("Failed to register the native keyring store");
-            tracing::info!(elapsed_ms = t.elapsed().as_millis() as u64, "keyring native store registered");
 
-            let t = Instant::now();
             let app_dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&app_dir)?;
             let db_path = app_dir.join(METADATA_DB_FILENAME);
-            tracing::info!(elapsed_ms = t.elapsed().as_millis() as u64, "app_data_dir ensured");
 
-            let t = Instant::now();
             let db = tauri::async_runtime::block_on(mango_core::db::open_async(&db_path))
                 .expect("Failed to initialize metadata database");
-            tracing::info!(elapsed_ms = t.elapsed().as_millis() as u64, "db::open_async done");
 
             // Unified startup hook (backfill legacy root_path NULL rows, etc.).
             // Hard failure here is intentional — a half-initialized DB leads to
             // user-visible crashes that are far harder to diagnose later.
             // tokio-rusqlite 0.7 has no Other variant on its Error, so we
             // surface the CoreError through the Ok(...) channel like with_db.
-            let t = Instant::now();
             let app_data_for_init = app_dir.clone();
             let init_result: mango_core::error::Result<()> = tauri::async_runtime::block_on(async {
                 db.call(
@@ -174,9 +160,7 @@ pub fn run() {
                 .expect("startup initialize call failed on DB thread")
             });
             init_result.expect("Failed to run startup initialize");
-            tracing::info!(elapsed_ms = t.elapsed().as_millis() as u64, "startup::initialize done");
 
-            let t = Instant::now();
             // Register BailianProvider for the "bailian" provider id.
             let providers = ProviderRegistry::builder()
                 .register("bailian", Arc::new(BailianProvider::new()))
@@ -195,7 +179,6 @@ pub fn run() {
                 materializer,
                 4,
             );
-            tracing::info!(elapsed_ms = t.elapsed().as_millis() as u64, "providers + task engine spawned");
 
             // Re-spawn runner coroutines for any pending tasks left over from
             // a previous session. Runs in the background so setup() returns
@@ -252,11 +235,6 @@ pub fn run() {
                 keyring,
                 task_engine: Arc::new(engine),
             });
-            tracing::info!(
-                setup_ms = setup_start.elapsed().as_millis() as u64,
-                total_ms = run_start.elapsed().as_millis() as u64,
-                "tauri setup end"
-            );
             Ok(())
         })
         .run(tauri::generate_context!())

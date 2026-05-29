@@ -7,7 +7,6 @@
 //! to boot with a clear error in the log.
 
 use std::path::Path;
-use std::time::Instant;
 
 use rusqlite::{params, Connection};
 
@@ -20,21 +19,9 @@ use crate::paths;
 /// 3. Reset orphan `running` generation_task rows back to `pending` — the
 ///    runner coroutines that owned them died with the previous process.
 pub fn initialize(conn: &Connection, app_data_dir: &Path) -> Result<()> {
-    let t = Instant::now();
     backfill_project_roots(conn, app_data_dir)?;
-    tracing::info!(elapsed_ms = t.elapsed().as_millis() as u64, "backfill_project_roots done");
-
-    let t = Instant::now();
     crate::seed::providers::apply(conn)?;
-    tracing::info!(elapsed_ms = t.elapsed().as_millis() as u64, "seed::providers::apply done");
-
-    let t = Instant::now();
     let n = crate::db::queries::generation_task::reset_orphan_running(conn)?;
-    tracing::info!(
-        elapsed_ms = t.elapsed().as_millis() as u64,
-        reset = n,
-        "reset_orphan_running done"
-    );
     if n > 0 {
         tracing::warn!("reset {n} orphan running task(s) to pending after restart");
     }
