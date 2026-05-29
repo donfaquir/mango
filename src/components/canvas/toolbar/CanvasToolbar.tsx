@@ -1,11 +1,17 @@
 import { type ComponentProps, type ElementType } from "react";
-import { useReactFlow } from "@xyflow/react";
+import {
+  useReactFlow,
+  useStore as useFlowStore,
+  useStoreApi as useFlowStoreApi,
+} from "@xyflow/react";
 import { useStore } from "zustand";
 import {
   BookmarkPlus,
+  Lock,
   Maximize,
   Redo2,
   Undo2,
+  Unlock,
   ZoomIn,
   ZoomOut,
 } from "lucide-react";
@@ -43,7 +49,20 @@ export function CanvasToolbar({
     useCanvasStore.temporal,
     (s) => s.futureStates.length,
   );
+  const isInteractive = useFlowStore(
+    (s) => s.nodesDraggable || s.nodesConnectable || s.elementsSelectable,
+  );
+  const flowStore = useFlowStoreApi();
   const createCheckpoint = useCreateCheckpoint();
+
+  const onToggleLock = () => {
+    const next = !isInteractive;
+    flowStore.setState({
+      nodesDraggable: next,
+      nodesConnectable: next,
+      elementsSelectable: next,
+    });
+  };
 
   const onSaveVersion = async () => {
     try {
@@ -92,6 +111,12 @@ export function CanvasToolbar({
         tooltip="保存版本"
         disabled={createCheckpoint.isPending}
         onClick={onSaveVersion}
+      />
+      <Separator orientation="vertical" className="mx-1 h-5" />
+      <ToolbarBtn
+        icon={isInteractive ? Unlock : Lock}
+        tooltip={isInteractive ? "锁定画布" : "解锁画布"}
+        onClick={onToggleLock}
       />
     </div>
   );

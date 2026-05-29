@@ -3,7 +3,6 @@ import { useParams } from "react-router-dom";
 import { useShallow } from "zustand/react/shallow";
 import {
   Background,
-  Controls,
   MiniMap,
   ReactFlow,
   useReactFlow,
@@ -149,7 +148,6 @@ export function CanvasInner({ episodeId, initialViewport }: Props) {
       >
         <Background gap={20} />
         <MiniMap pannable zoomable />
-        <Controls />
       </ReactFlow>
       <DropTargetOverlay show={internalDrop.isOver} />
       <CanvasToolbar episodeId={episodeId} onBeforeSaveVersion={autoSave.flush} />

@@ -140,4 +140,13 @@ describe("CanvasToolbar", () => {
     renderToolbar();
     expect(screen.getByRole("button", { name: /保存版本/ })).toBeDisabled();
   });
+
+  it("toggles canvas interactivity between lock and unlock", () => {
+    renderToolbar();
+    const lockBtn = screen.getByRole("button", { name: "锁定画布" });
+    fireEvent.click(lockBtn);
+    expect(screen.getByRole("button", { name: "解锁画布" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "解锁画布" }));
+    expect(screen.getByRole("button", { name: "锁定画布" })).toBeInTheDocument();
+  });
 });
