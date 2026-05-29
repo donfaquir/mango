@@ -1,10 +1,31 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Clapperboard, Plus } from "lucide-react";
+import { toast } from "sonner";
+import {
+  DndContext,
+  type DragEndEvent,
+  KeyboardSensor,
+  PointerSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  arrayMove,
+  sortableKeyboardCoordinates,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import {
+  restrictToParentElement,
+  restrictToVerticalAxis,
+} from "@dnd-kit/modifiers";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/common/EmptyState";
 import { ErrorAlert } from "@/components/common/ErrorAlert";
-import { useShotList } from "@/hooks/useShots";
+import { useReorderShots, useShotList } from "@/hooks/useShots";
+import type { Shot } from "@/lib/bindings/commands";
 import { ShotCard } from "./ShotCard";
 import { CreateShotDialog } from "./CreateShotDialog";
 
@@ -15,6 +36,51 @@ interface Props {
 export function ShotListPanel({ episodeId }: Props) {
   const [createOpen, setCreateOpen] = useState(false);
   const shots = useShotList(episodeId);
+  const reorder = useReorderShots(episodeId);
+
+  const [localOrder, setLocalOrder] = useState<string[] | null>(null);
+
+  useEffect(() => {
+    setLocalOrder(null);
+  }, [shots.data]);
+
+  const orderedShots = useMemo<Shot[]>(() => {
+    if (!shots.data) return [];
+    if (!localOrder) return shots.data;
+    const byId = new Map(shots.data.map((s) => [s.id, s]));
+    const next: Shot[] = [];
+    for (const id of localOrder) {
+      const shot = byId.get(id);
+      if (shot) next.push(shot);
+    }
+    return next.length === shots.data.length ? next : shots.data;
+  }, [shots.data, localOrder]);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    }),
+  );
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const currentIds = orderedShots.map((s) => s.id);
+    const oldIndex = currentIds.indexOf(active.id as string);
+    const newIndex = currentIds.indexOf(over.id as string);
+    if (oldIndex < 0 || newIndex < 0) return;
+    const nextIds = arrayMove(currentIds, oldIndex, newIndex);
+    setLocalOrder(nextIds);
+    reorder.mutate(nextIds, {
+      onError: (err) => {
+        setLocalOrder(null);
+        toast.error(
+          `分镜排序失败：${err instanceof Error ? err.message : String(err)}`,
+        );
+      },
+    });
+  };
 
   return (
     <section className="flex flex-col gap-3">
@@ -51,12 +117,29 @@ export function ShotListPanel({ episodeId }: Props) {
           }
         />
       )}
-      {shots.data && shots.data.length > 0 && (
-        <div className="flex flex-col gap-2">
-          {shots.data.map((shot) => (
-            <ShotCard key={shot.id} episodeId={episodeId} shot={shot} />
-          ))}
-        </div>
+      {orderedShots.length > 0 && (
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          modifiers={[restrictToVerticalAxis, restrictToParentElement]}
+          onDragEnd={handleDragEnd}
+        >
+          <SortableContext
+            items={orderedShots.map((s) => s.id)}
+            strategy={verticalListSortingStrategy}
+          >
+            <div className="flex flex-col gap-2">
+              {orderedShots.map((shot, index) => (
+                <ShotCard
+                  key={shot.id}
+                  episodeId={episodeId}
+                  shot={shot}
+                  displayIndex={index}
+                />
+              ))}
+            </div>
+          </SortableContext>
+        </DndContext>
       )}
       <CreateShotDialog
         episodeId={episodeId}

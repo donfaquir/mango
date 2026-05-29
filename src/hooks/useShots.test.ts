@@ -6,17 +6,20 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const listShots = vi.fn();
 const linkShotSubject = vi.fn();
 const unlinkShotSubject = vi.fn();
+const reorderShots = vi.fn();
 
 vi.mock("@/lib/bindings/commands", () => ({
   commands: {
     listShots: (...args: unknown[]) => listShots(...args),
     linkShotSubject: (...args: unknown[]) => linkShotSubject(...args),
     unlinkShotSubject: (...args: unknown[]) => unlinkShotSubject(...args),
+    reorderShots: (...args: unknown[]) => reorderShots(...args),
   },
 }));
 
 import {
   useLinkShotSubject,
+  useReorderShots,
   useShotList,
   useUnlinkShotSubject,
 } from "./useShots";
@@ -85,5 +88,25 @@ describe("useLinkShotSubject", () => {
     });
 
     expect(unlinkShotSubject).toHaveBeenCalledWith("s1", "sc1", "scene");
+  });
+});
+
+describe("useReorderShots", () => {
+  beforeEach(() => {
+    reorderShots.mockReset();
+  });
+
+  it("forwards ordered ids and invalidates the shot list cache", async () => {
+    reorderShots.mockResolvedValueOnce({ status: "ok", data: null });
+    const { queryClient, wrapper } = makeWrapper();
+    queryClient.setQueryData(["shots", "e1"], []);
+
+    const { result } = renderHook(() => useReorderShots("e1"), { wrapper });
+    await result.current.mutateAsync(["b", "a", "c"]);
+
+    expect(reorderShots).toHaveBeenCalledWith("e1", ["b", "a", "c"]);
+    expect(queryClient.getQueryState(["shots", "e1"])?.isInvalidated).toBe(
+      true,
+    );
   });
 });

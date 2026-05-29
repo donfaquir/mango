@@ -1,5 +1,7 @@
 import { toast } from "sonner";
-import { Trash2 } from "lucide-react";
+import { GripVertical, Trash2 } from "lucide-react";
+import { useSortable } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { Shot, ShotStatus } from "@/lib/bindings/commands";
@@ -22,13 +24,23 @@ const STATUS_CLASSES: Record<ShotStatus, string> = {
 interface Props {
   episodeId: string;
   shot: Shot;
+  displayIndex: number;
 }
 
-export function ShotCard({ episodeId, shot }: Props) {
+export function ShotCard({ episodeId, shot, displayIndex }: Props) {
   const deleteShot = useDeleteShot(episodeId);
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    setActivatorNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: shot.id });
 
   const handleDelete = async () => {
-    if (!window.confirm(`确认删除分镜 #${shot.order_index + 1}？`)) return;
+    if (!window.confirm(`确认删除分镜 #${displayIndex + 1}？`)) return;
     try {
       await deleteShot.mutateAsync(shot.id);
       toast.success("分镜已删除");
@@ -40,9 +52,33 @@ export function ShotCard({ episodeId, shot }: Props) {
   };
 
   return (
-    <div className="flex items-start gap-3 rounded-lg border p-3">
+    <div
+      ref={setNodeRef}
+      style={{
+        transform: CSS.Transform.toString(transform),
+        transition,
+      }}
+      className={cn(
+        "flex items-start gap-3 rounded-lg border bg-background p-3",
+        isDragging && "z-10 opacity-50 shadow-lg",
+      )}
+    >
+      <button
+        ref={setActivatorNodeRef}
+        type="button"
+        aria-label="拖拽排序"
+        className={cn(
+          "shrink-0 self-stretch px-1 text-muted-foreground transition-colors",
+          "cursor-grab touch-none hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded",
+          isDragging && "cursor-grabbing",
+        )}
+        {...attributes}
+        {...listeners}
+      >
+        <GripVertical className="h-4 w-4" />
+      </button>
       <div className="shrink-0 rounded-md bg-muted px-2 py-1 text-xs font-mono">
-        #{shot.order_index + 1}
+        #{displayIndex + 1}
       </div>
       <div className="min-w-0 flex-1 space-y-1">
         <div className="flex items-center gap-2">
