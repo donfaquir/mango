@@ -8,7 +8,7 @@ export default function CanvasPage() {
   if (!episodeId) return <Navigate to=".." replace />;
 
   return (
-    <div className="h-[calc(100vh-8rem)] w-full">
+    <div className="h-full w-full">
       <ReactFlowProvider>
         <CanvasContainer episodeId={episodeId} />
       </ReactFlowProvider>
