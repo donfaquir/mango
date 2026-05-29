@@ -22,7 +22,12 @@ function scheduleSerialize(nodeCount: number, cb: () => void) {
   }
 }
 
-export function useAutoSaveLayout(episodeId: string) {
+export interface AutoSaveLayoutHandle {
+  /** Synchronously fire any pending debounced save. No-op if nothing is queued. */
+  flush: () => void;
+}
+
+export function useAutoSaveLayout(episodeId: string): AutoSaveLayoutHandle {
   const lastHashRef = useRef<string | null>(null);
   const mutation = useCanvasLayoutMutation();
   const mutate = mutation.mutate;
@@ -62,4 +67,6 @@ export function useAutoSaveLayout(episodeId: string) {
       serializeLayout({ nodes, edges, viewport }),
     );
   }, [episodeId]);
+
+  return { flush: () => save.flush() };
 }

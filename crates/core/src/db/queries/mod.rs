@@ -4,6 +4,7 @@ pub mod canvas_layout;
 pub mod character;
 pub mod costume;
 pub mod episode;
+pub mod episode_checkpoint;
 pub mod generation_task;
 pub mod generation_task_event;
 pub mod project;

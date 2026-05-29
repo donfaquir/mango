@@ -58,6 +58,7 @@ fn make_builder() -> Builder<tauri::Wry> {
             commands::episode::list_episodes,
             commands::episode::reorder_episodes,
             commands::episode::update_episode,
+            commands::episode_checkpoint::create_episode_checkpoint,
             commands::project::create_project,
             commands::project::delete_project,
             commands::project::get_project,

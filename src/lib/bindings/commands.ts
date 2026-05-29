@@ -127,6 +127,13 @@ export const commands = {
 	listEpisodes: (opts: ListEpisodesOptions) => typedError<Episode[], IpcError_Serialize>(__TAURI_INVOKE("list_episodes", { opts })),
 	reorderEpisodes: (projectId: string, orderedIds: string[]) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("reorder_episodes", { projectId, orderedIds })),
 	updateEpisode: (id: string, input: UpdateEpisodeInput_Deserialize) => typedError<Episode, IpcError_Serialize>(__TAURI_INVOKE("update_episode", { id, input })),
+	/**
+	 *  Persist a placeholder checkpoint for the given episode. Reads the current
+	 *  `canvas_layout` row on the DB worker and snapshots its three JSON columns
+	 *  into a new `episode_checkpoint` row. Full version-management (list,
+	 *  restore, retention) lands in MS4.
+	 */
+	createEpisodeCheckpoint: (input: CreateCheckpointInput) => typedError<EpisodeCheckpoint, IpcError_Serialize>(__TAURI_INVOKE("create_episode_checkpoint", { input })),
 	createProject: (input: CreateProjectInput) => typedError<Project, IpcError_Serialize>(__TAURI_INVOKE("create_project", { input })),
 	/**
 	 *  Delete project metadata only. The on-disk root_path directory and its
@@ -336,6 +343,12 @@ export type CreateCharacterInput = {
 	reference_image_path?: string | null,
 };
 
+export type CreateCheckpointInput = {
+	episode_id: string,
+	/**  Optional user-supplied label. Empty / missing maps to NULL in DB. */
+	label: string | null,
+};
+
 export type CreateCostumeInput = {
 	project_id: string,
 	/**
@@ -408,6 +421,24 @@ export type Episode = {
 	script_text: string,
 	created_at: string,
 	updated_at: string,
+};
+
+/**
+ *  A point-in-time snapshot of a single episode's canvas layout. The schema
+ *  reserves space for additional MS4 fields (`script_text`, `shots_json`,
+ *  `change_summary`) that this MS3 placeholder does not surface yet — the
+ *  minimal command writes the schema defaults for those columns.
+ */
+export type EpisodeCheckpoint = {
+	id: string,
+	episode_id: string,
+	version_number: number,
+	label: string | null,
+	trigger_type: string,
+	canvas_nodes_json: string,
+	canvas_edges_json: string,
+	canvas_viewport_json: string,
+	created_at: string,
 };
 
 export type EventPhase = "submit_upload" | "submit_call" | "poll" | "download" | "persist" | "cleanup";

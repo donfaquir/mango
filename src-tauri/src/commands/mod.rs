@@ -5,6 +5,7 @@ pub mod character;
 pub mod costume;
 pub mod dialog;
 pub mod episode;
+pub mod episode_checkpoint;
 pub mod project;
 pub mod provider;
 pub mod prop;

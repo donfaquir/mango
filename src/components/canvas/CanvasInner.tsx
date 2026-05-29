@@ -33,6 +33,8 @@ import {
   BindAssetToShotDialog,
   type BindAssetToShotRequest,
 } from "./drag/BindAssetToShotDialog";
+import { CanvasToolbar } from "./toolbar/CanvasToolbar";
+import { useCanvasShortcuts } from "./toolbar/useCanvasShortcuts";
 
 interface Props {
   episodeId: string;
@@ -57,7 +59,16 @@ export function CanvasInner({ episodeId, initialViewport }: Props) {
       })),
     );
 
-  useAutoSaveLayout(episodeId);
+  const autoSave = useAutoSaveLayout(episodeId);
+  useCanvasShortcuts();
+
+  const onNodeDragStart = useCallback(() => {
+    useCanvasStore.temporal.getState().pause();
+  }, []);
+
+  const onNodeDragStop = useCallback(() => {
+    useCanvasStore.temporal.getState().resume();
+  }, []);
 
   const { screenToFlowPosition } = useReactFlow();
   const [paneMenu, setPaneMenu] = useState<PaneMenuState | null>(null);
@@ -125,6 +136,8 @@ export function CanvasInner({ episodeId, initialViewport }: Props) {
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
         onMoveEnd={(_, viewport) => setViewport(viewport)}
+        onNodeDragStart={onNodeDragStart}
+        onNodeDragStop={onNodeDragStop}
         onPaneContextMenu={handlePaneContextMenu}
         onEdgeContextMenu={handleEdgeContextMenu}
         nodeTypes={nodeTypes}
@@ -139,6 +152,7 @@ export function CanvasInner({ episodeId, initialViewport }: Props) {
         <Controls />
       </ReactFlow>
       <DropTargetOverlay show={internalDrop.isOver} />
+      <CanvasToolbar episodeId={episodeId} onBeforeSaveVersion={autoSave.flush} />
       {projectId && projectRoot && (
         <AssetDrawer projectId={projectId} projectRoot={projectRoot} />
       )}
