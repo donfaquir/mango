@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import type { Asset } from "@/lib/bindings/commands";
 import { useAssetList, useDeleteAsset } from "@/hooks/useAssets";
 import { AssetFilterBar, type AssetFilterValues } from "./AssetFilterBar";
@@ -17,7 +17,7 @@ export function AssetLibraryPanel({ projectId, projectRoot }: AssetLibraryPanelP
     keyword: "",
   });
 
-  const [previewAsset, setPreviewAsset] = useState<Asset | null>(null);
+  const [previewAssetId, setPreviewAssetId] = useState<string | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
 
   const { data: assets, isLoading } = useAssetList(projectId, filters.type, {
@@ -25,10 +25,17 @@ export function AssetLibraryPanel({ projectId, projectRoot }: AssetLibraryPanelP
     keyword: filters.keyword || undefined,
   });
 
+  // Re-derive the previewed asset from the (cache-backed) list so label/shot
+  // edits made inside the dialog show up without reopening it.
+  const previewAsset = useMemo<Asset | null>(
+    () => assets?.find((a) => a.id === previewAssetId) ?? null,
+    [assets, previewAssetId],
+  );
+
   const deleteAsset = useDeleteAsset(projectId);
 
   const handlePreview = useCallback((asset: Asset) => {
-    setPreviewAsset(asset);
+    setPreviewAssetId(asset.id);
     setPreviewOpen(true);
   }, []);
 
@@ -36,12 +43,12 @@ export function AssetLibraryPanel({ projectId, projectRoot }: AssetLibraryPanelP
     (asset: Asset) => {
       deleteAsset.mutate(asset.id);
       // Close preview if deleting the previewed asset
-      if (previewAsset?.id === asset.id) {
+      if (previewAssetId === asset.id) {
         setPreviewOpen(false);
-        setPreviewAsset(null);
+        setPreviewAssetId(null);
       }
     },
-    [deleteAsset, previewAsset],
+    [deleteAsset, previewAssetId],
   );
 
   return (

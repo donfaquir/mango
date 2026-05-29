@@ -104,8 +104,9 @@ pub fn list(conn: &Connection, opts: ListAssetsOptions) -> Result<Vec<Asset>> {
 }
 
 /// Update the free-form `label` of an asset. Bumps `updated_at` so library
-/// listings re-sort accordingly.
-pub fn update_label(conn: &Connection, id: &str, label: &str) -> Result<()> {
+/// listings re-sort accordingly. Returns the post-update row so the caller
+/// (and frontend cache) sees the canonical state in a single roundtrip.
+pub fn update_label(conn: &Connection, id: &str, label: &str) -> Result<Asset> {
     let n = conn.execute(
         "UPDATE asset SET label = ?1, updated_at = datetime('now') WHERE id = ?2",
         params![label, id],
@@ -116,7 +117,7 @@ pub fn update_label(conn: &Connection, id: &str, label: &str) -> Result<()> {
             id: id.to_string(),
         });
     }
-    Ok(())
+    get_by_id(conn, id)
 }
 
 /// Bind (or unbind) an asset to a shot. `Some(shot_id)` overwrites any existing
@@ -532,7 +533,8 @@ mod tests {
         let (conn, _td, pid) = setup();
         let id = insert_full(&conn, &pid, "image", "a.png", "imported", "");
 
-        update_label(&conn, &id, "hero").unwrap();
+        let updated = update_label(&conn, &id, "hero").unwrap();
+        assert_eq!(updated.label, "hero");
         let row = get_by_id(&conn, &id).unwrap();
         assert_eq!(row.label, "hero");
     }

@@ -21,6 +21,7 @@ import {
   useAssetList,
   useAssignAssetToShot,
   useImportAsset,
+  useUpdateAssetLabel,
 } from "./useAssets";
 
 function makeWrapper() {
@@ -138,5 +139,30 @@ describe("useAssignAssetToShot", () => {
     const { result } = renderHook(() => useAssignAssetToShot(), { wrapper });
     await result.current.mutateAsync({ id: "a1", shotId: null });
     expect(assignAssetToShot).toHaveBeenCalledWith("a1", null);
+  });
+});
+
+describe("useUpdateAssetLabel", () => {
+  beforeEach(() => {
+    updateAssetLabel.mockReset();
+  });
+
+  it("seeds the detail cache from the returned asset and invalidates the project list", async () => {
+    const updated = { ...sampleAsset, label: "hero" };
+    updateAssetLabel.mockResolvedValueOnce({ status: "ok", data: updated });
+    const { queryClient, wrapper } = makeWrapper();
+
+    queryClient.setQueryData(["assets", "p1", "all"], [sampleAsset]);
+    queryClient.setQueryData(["assets", "p2", "all"], []);
+
+    const { result } = renderHook(() => useUpdateAssetLabel(), { wrapper });
+    await result.current.mutateAsync({ id: "a1", label: "hero" });
+
+    expect(updateAssetLabel).toHaveBeenCalledWith("a1", "hero");
+    expect(queryClient.getQueryData(["asset", "a1"])).toEqual(updated);
+    expect(queryClient.getQueryState(["assets", "p1", "all"])?.isInvalidated)
+      .toBe(true);
+    expect(queryClient.getQueryState(["assets", "p2", "all"])?.isInvalidated)
+      .toBe(false);
   });
 });

@@ -75,9 +75,10 @@ export const commands = {
 	registerProjectAssetScope: (projectId: string) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("register_project_asset_scope", { projectId })),
 	/**
 	 *  Update the free-form `label` of an asset (e.g. user-applied tag in the
-	 *  asset library). An empty string clears the tag.
+	 *  asset library). An empty string clears the tag. Returns the post-update
+	 *  row so the caller's cache can refresh in a single roundtrip.
 	 */
-	updateAssetLabel: (id: string, label: string) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("update_asset_label", { id, label })),
+	updateAssetLabel: (id: string, label: string) => typedError<Asset, IpcError_Serialize>(__TAURI_INVOKE("update_asset_label", { id, label })),
 	deleteCanvasLayout: (episodeId: string) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("delete_canvas_layout", { episodeId })),
 	getCanvasLayout: (episodeId: string) => typedError<{
 	id: string,

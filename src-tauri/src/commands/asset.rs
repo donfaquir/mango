@@ -102,14 +102,15 @@ pub async fn delete_asset(state: State<'_, AppState>, id: String) -> Result<(), 
 }
 
 /// Update the free-form `label` of an asset (e.g. user-applied tag in the
-/// asset library). An empty string clears the tag.
+/// asset library). An empty string clears the tag. Returns the post-update
+/// row so the caller's cache can refresh in a single roundtrip.
 #[tauri::command]
 #[specta::specta]
 pub async fn update_asset_label(
     state: State<'_, AppState>,
     id: String,
     label: String,
-) -> Result<(), IpcError> {
+) -> Result<Asset, IpcError> {
     with_db(&state, move |conn| asset_queries::update_label(conn, &id, &label)).await
 }
 
