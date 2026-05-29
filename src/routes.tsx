@@ -3,8 +3,9 @@ import { createBrowserRouter, Navigate } from "react-router-dom";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { AccountsPanel } from "@/components/accounts/AccountsPanel";
 import { GeneralSettingsPanel } from "@/components/settings/GeneralSettingsPanel";
-
-const ProjectListPage = lazy(() => import("@/pages/ProjectListPage"));
+// ProjectListPage is the index route — every cold start lands here, so lazy
+// would only add a round-trip. The other pages stay lazy.
+import ProjectListPage from "@/pages/ProjectListPage";
 const ProjectWorkspacePage = lazy(
   () => import("@/pages/ProjectWorkspacePage"),
 );

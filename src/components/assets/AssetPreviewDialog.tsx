@@ -68,7 +68,7 @@ export function AssetPreviewDialog({
 
   const saveLabel = () => {
     if (labelValue !== asset.label) {
-      updateLabel.mutate({ id: asset.id, label: labelValue });
+      updateLabel.mutate({ id: asset.id, projectId: asset.project_id, label: labelValue });
     }
     setEditingLabel(false);
   };

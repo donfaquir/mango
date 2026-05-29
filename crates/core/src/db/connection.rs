@@ -1,5 +1,6 @@
 use rusqlite::Connection;
 use std::path::Path;
+use std::time::Instant;
 use tokio_rusqlite::Connection as AsyncConnection;
 
 #[derive(thiserror::Error, Debug)]
@@ -34,10 +35,19 @@ pub fn open_sync(path: &Path) -> Result<Connection, DbError> {
 /// Automatically applies pragmas and pending migrations.
 pub async fn open_async(path: &Path) -> Result<AsyncConnection, DbError> {
     let path = path.to_path_buf();
+    let t_open = Instant::now();
     let conn = AsyncConnection::open(&path).await?;
+    tracing::info!(
+        elapsed_ms = t_open.elapsed().as_millis() as u64,
+        "AsyncConnection::open done"
+    );
     conn.call(|conn| {
+        let t = Instant::now();
         init_pragmas(conn)?;
+        tracing::info!(elapsed_ms = t.elapsed().as_millis() as u64, "init_pragmas done");
+        let t = Instant::now();
         super::migrator::run_migrations(conn)?;
+        tracing::info!(elapsed_ms = t.elapsed().as_millis() as u64, "run_migrations done");
         Ok(())
     })
     .await

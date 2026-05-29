@@ -61,11 +61,11 @@ export function useAsset(id: string | null | undefined) {
 export function useUpdateAssetLabel() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, label }: { id: string; label: string }) =>
+    mutationFn: ({ id, label }: { id: string; projectId: string; label: string }) =>
       unwrap(commands.updateAssetLabel(id, label)),
-    onSuccess: (data) => {
-      qc.invalidateQueries({ queryKey: ["assets", data.project_id] });
-      qc.invalidateQueries({ queryKey: assetKeys.detail(data.id) });
+    onSuccess: (_data, { id, projectId }) => {
+      qc.invalidateQueries({ queryKey: ["assets", projectId] });
+      qc.invalidateQueries({ queryKey: assetKeys.detail(id) });
     },
   });
 }
