@@ -1,10 +1,9 @@
-import { useCallback, useState } from "react";
+import { useState } from "react";
 import { ImageIcon, Library, Upload, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { useImportAsset } from "@/hooks/useAssets";
 import { useResolvedAssetUrl } from "@/hooks/useResolvedAssetUrl";
-import { useGlobalDropTarget } from "@/hooks/useGlobalDropTarget";
 import { commands } from "@/lib/bindings/commands";
 import { unwrap } from "@/lib/ipc";
 import { AssetPickerDialog } from "../assets/AssetPickerDialog";
@@ -27,42 +26,20 @@ export function ReferenceImageDropzone({
   const importAsset = useImportAsset();
   const [pickerOpen, setPickerOpen] = useState(false);
 
-  const handleImport = useCallback(
-    async (sourcePath: string) => {
-      try {
-        const asset = await importAsset.mutateAsync({
-          project_id: projectId,
-          source_path: sourcePath,
-        });
-        onChange(asset.file_path);
-      } catch (err) {
-        toast.error(
-          `导入失败：${err instanceof Error ? err.message : String(err)}`,
-        );
-      }
-    },
-    [projectId, onChange, importAsset],
-  );
-
-  const handleDrop = useCallback(
-    (paths: string[]) => {
-      const first = paths[0];
-      if (first) void handleImport(first);
-    },
-    [handleImport],
-  );
-
-  useGlobalDropTarget(handleDrop, !disabled);
-
   const url = useResolvedAssetUrl(projectRoot, currentRelativePath);
 
   const handlePick = async () => {
     try {
       const picked = await unwrap(commands.pickImageFile());
-      if (picked) void handleImport(picked);
+      if (!picked) return;
+      const asset = await importAsset.mutateAsync({
+        project_id: projectId,
+        source_path: picked,
+      });
+      onChange(asset.file_path);
     } catch (err) {
       toast.error(
-        `选择文件失败：${err instanceof Error ? err.message : String(err)}`,
+        `导入失败：${err instanceof Error ? err.message : String(err)}`,
       );
     }
   };
@@ -80,8 +57,8 @@ export function ReferenceImageDropzone({
           <div className="flex h-full flex-col items-center justify-center gap-2 p-3 text-center">
             <ImageIcon className="size-8 text-muted-foreground/40" />
             <p className="text-xs text-muted-foreground">
-              拖入图片到窗口任意位置
-              <br />或点击下方按钮选择
+              点击下方按钮选择图片
+              <br />或从素材库挑选
             </p>
           </div>
         )}

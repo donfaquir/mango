@@ -27,7 +27,6 @@ import {
 import { AssetDrawer } from "./drag/AssetDrawer";
 import { DropTargetOverlay } from "./drag/DropTargetOverlay";
 import { useInternalAssetDrop } from "./drag/useInternalAssetDrop";
-import { useSystemFileDrop } from "./drag/useSystemFileDrop";
 import {
   BindAssetToShotDialog,
   type BindAssetToShotRequest,
@@ -92,12 +91,6 @@ export function CanvasInner({ episodeId, initialViewport }: Props) {
   const internalDrop = useInternalAssetDrop({
     onPlaceAsset: handlePlaceAsset,
     onAttachToShot: handleAttachToShot,
-  });
-
-  useSystemFileDrop({
-    projectId: projectId ?? "",
-    onPlaceAsset: handlePlaceAsset,
-    enabled: projectId != null,
   });
 
   const handlePaneContextMenu = useCallback(

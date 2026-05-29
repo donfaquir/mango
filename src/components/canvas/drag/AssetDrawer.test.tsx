@@ -8,7 +8,7 @@ vi.mock("@/hooks/useAssets", () => ({
 }));
 
 vi.mock("@/hooks/useResolvedAssetUrl", () => ({
-  useResolvedAssetUrl: () => null,
+  useResolvedAssetUrl: () => "asset://fake",
 }));
 
 import { AssetDrawer } from "./AssetDrawer";
@@ -81,6 +81,19 @@ describe("AssetDrawer", () => {
     const aside = container.querySelector("aside")!;
     const draggables = within(aside).getAllByText(/\.png$/);
     expect(draggables).toHaveLength(2);
+  });
+
+  it("disables native drag on inner thumbnails so the wrapper drag wins", () => {
+    const { container } = render(
+      <AssetDrawer projectId="p1" projectRoot="/tmp" />,
+    );
+    fireEvent.click(screen.getByLabelText("切换素材库抽屉"));
+    const aside = container.querySelector("aside")!;
+    const imgs = aside.querySelectorAll("img");
+    expect(imgs.length).toBeGreaterThan(0);
+    for (const img of imgs) {
+      expect(img.getAttribute("draggable")).toBe("false");
+    }
   });
 
   it("sets the asset id on dataTransfer when drag begins", () => {

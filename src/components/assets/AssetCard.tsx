@@ -68,6 +68,7 @@ export function AssetCard({ asset, projectRoot, onPreview, onDelete }: AssetCard
               className="h-full w-full object-cover"
               muted
               preload="metadata"
+              draggable={false}
             />
           ) : (
             <img
@@ -75,6 +76,7 @@ export function AssetCard({ asset, projectRoot, onPreview, onDelete }: AssetCard
               alt={asset.original_name}
               className="h-full w-full object-cover"
               onError={() => setImgError(true)}
+              draggable={false}
             />
           )
         ) : (
