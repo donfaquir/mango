@@ -60,6 +60,11 @@ export function inferEdgeKind(
     return "character_to_shot";
   if (s.kind === "storyboard" && t.kind === "task") return "shot_to_task";
   if (s.kind === "task" && t.kind === "asset") return "task_to_asset";
+  if (s.kind === "storyboard" && t.kind === "asset")
+    return "storyboard_to_asset";
+  if (s.kind === "character" && t.kind === "asset")
+    return "character_to_asset";
+  if (s.kind === "asset" && t.kind === "asset") return "asset_to_asset";
   return null;
 }
 

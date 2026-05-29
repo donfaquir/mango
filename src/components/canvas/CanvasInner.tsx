@@ -27,10 +27,6 @@ import {
 import { AssetDrawer } from "./drag/AssetDrawer";
 import { DropTargetOverlay } from "./drag/DropTargetOverlay";
 import { useInternalAssetDrop } from "./drag/useInternalAssetDrop";
-import {
-  BindAssetToShotDialog,
-  type BindAssetToShotRequest,
-} from "./drag/BindAssetToShotDialog";
 import { CanvasToolbar } from "./toolbar/CanvasToolbar";
 import { useCanvasShortcuts } from "./toolbar/useCanvasShortcuts";
 
@@ -71,8 +67,6 @@ export function CanvasInner({ episodeId, initialViewport }: Props) {
   const { screenToFlowPosition } = useReactFlow();
   const [paneMenu, setPaneMenu] = useState<PaneMenuState | null>(null);
   const [edgeMenu, setEdgeMenu] = useState<EdgeContextMenuState | null>(null);
-  const [bindRequest, setBindRequest] =
-    useState<BindAssetToShotRequest | null>(null);
 
   const handlePlaceAsset = useCallback(
     (assetId: string, flowPos: XYPosition) => {
@@ -81,16 +75,30 @@ export function CanvasInner({ episodeId, initialViewport }: Props) {
     [addNode],
   );
 
-  const handleAttachToShot = useCallback(
-    (assetId: string, shotId: string) => {
-      setBindRequest({ assetId, shotId });
+  const handleConnectAsset = useCallback(
+    (assetId: string, sourceNodeId: string) => {
+      const store = useCanvasStore.getState();
+      const sourceNode = store.nodes.find((n) => n.id === sourceNodeId);
+      if (!sourceNode) return;
+      const offsetX = (sourceNode.measured?.width ?? 240) + 60;
+      const newNode = createAssetNode(assetId, {
+        x: sourceNode.position.x + offsetX,
+        y: sourceNode.position.y,
+      });
+      store.addNode(newNode);
+      store.onConnect({
+        source: sourceNodeId,
+        target: newNode.id,
+        sourceHandle: null,
+        targetHandle: null,
+      });
     },
     [],
   );
 
   const internalDrop = useInternalAssetDrop({
     onPlaceAsset: handlePlaceAsset,
-    onAttachToShot: handleAttachToShot,
+    onConnectAsset: handleConnectAsset,
   });
 
   const handlePaneContextMenu = useCallback(
@@ -149,10 +157,6 @@ export function CanvasInner({ episodeId, initialViewport }: Props) {
       )}
       <PaneContextMenu state={paneMenu} onClose={() => setPaneMenu(null)} />
       <EdgeContextMenu state={edgeMenu} onClose={() => setEdgeMenu(null)} />
-      <BindAssetToShotDialog
-        request={bindRequest}
-        onClose={() => setBindRequest(null)}
-      />
     </div>
   );
 }

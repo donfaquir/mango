@@ -1,11 +1,10 @@
 import { useCallback, useState } from "react";
 import { useReactFlow, type XYPosition } from "@xyflow/react";
-import type { StoryboardNodeData } from "../nodes/types";
 import { DRAG_MIME_ASSET_ID } from "./constants";
 
 export interface UseInternalAssetDropOptions {
   onPlaceAsset: (assetId: string, flowPos: XYPosition) => void;
-  onAttachToShot: (assetId: string, shotId: string) => void;
+  onConnectAsset: (assetId: string, sourceNodeId: string) => void;
 }
 
 export interface InternalAssetDropResult {
@@ -49,10 +48,9 @@ export function useInternalAssetDrop(
         width: 1,
         height: 1,
       });
-      const shotNode = hit.find((n) => n.type === "storyboard");
-      if (shotNode) {
-        const shotId = (shotNode.data as StoryboardNodeData).shotId;
-        opts.onAttachToShot(assetId, shotId);
+      const sourceNode = hit[0];
+      if (sourceNode) {
+        opts.onConnectAsset(assetId, sourceNode.id);
         return;
       }
 

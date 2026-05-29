@@ -63,9 +63,9 @@ beforeEach(() => {
 describe("useInternalAssetDrop", () => {
   it("sets isOver and dropEffect when the asset MIME is present", () => {
     const onPlaceAsset = vi.fn();
-    const onAttachToShot = vi.fn();
+    const onConnectAsset = vi.fn();
     const { result } = renderHook(() =>
-      useInternalAssetDrop({ onPlaceAsset, onAttachToShot }),
+      useInternalAssetDrop({ onPlaceAsset, onConnectAsset }),
     );
 
     const dt = makeDataTransfer([DRAG_MIME_ASSET_ID]);
@@ -79,9 +79,9 @@ describe("useInternalAssetDrop", () => {
 
   it("ignores onDragOver when the asset MIME is absent", () => {
     const onPlaceAsset = vi.fn();
-    const onAttachToShot = vi.fn();
+    const onConnectAsset = vi.fn();
     const { result } = renderHook(() =>
-      useInternalAssetDrop({ onPlaceAsset, onAttachToShot }),
+      useInternalAssetDrop({ onPlaceAsset, onConnectAsset }),
     );
 
     const dt = makeDataTransfer(["text/plain"]);
@@ -93,12 +93,12 @@ describe("useInternalAssetDrop", () => {
     expect(result.current.isOver).toBe(false);
   });
 
-  it("calls onPlaceAsset with the flow position when no storyboard node is hit", () => {
+  it("calls onPlaceAsset with the flow position when no node is hit", () => {
     getIntersectingNodes.mockReturnValueOnce([]);
     const onPlaceAsset = vi.fn();
-    const onAttachToShot = vi.fn();
+    const onConnectAsset = vi.fn();
     const { result } = renderHook(() =>
-      useInternalAssetDrop({ onPlaceAsset, onAttachToShot }),
+      useInternalAssetDrop({ onPlaceAsset, onConnectAsset }),
     );
 
     const dt = makeDataTransfer([DRAG_MIME_ASSET_ID], {
@@ -107,18 +107,22 @@ describe("useInternalAssetDrop", () => {
     act(() => result.current.onDrop(dragEvent(dt, { x: 120, y: 80 })));
 
     expect(onPlaceAsset).toHaveBeenCalledWith("asset-1", { x: 120, y: 80 });
-    expect(onAttachToShot).not.toHaveBeenCalled();
+    expect(onConnectAsset).not.toHaveBeenCalled();
     expect(result.current.isOver).toBe(false);
   });
 
-  it("calls onAttachToShot when the drop lands on a storyboard node", () => {
+  it("calls onConnectAsset with the source node id when the drop lands on a storyboard node", () => {
     getIntersectingNodes.mockReturnValueOnce([
-      { type: "storyboard", data: { kind: "storyboard", shotId: "shot-9" } },
+      {
+        id: "node-shot-9",
+        type: "storyboard",
+        data: { kind: "storyboard", shotId: "shot-9" },
+      },
     ]);
     const onPlaceAsset = vi.fn();
-    const onAttachToShot = vi.fn();
+    const onConnectAsset = vi.fn();
     const { result } = renderHook(() =>
-      useInternalAssetDrop({ onPlaceAsset, onAttachToShot }),
+      useInternalAssetDrop({ onPlaceAsset, onConnectAsset }),
     );
 
     const dt = makeDataTransfer([DRAG_MIME_ASSET_ID], {
@@ -126,18 +130,22 @@ describe("useInternalAssetDrop", () => {
     });
     act(() => result.current.onDrop(dragEvent(dt, { x: 10, y: 10 })));
 
-    expect(onAttachToShot).toHaveBeenCalledWith("asset-2", "shot-9");
+    expect(onConnectAsset).toHaveBeenCalledWith("asset-2", "node-shot-9");
     expect(onPlaceAsset).not.toHaveBeenCalled();
   });
 
-  it("treats non-storyboard intersections as empty pane drops", () => {
+  it("connects to a non-storyboard node as well (any node kind is upstream)", () => {
     getIntersectingNodes.mockReturnValueOnce([
-      { type: "character", data: { kind: "character", characterId: "c1" } },
+      {
+        id: "node-char-1",
+        type: "character",
+        data: { kind: "character", characterId: "c1" },
+      },
     ]);
     const onPlaceAsset = vi.fn();
-    const onAttachToShot = vi.fn();
+    const onConnectAsset = vi.fn();
     const { result } = renderHook(() =>
-      useInternalAssetDrop({ onPlaceAsset, onAttachToShot }),
+      useInternalAssetDrop({ onPlaceAsset, onConnectAsset }),
     );
 
     const dt = makeDataTransfer([DRAG_MIME_ASSET_ID], {
@@ -145,27 +153,27 @@ describe("useInternalAssetDrop", () => {
     });
     act(() => result.current.onDrop(dragEvent(dt, { x: 50, y: 50 })));
 
-    expect(onPlaceAsset).toHaveBeenCalledWith("asset-3", { x: 50, y: 50 });
-    expect(onAttachToShot).not.toHaveBeenCalled();
+    expect(onConnectAsset).toHaveBeenCalledWith("asset-3", "node-char-1");
+    expect(onPlaceAsset).not.toHaveBeenCalled();
   });
 
   it("does nothing when the drop has no asset id payload", () => {
     const onPlaceAsset = vi.fn();
-    const onAttachToShot = vi.fn();
+    const onConnectAsset = vi.fn();
     const { result } = renderHook(() =>
-      useInternalAssetDrop({ onPlaceAsset, onAttachToShot }),
+      useInternalAssetDrop({ onPlaceAsset, onConnectAsset }),
     );
 
     const dt = makeDataTransfer([DRAG_MIME_ASSET_ID]);
     act(() => result.current.onDrop(dragEvent(dt)));
 
     expect(onPlaceAsset).not.toHaveBeenCalled();
-    expect(onAttachToShot).not.toHaveBeenCalled();
+    expect(onConnectAsset).not.toHaveBeenCalled();
   });
 
   it("clears isOver on dragleave only when the pointer leaves the container", () => {
     const { result } = renderHook(() =>
-      useInternalAssetDrop({ onPlaceAsset: vi.fn(), onAttachToShot: vi.fn() }),
+      useInternalAssetDrop({ onPlaceAsset: vi.fn(), onConnectAsset: vi.fn() }),
     );
 
     const dt = makeDataTransfer([DRAG_MIME_ASSET_ID]);
