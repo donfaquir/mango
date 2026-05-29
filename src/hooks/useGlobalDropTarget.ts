@@ -16,6 +16,10 @@ function installListener(): void {
   listenerInstalled = true;
   unlistenPromise = getCurrentWebview().onDragDropEvent((event) => {
     if (event.payload.type !== "drop") return;
+    // Tauri 2 fires `drop` for in-webview HTML5 drags too (with empty paths)
+    // when `dragDropEnabled` is on. Treat empty paths as "not a file drop"
+    // and skip dispatch so consumers don't have to filter it themselves.
+    if (event.payload.paths.length === 0) return;
     const top = handlerStack[handlerStack.length - 1];
     top?.(event.payload.paths, event.payload.position);
   });

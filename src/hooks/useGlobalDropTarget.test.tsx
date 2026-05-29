@@ -96,4 +96,11 @@ describe("useGlobalDropTarget", () => {
     registeredCallback?.({ payload: { type: "leave" } });
     expect(handler).not.toHaveBeenCalled();
   });
+
+  it("ignores drop events with empty paths (in-webview HTML5 drags)", () => {
+    const handler = vi.fn();
+    renderHook(() => useGlobalDropTarget(handler));
+    fireDrop([]);
+    expect(handler).not.toHaveBeenCalled();
+  });
 });
