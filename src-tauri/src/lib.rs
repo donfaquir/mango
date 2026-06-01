@@ -93,6 +93,9 @@ fn make_builder() -> Builder<tauri::Wry> {
             commands::task::list_task_events,
             commands::task::list_tasks,
             commands::task::submit_task,
+            commands::workspace::get_workspace_status,
+            commands::workspace::probe_workspace,
+            commands::workspace::set_workspace_and_relaunch,
         ])
         .events(collect_events![
             events::TaskStatusChanged,
@@ -230,9 +233,13 @@ pub fn run() {
                 }
             });
 
+            // PR1: workspace_root stays None — the conditional-mount setup
+            // lands in PR2. Existing flow is unchanged because no command
+            // reads `workspace_root` yet.
             app.manage(state::AppState {
                 db,
                 app_data_dir: app_dir,
+                workspace_root: None,
                 keyring,
                 task_engine: Arc::new(engine),
             });

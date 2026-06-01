@@ -179,6 +179,25 @@ export const commands = {
 	listTaskEvents: (taskId: string) => typedError<GenerationTaskEvent[], IpcError_Serialize>(__TAURI_INVOKE("list_task_events", { taskId })),
 	listTasks: (projectId: string | null, status: "pending" | "running" | "success" | "failed" | "cancelled" | null, limit: number | null) => typedError<GenerationTask[], IpcError_Serialize>(__TAURI_INVOKE("list_tasks", { projectId, status, limit })),
 	submitTask: (input: CreateGenerationTaskInput) => typedError<string, IpcError_Serialize>(__TAURI_INVOKE("submit_task", { input })),
+	/**
+	 *  Current workspace mount state. PR1 always returns `None` because the
+	 *  conditional-mount setup() lands in PR2. The frontend can already call
+	 *  this — it will just always route to onboarding for now.
+	 */
+	getWorkspaceStatus: () => typedError<WorkspaceStatus, IpcError_Serialize>(__TAURI_INVOKE("get_workspace_status")),
+	/**
+	 *  Probe a candidate workspace directory. Pure inspection — no writes, no
+	 *  state mutation. The frontend calls this before showing a confirmation
+	 *  dialog so the user sees the right message for what they're about to do.
+	 */
+	probeWorkspace: (path: string) => typedError<WorkspaceProbe, IpcError_Serialize>(__TAURI_INVOKE("probe_workspace", { path })),
+	/**
+	 *  Persist `path` as the workspace pointer in `<app_data>/config.json`,
+	 *  then restart the app so the next boot mounts the new workspace.
+	 *  Caller is expected to have run `probe_workspace` and presented the
+	 *  appropriate confirmation already — this command does NOT re-probe.
+	 */
+	setWorkspaceAndRelaunch: (path: string) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("set_workspace_and_relaunch", { path })),
 };
 
 /** Events */
@@ -956,6 +975,40 @@ export type UpsertCanvasLayoutInput = {
 	nodes_json: string,
 	edges_json: string,
 	viewport_json: string,
+};
+
+/**
+ *  Classification of a candidate workspace directory. Each variant drives a
+ *  different confirmation flow in the frontend onboarding / switch UI.
+ */
+export type WorkspaceProbe = 
+/**  Path does not exist OR is an empty directory. Safe to initialise. */
+{ kind: "empty" } | 
+/**
+ *  Path contains `mango.db`. Reports the number of projects found so the
+ *  UI can show "detected N projects, mount here?". Project count is
+ *  best-effort — a corrupt DB still classifies as ExistingMangoData
+ *  with `project_count = 0` rather than failing.
+ */
+{ kind: "existing_mango_data"; project_count: number } | 
+/**
+ *  Path exists, is non-empty, but no `mango.db` was found. The UI should
+ *  warn before initialising on top of unrelated files.
+ */
+{ kind: "non_empty_foreign" } | 
+/**
+ *  Path is unreadable, not a directory, or otherwise unusable. The string
+ *  is a human-readable reason for the UI to surface.
+ */
+{ kind: "invalid"; reason: string };
+
+/**  Snapshot of workspace mount state for the frontend router. */
+export type WorkspaceStatus = {
+	/**
+	 *  Absolute path of the mounted workspace, or `None` if onboarding is
+	 *  required.
+	 */
+	workspace_root: string | null,
 };
 
 /* Tauri Specta runtime */

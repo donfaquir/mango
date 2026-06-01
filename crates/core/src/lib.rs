@@ -1,4 +1,5 @@
 pub mod account;
+pub mod app_config;
 pub mod asset;
 pub mod db;
 pub mod error;

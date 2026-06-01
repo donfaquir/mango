@@ -12,6 +12,7 @@ pub mod prop;
 pub mod scene;
 pub mod shot;
 pub mod task;
+pub mod workspace;
 
 use crate::error::IpcError;
 use crate::state::AppState;
