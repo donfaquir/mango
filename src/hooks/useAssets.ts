@@ -20,20 +20,44 @@ export interface UseAssetListOptions {
 export const assetKeys = {
   all: (projectId: string, type: AssetType | "all") =>
     ["assets", projectId, type] as const,
-  filtered: (projectId: string, type: AssetType | "all", source?: AssetSource, keyword?: string) =>
-    ["assets", projectId, type, source ?? null, keyword ?? null] as const,
+  filtered: (
+    projectId: string,
+    type: AssetType | "all",
+    source?: AssetSource,
+    keyword?: string,
+    label?: string,
+  ) =>
+    [
+      "assets",
+      projectId,
+      type,
+      source ?? null,
+      keyword ?? null,
+      label ?? null,
+    ] as const,
   detail: (id: string) => ["asset", id] as const,
+  labels: (projectId: string) => ["asset-labels", projectId] as const,
 };
 
 export function useAssetList(
   projectId: string | undefined,
   type?: AssetType,
-  opts?: { source?: AssetSource; keyword?: string; limit?: number; offset?: number },
+  opts?: {
+    source?: AssetSource;
+    keyword?: string;
+    /**
+     * Exact-match label filter. `undefined` = any; `""` = unlabeled only;
+     * non-empty string = rows whose label equals it exactly.
+     */
+    label?: string;
+    limit?: number;
+    offset?: number;
+  },
 ) {
   const key = type ?? "all";
   return useQuery<Asset[]>({
     queryKey: projectId
-      ? assetKeys.filtered(projectId, key, opts?.source, opts?.keyword)
+      ? assetKeys.filtered(projectId, key, opts?.source, opts?.keyword, opts?.label)
       : ["assets", "none"],
     queryFn: () =>
       unwrap(
@@ -42,10 +66,19 @@ export function useAssetList(
           asset_type: type ?? null,
           source: opts?.source ?? null,
           keyword: opts?.keyword ?? null,
+          label: opts?.label ?? null,
           limit: opts?.limit ?? null,
           offset: opts?.offset ?? null,
         }),
       ),
+    enabled: !!projectId,
+  });
+}
+
+export function useAssetLabels(projectId: string | undefined) {
+  return useQuery<string[]>({
+    queryKey: projectId ? assetKeys.labels(projectId) : ["asset-labels", "none"],
+    queryFn: () => unwrap(commands.listAssetLabels(projectId as string)),
     enabled: !!projectId,
   });
 }
@@ -66,6 +99,7 @@ export function useUpdateAssetLabel() {
     onSuccess: (asset) => {
       qc.setQueryData(assetKeys.detail(asset.id), asset);
       qc.invalidateQueries({ queryKey: ["assets", asset.project_id] });
+      qc.invalidateQueries({ queryKey: assetKeys.labels(asset.project_id) });
     },
   });
 }
@@ -87,6 +121,7 @@ export function useDeleteAsset(projectId: string) {
     mutationFn: (id: string) => unwrap(commands.deleteAsset(id)),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["assets", projectId] });
+      qc.invalidateQueries({ queryKey: assetKeys.labels(projectId) });
     },
   });
 }

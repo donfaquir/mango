@@ -70,6 +70,18 @@ pub async fn list_assets(
     with_db(&state, move |conn| asset_queries::list(conn, opts)).await
 }
 
+/// Return the distinct non-empty `label` values currently used across the
+/// project's assets. The frontend asset library uses this to populate the
+/// label filter dropdown; "all" and "unlabeled" options are added by the UI.
+#[tauri::command]
+#[specta::specta]
+pub async fn list_asset_labels(
+    state: State<'_, AppState>,
+    project_id: String,
+) -> Result<Vec<String>, IpcError> {
+    with_db(&state, move |conn| asset_queries::list_labels(conn, &project_id)).await
+}
+
 #[tauri::command]
 #[specta::specta]
 pub async fn get_asset(state: State<'_, AppState>, id: String) -> Result<Asset, IpcError> {

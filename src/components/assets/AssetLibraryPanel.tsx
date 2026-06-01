@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from "react";
 import type { Asset } from "@/lib/bindings/commands";
-import { useAssetList, useDeleteAsset } from "@/hooks/useAssets";
+import { useAssetLabels, useAssetList, useDeleteAsset } from "@/hooks/useAssets";
 import { AssetFilterBar, type AssetFilterValues } from "./AssetFilterBar";
 import { AssetGrid } from "./AssetGrid";
 import { AssetPreviewDialog } from "./AssetPreviewDialog";
@@ -15,6 +15,7 @@ export function AssetLibraryPanel({ projectId, projectRoot }: AssetLibraryPanelP
     type: undefined,
     source: undefined,
     keyword: "",
+    label: undefined,
   });
 
   const [previewAssetId, setPreviewAssetId] = useState<string | null>(null);
@@ -23,7 +24,9 @@ export function AssetLibraryPanel({ projectId, projectRoot }: AssetLibraryPanelP
   const { data: assets, isLoading } = useAssetList(projectId, filters.type, {
     source: filters.source,
     keyword: filters.keyword || undefined,
+    label: filters.label,
   });
+  const { data: labels } = useAssetLabels(projectId);
 
   // Re-derive the previewed asset from the (cache-backed) list so label/shot
   // edits made inside the dialog show up without reopening it.
@@ -57,7 +60,7 @@ export function AssetLibraryPanel({ projectId, projectRoot }: AssetLibraryPanelP
         <h2 className="text-xl font-semibold">素材库</h2>
       </header>
 
-      <AssetFilterBar value={filters} onChange={setFilters} />
+      <AssetFilterBar value={filters} labels={labels ?? []} onChange={setFilters} />
 
       <AssetGrid
         assets={assets}

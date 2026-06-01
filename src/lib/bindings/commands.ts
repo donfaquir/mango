@@ -66,6 +66,12 @@ export const commands = {
 	 *  work. See spec-12 §"导入流水线（三段式）" for the design rationale.
 	 */
 	importAsset: (input: ImportAssetInput) => typedError<Asset, IpcError_Serialize>(__TAURI_INVOKE("import_asset", { input })),
+	/**
+	 *  Return the distinct non-empty `label` values currently used across the
+	 *  project's assets. The frontend asset library uses this to populate the
+	 *  label filter dropdown; "all" and "unlabeled" options are added by the UI.
+	 */
+	listAssetLabels: (projectId: string) => typedError<string[], IpcError_Serialize>(__TAURI_INVOKE("list_asset_labels", { projectId })),
 	listAssets: (opts: ListAssetsOptions) => typedError<Asset[], IpcError_Serialize>(__TAURI_INVOKE("list_assets", { opts })),
 	/**
 	 *  Allow the asset protocol to read files under `project_root`. The webview
@@ -550,6 +556,12 @@ export type ListAssetsOptions = {
 	 *  or `label`. Empty / whitespace-only strings are treated as `None`.
 	 */
 	keyword?: string | null,
+	/**
+	 *  Optional exact-match filter on the `label` column. `Some("")` selects
+	 *  rows with no label set (the canonical "unlabeled" state); `Some("x")`
+	 *  selects rows whose label equals `"x"` exactly; `None` means "any".
+	 */
+	label?: string | null,
 	limit?: number | null,
 	offset?: number | null,
 };

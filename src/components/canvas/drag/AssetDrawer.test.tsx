@@ -3,8 +3,10 @@ import { render, screen, fireEvent, within } from "@testing-library/react";
 import type { Asset } from "@/lib/bindings/commands";
 
 const useAssetListMock = vi.fn();
+const useAssetLabelsMock = vi.fn();
 vi.mock("@/hooks/useAssets", () => ({
   useAssetList: (...args: unknown[]) => useAssetListMock(...args),
+  useAssetLabels: (...args: unknown[]) => useAssetLabelsMock(...args),
 }));
 
 vi.mock("@/hooks/useResolvedAssetUrl", () => ({
@@ -41,6 +43,8 @@ const assets: Asset[] = [
 beforeEach(() => {
   useAssetListMock.mockReset();
   useAssetListMock.mockReturnValue({ data: assets, isLoading: false });
+  useAssetLabelsMock.mockReset();
+  useAssetLabelsMock.mockReturnValue({ data: [], isLoading: false });
 });
 
 describe("AssetDrawer", () => {
@@ -124,6 +128,7 @@ describe("AssetDrawer", () => {
     expect(useAssetListMock).toHaveBeenCalledWith("p1", undefined, {
       source: undefined,
       keyword: undefined,
+      label: undefined,
     });
   });
 });

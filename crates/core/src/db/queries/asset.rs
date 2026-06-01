@@ -87,6 +87,11 @@ pub fn list(conn: &Connection, opts: ListAssetsOptions) -> Result<Vec<Asset>> {
             " AND (original_name LIKE ?{n} OR label LIKE ?{n})"
         ));
     }
+    if let Some(label) = opts.label {
+        // Exact match — Some("") deliberately selects the "no label" rows.
+        args.push(Box::new(label));
+        sql.push_str(&format!(" AND label = ?{}", args.len()));
+    }
 
     args.push(Box::new(limit));
     let limit_idx = args.len();
@@ -99,6 +104,20 @@ pub fn list(conn: &Connection, opts: ListAssetsOptions) -> Result<Vec<Asset>> {
     let mut stmt = conn.prepare(&sql)?;
     let param_refs: Vec<&dyn ToSql> = args.iter().map(|b| b.as_ref()).collect();
     let rows = stmt.query_map(param_refs.as_slice(), map_row)?;
+    rows.collect::<std::result::Result<Vec<_>, _>>()
+        .map_err(CoreError::from)
+}
+
+/// Return the distinct non-empty `label` values used across a project's
+/// assets, sorted alphabetically. Powers the asset library's label filter
+/// dropdown — callers add their own "any" / "unlabeled" options on top.
+pub fn list_labels(conn: &Connection, project_id: &str) -> Result<Vec<String>> {
+    let mut stmt = conn.prepare(
+        "SELECT DISTINCT label FROM asset \
+         WHERE project_id = ?1 AND label != '' \
+         ORDER BY label COLLATE NOCASE",
+    )?;
+    let rows = stmt.query_map(params![project_id], |row| row.get::<_, String>(0))?;
     rows.collect::<std::result::Result<Vec<_>, _>>()
         .map_err(CoreError::from)
 }
@@ -281,6 +300,7 @@ mod tests {
                 asset_type: None,
                 source: None,
                 keyword: None,
+                label: None,
                 limit: None,
                 offset: None,
             },
@@ -295,6 +315,7 @@ mod tests {
                 asset_type: Some(AssetType::Image),
                 source: None,
                 keyword: None,
+                label: None,
                 limit: None,
                 offset: None,
             },
@@ -452,6 +473,7 @@ mod tests {
                 asset_type: None,
                 source: Some(AssetSource::Imported),
                 keyword: None,
+                label: None,
                 limit: None,
                 offset: None,
             },
@@ -467,6 +489,7 @@ mod tests {
                 asset_type: None,
                 source: Some(AssetSource::Generated),
                 keyword: None,
+                label: None,
                 limit: None,
                 offset: None,
             },
@@ -489,6 +512,7 @@ mod tests {
                 asset_type: None,
                 source: None,
                 keyword: Some("sun".into()),
+                label: None,
                 limit: None,
                 offset: None,
             },
@@ -504,6 +528,7 @@ mod tests {
                 asset_type: None,
                 source: None,
                 keyword: Some("hero".into()),
+                label: None,
                 limit: None,
                 offset: None,
             },
@@ -520,12 +545,92 @@ mod tests {
                 asset_type: None,
                 source: None,
                 keyword: Some("   ".into()),
+                label: None,
                 limit: None,
                 offset: None,
             },
         )
         .unwrap();
         assert_eq!(no_filter.len(), 3);
+    }
+
+    #[test]
+    fn list_filters_by_label_exact_and_unlabeled() {
+        let (conn, _td, pid) = setup();
+        insert_full(&conn, &pid, "image", "a.png", "imported", "hero");
+        insert_full(&conn, &pid, "image", "b.png", "imported", "hero");
+        insert_full(&conn, &pid, "image", "c.png", "imported", "villain");
+        insert_full(&conn, &pid, "image", "d.png", "imported", "");
+
+        let heroes = list(
+            &conn,
+            ListAssetsOptions {
+                project_id: pid.clone(),
+                asset_type: None,
+                source: None,
+                keyword: None,
+                label: Some("hero".into()),
+                limit: None,
+                offset: None,
+            },
+        )
+        .unwrap();
+        assert_eq!(heroes.len(), 2);
+        assert!(heroes.iter().all(|a| a.label == "hero"));
+
+        let unlabeled = list(
+            &conn,
+            ListAssetsOptions {
+                project_id: pid,
+                asset_type: None,
+                source: None,
+                keyword: None,
+                label: Some(String::new()),
+                limit: None,
+                offset: None,
+            },
+        )
+        .unwrap();
+        assert_eq!(unlabeled.len(), 1);
+        assert_eq!(unlabeled[0].label, "");
+    }
+
+    #[test]
+    fn list_labels_returns_distinct_non_empty_sorted() {
+        let (conn, _td, pid_a) = setup();
+        insert_full(&conn, &pid_a, "image", "a.png", "imported", "hero");
+        insert_full(&conn, &pid_a, "image", "b.png", "imported", "hero");
+        insert_full(&conn, &pid_a, "image", "c.png", "imported", "Villain");
+        insert_full(&conn, &pid_a, "image", "d.png", "imported", "");
+        insert_full(&conn, &pid_a, "image", "e.png", "imported", "alpha");
+
+        let labels = list_labels(&conn, &pid_a).unwrap();
+        // NOCASE collation puts "alpha" first, then "hero", then "Villain".
+        assert_eq!(labels, vec!["alpha", "hero", "Villain"]);
+    }
+
+    #[test]
+    fn list_labels_is_scoped_to_project() {
+        let (conn, td, pid_a) = setup();
+        let pid_b = project_queries::create(
+            &conn,
+            td.path(),
+            CreateProjectInput {
+                name: "B".into(),
+                root_path: None,
+                description: None,
+                style_prompt: None,
+                global_seed: None,
+            },
+        )
+        .unwrap()
+        .id;
+
+        insert_full(&conn, &pid_a, "image", "a.png", "imported", "owned-by-a");
+        insert_full(&conn, &pid_b, "image", "b.png", "imported", "owned-by-b");
+
+        let labels_a = list_labels(&conn, &pid_a).unwrap();
+        assert_eq!(labels_a, vec!["owned-by-a"]);
     }
 
     #[test]

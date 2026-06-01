@@ -8,7 +8,7 @@ import {
   AssetFilterBar,
   type AssetFilterValues,
 } from "@/components/assets/AssetFilterBar";
-import { useAssetList } from "@/hooks/useAssets";
+import { useAssetLabels, useAssetList } from "@/hooks/useAssets";
 import { DRAG_MIME_ASSET_ID } from "./constants";
 
 interface AssetDrawerProps {
@@ -52,12 +52,15 @@ export function AssetDrawer({ projectId, projectRoot }: AssetDrawerProps) {
     type: undefined,
     source: undefined,
     keyword: "",
+    label: undefined,
   });
 
   const { data: assets } = useAssetList(projectId, filters.type, {
     source: filters.source,
     keyword: filters.keyword || undefined,
+    label: filters.label,
   });
+  const { data: labels } = useAssetLabels(projectId);
 
   return (
     <>
@@ -90,7 +93,7 @@ export function AssetDrawer({ projectId, projectRoot }: AssetDrawerProps) {
           </Button>
         </header>
         <div className="border-b p-3">
-          <AssetFilterBar value={filters} onChange={setFilters} />
+          <AssetFilterBar value={filters} labels={labels ?? []} onChange={setFilters} />
         </div>
         <div className="grid flex-1 grid-cols-2 gap-2 overflow-auto p-3">
           {assets?.map((asset) => (

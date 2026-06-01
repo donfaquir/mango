@@ -68,6 +68,7 @@ describe("useAssetList", () => {
       asset_type: "image",
       source: null,
       keyword: null,
+      label: null,
       limit: null,
       offset: null,
     });

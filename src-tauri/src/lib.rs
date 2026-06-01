@@ -35,6 +35,7 @@ fn make_builder() -> Builder<tauri::Wry> {
             commands::asset::find_asset_by_path,
             commands::asset::get_asset,
             commands::asset::import_asset,
+            commands::asset::list_asset_labels,
             commands::asset::list_assets,
             commands::asset::register_project_asset_scope,
             commands::asset::update_asset_label,
