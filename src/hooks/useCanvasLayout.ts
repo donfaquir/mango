@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import {
   commands,
   type CanvasLayout,
@@ -17,6 +18,13 @@ export function useCanvasLayoutQuery(episodeId: string) {
   });
 }
 
+// Keep the query cache in sync with the latest save. Without this, navigating
+// away from the canvas and back would re-render with the cached (now stale)
+// layout from the first fetch, then CanvasContainer's init() would overwrite
+// the live store with that stale snapshot — and autoSave would persist the
+// stale data right back to disk. CanvasContainer's init effect is guarded by
+// an episodeId ref so this cache update does NOT trigger a re-init (which
+// would clear the zundo undo stack).
 export function useCanvasLayoutMutation() {
   const qc = useQueryClient();
   return useMutation({
@@ -25,5 +33,6 @@ export function useCanvasLayoutMutation() {
     onSuccess: (data) => {
       qc.setQueryData(canvasLayoutKey(data.episode_id), data);
     },
+    onError: (err) => toast.error(`画布保存失败：${String(err)}`),
   });
 }
