@@ -109,7 +109,7 @@ mango task cancel <task-id>
 | MS1 | 主体库 + 账号管理 | ✅ 已完成 | 角色/场景/道具/服装 CRUD + keyring 账号 |
 | MS2 | AI 生图 / 生视频 | ✅ 已完成 | 百炼 Provider + 任务引擎 + 结果下载 |
 | MS3 | 节点画布 | 📋 规划中 | React Flow 业务语义画布 |
-| MS4 | 批量生成 + 多模型 | 📋 规划中 | 即梦 Provider + 并发控制 + 抽卡对比 |
+| MS4 | 单 Provider 下多模型 + 批量 + 版本管理 | 📋 规划中 | 百炼多模型 + 并发控制 + 抽卡对比 + Checkpoint |
 | MS5 | 视频后期 | 📋 规划中 | FFmpeg 裁剪/拼接 + 字幕/气泡 |
 | MS6 | 配音 + 成片闭环 | 📋 规划中 | TTS 配音 + 音效 + 最终合成导出 |
 
