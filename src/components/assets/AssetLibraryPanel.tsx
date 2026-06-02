@@ -1,9 +1,14 @@
 import { useCallback, useMemo, useState } from "react";
 import type { Asset } from "@/lib/bindings/commands";
-import { useAssetLabels, useAssetList, useDeleteAsset } from "@/hooks/useAssets";
+import {
+  useAssetLabels,
+  useAssetList,
+  useScheduleAssetDeletion,
+} from "@/hooks/useAssets";
 import { AssetFilterBar, type AssetFilterValues } from "./AssetFilterBar";
 import { AssetGrid } from "./AssetGrid";
 import { AssetPreviewDialog } from "./AssetPreviewDialog";
+import { DeleteAssetConfirmDialog } from "./DeleteAssetConfirmDialog";
 
 interface AssetLibraryPanelProps {
   projectId: string;
@@ -20,6 +25,10 @@ export function AssetLibraryPanel({ projectId, projectRoot }: AssetLibraryPanelP
 
   const [previewAssetId, setPreviewAssetId] = useState<string | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
+  const [pendingConfirmAsset, setPendingConfirmAsset] = useState<Asset | null>(
+    null,
+  );
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
   const { data: assets, isLoading } = useAssetList(projectId, filters.type, {
     source: filters.source,
@@ -35,23 +44,31 @@ export function AssetLibraryPanel({ projectId, projectRoot }: AssetLibraryPanelP
     [assets, previewAssetId],
   );
 
-  const deleteAsset = useDeleteAsset(projectId);
+  const scheduleDelete = useScheduleAssetDeletion(projectId);
 
   const handlePreview = useCallback((asset: Asset) => {
     setPreviewAssetId(asset.id);
     setPreviewOpen(true);
   }, []);
 
-  const handleDelete = useCallback(
+  const handleRequestDelete = useCallback((asset: Asset) => {
+    setPendingConfirmAsset(asset);
+    setConfirmOpen(true);
+  }, []);
+
+  const handleConfirmedDelete = useCallback(
     (asset: Asset) => {
-      deleteAsset.mutate(asset.id);
-      // Close preview if deleting the previewed asset
+      // Close the preview if the user just confirmed deletion of the previewed
+      // asset — the optimistic cache update will make it disappear from the
+      // grid, but the open dialog would still be sitting on a stale row.
       if (previewAssetId === asset.id) {
         setPreviewOpen(false);
         setPreviewAssetId(null);
       }
+      scheduleDelete(asset);
+      setPendingConfirmAsset(null);
     },
-    [deleteAsset, previewAssetId],
+    [scheduleDelete, previewAssetId],
   );
 
   return (
@@ -67,7 +84,7 @@ export function AssetLibraryPanel({ projectId, projectRoot }: AssetLibraryPanelP
         projectRoot={projectRoot}
         isLoading={isLoading}
         onPreview={handlePreview}
-        onDelete={handleDelete}
+        onDelete={handleRequestDelete}
       />
 
       <AssetPreviewDialog
@@ -75,7 +92,14 @@ export function AssetLibraryPanel({ projectId, projectRoot }: AssetLibraryPanelP
         projectRoot={projectRoot}
         open={previewOpen}
         onOpenChange={setPreviewOpen}
-        onDelete={handleDelete}
+        onDelete={handleRequestDelete}
+      />
+
+      <DeleteAssetConfirmDialog
+        asset={pendingConfirmAsset}
+        open={confirmOpen}
+        onOpenChange={setConfirmOpen}
+        onConfirm={handleConfirmedDelete}
       />
     </div>
   );
