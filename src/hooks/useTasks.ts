@@ -98,6 +98,14 @@ export function useRetryTask() {
  * the engine forwarder. On any event we invalidate the entire `tasks` subtree
  * — explicit cache patches will arrive in spec-18 once the UI surfaces task
  * panels with hot-path concerns.
+ *
+ * On a successful completion we also invalidate the `assets` + `asset-labels`
+ * subtrees, because the materializer has just written a new asset row to disk
+ * and any open asset listing (library, picker dialog, drawer) would otherwise
+ * keep showing its pre-generation snapshot. The event payload doesn't carry
+ * a project_id, so we invalidate across all projects — cheap enough since a
+ * typical session has one project open at a time and React Query will only
+ * refetch queries with active subscribers.
  */
 export function useTaskStatusListener() {
   const qc = useQueryClient();
@@ -107,6 +115,10 @@ export function useTaskStatusListener() {
       qc.invalidateQueries({
         queryKey: taskKeys.detail(event.payload.task_id),
       });
+      if (event.payload.status === "success") {
+        qc.invalidateQueries({ queryKey: ["assets"] });
+        qc.invalidateQueries({ queryKey: ["asset-labels"] });
+      }
     });
     return () => {
       void unlisten.then((fn) => fn());
