@@ -134,6 +134,23 @@ pub async fn update_asset_label(
     with_db(&state, move |conn| asset_queries::update_label(conn, &id, &label)).await
 }
 
+/// Update an asset's display name (`original_name`). Empty/whitespace-only
+/// strings are rejected (`VALIDATION_ERROR`) — the UI should disable the
+/// save button until the field has content. Returns the post-update row so
+/// the caller's cache can refresh in a single roundtrip.
+#[tauri::command]
+#[specta::specta]
+pub async fn update_asset_original_name(
+    state: State<'_, AppState>,
+    id: String,
+    original_name: String,
+) -> Result<Asset, IpcError> {
+    with_db(&state, move |conn| {
+        asset_queries::update_original_name(conn, &id, &original_name)
+    })
+    .await
+}
+
 /// Bind (or unbind) an asset to a shot. `Some(shot_id)` overwrites the prior
 /// binding silently — UI surfaces (e.g. canvas drag-to-shot) are expected to
 /// confirm overwrites themselves before calling. `None` clears the binding.

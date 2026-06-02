@@ -79,6 +79,13 @@ export const commands = {
 	 *  row so the caller's cache can refresh in a single roundtrip.
 	 */
 	updateAssetLabel: (id: string, label: string) => typedError<Asset, IpcError_Serialize>(__TAURI_INVOKE("update_asset_label", { id, label })),
+	/**
+	 *  Update an asset's display name (`original_name`). Empty/whitespace-only
+	 *  strings are rejected (`VALIDATION_ERROR`) — the UI should disable the
+	 *  save button until the field has content. Returns the post-update row so
+	 *  the caller's cache can refresh in a single roundtrip.
+	 */
+	updateAssetOriginalName: (id: string, originalName: string) => typedError<Asset, IpcError_Serialize>(__TAURI_INVOKE("update_asset_original_name", { id, originalName })),
 	deleteCanvasLayout: (episodeId: string) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("delete_canvas_layout", { episodeId })),
 	getCanvasLayout: (episodeId: string) => typedError<{
 	id: string,

@@ -3,7 +3,10 @@ import { Check, Pencil, Trash2 } from "lucide-react";
 import type { Asset } from "@/lib/bindings/commands";
 import { parseDbDate } from "@/lib/datetime";
 import { useResolvedAssetUrl } from "@/hooks/useResolvedAssetUrl";
-import { useUpdateAssetLabel } from "@/hooks/useAssets";
+import {
+  useUpdateAssetLabel,
+  useUpdateAssetOriginalName,
+} from "@/hooks/useAssets";
 import {
   Dialog,
   DialogContent,
@@ -55,11 +58,30 @@ export function AssetPreviewDialog({
 }: AssetPreviewDialogProps) {
   const resolvedUrl = useResolvedAssetUrl(projectRoot, asset?.file_path ?? null);
   const updateLabel = useUpdateAssetLabel();
+  const updateOriginalName = useUpdateAssetOriginalName();
 
   const [editingLabel, setEditingLabel] = useState(false);
   const [labelValue, setLabelValue] = useState("");
+  const [editingName, setEditingName] = useState(false);
+  const [nameValue, setNameValue] = useState("");
 
   if (!asset) return null;
+
+  // metadata_json carries `{width, height, prompt?}` for generated images;
+  // we surface the original prompt in a dedicated block so users can read
+  // the full text regardless of how `original_name` ended up truncated for
+  // display in cards. Malformed JSON degrades silently to "no prompt".
+  let promptText: string | null = null;
+  if (asset.metadata_json) {
+    try {
+      const parsed = JSON.parse(asset.metadata_json);
+      if (typeof parsed?.prompt === "string" && parsed.prompt.trim().length > 0) {
+        promptText = parsed.prompt;
+      }
+    } catch {
+      // ignore
+    }
+  }
 
   const startEditLabel = () => {
     setLabelValue(asset.label);
@@ -73,13 +95,67 @@ export function AssetPreviewDialog({
     setEditingLabel(false);
   };
 
+  const startEditName = () => {
+    setNameValue(asset.original_name);
+    setEditingName(true);
+  };
+
+  const saveName = () => {
+    const trimmed = nameValue.trim();
+    if (trimmed.length > 0 && trimmed !== asset.original_name) {
+      updateOriginalName.mutate({ id: asset.id, originalName: trimmed });
+    }
+    setEditingName(false);
+  };
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle className="truncate">{asset.original_name}</DialogTitle>
+        <DialogHeader className="min-w-0">
+          {/* `min-w-0` + `truncate` is the only combo that keeps the title
+              from forcing the dialog wider than its `max-w-2xl` when the
+              prompt text is long. Flex items default to `min-width: auto`,
+              which silently defeats `truncate`. */}
+          <DialogTitle className="truncate min-w-0" title={asset.original_name}>
+            {asset.original_name}
+          </DialogTitle>
           <DialogDescription>素材详情与预览</DialogDescription>
         </DialogHeader>
+
+        {/* Editable display name. Sits below the title so the title still
+            shows the canonical value while the user types. */}
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="text-sm text-muted-foreground shrink-0">名称：</span>
+          {editingName ? (
+            <>
+              <Input
+                value={nameValue}
+                onChange={(e) => setNameValue(e.target.value)}
+                className="h-8 flex-1 min-w-0"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") saveName();
+                  if (e.key === "Escape") setEditingName(false);
+                }}
+                autoFocus
+              />
+              <Button size="sm" variant="ghost" onClick={saveName}>
+                <Check className="h-4 w-4" />
+              </Button>
+            </>
+          ) : (
+            <>
+              <span
+                className="text-sm flex-1 truncate min-w-0"
+                title={asset.original_name}
+              >
+                {asset.original_name}
+              </span>
+              <Button size="sm" variant="ghost" onClick={startEditName}>
+                <Pencil className="h-3.5 w-3.5" />
+              </Button>
+            </>
+          )}
+        </div>
 
         {/* Media preview */}
         <div className="flex items-center justify-center rounded-md bg-muted overflow-hidden max-h-[400px]">
@@ -124,15 +200,29 @@ export function AssetPreviewDialog({
           </div>
         </div>
 
+        {/* Full generation prompt — surfaced separately because cards
+            truncate the display name and users often need to read the
+            unabridged hint to remember what they asked for.
+            `break-words` covers prompts without whitespace (long URLs,
+            CJK without spaces) so the block wraps instead of overflowing. */}
+        {promptText && (
+          <div className="space-y-1 min-w-0">
+            <span className="text-sm text-muted-foreground">生成提示词</span>
+            <p className="whitespace-pre-wrap break-words rounded-md border bg-muted/30 px-3 py-2 text-xs text-foreground">
+              {promptText}
+            </p>
+          </div>
+        )}
+
         {/* Label editing */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 min-w-0">
           <span className="text-sm text-muted-foreground shrink-0">标签：</span>
           {editingLabel ? (
             <>
               <Input
                 value={labelValue}
                 onChange={(e) => setLabelValue(e.target.value)}
-                className="h-8 flex-1"
+                className="h-8 flex-1 min-w-0"
                 onKeyDown={(e) => {
                   if (e.key === "Enter") saveLabel();
                   if (e.key === "Escape") setEditingLabel(false);
@@ -145,7 +235,7 @@ export function AssetPreviewDialog({
             </>
           ) : (
             <>
-              <span className="text-sm flex-1">
+              <span className="text-sm flex-1 truncate min-w-0" title={asset.label}>
                 {asset.label || <span className="text-muted-foreground italic">无标签</span>}
               </span>
               <Button size="sm" variant="ghost" onClick={startEditLabel}>

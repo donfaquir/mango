@@ -104,6 +104,20 @@ export function useUpdateAssetLabel() {
   });
 }
 
+export function useUpdateAssetOriginalName() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, originalName }: { id: string; originalName: string }) =>
+      unwrap(commands.updateAssetOriginalName(id, originalName)),
+    onSuccess: (asset) => {
+      qc.setQueryData(assetKeys.detail(asset.id), asset);
+      // The renamed asset shifts which `original_name` matches the keyword
+      // search, so refresh the asset listings; labels are unaffected.
+      qc.invalidateQueries({ queryKey: ["assets", asset.project_id] });
+    },
+  });
+}
+
 export function useImportAsset() {
   const qc = useQueryClient();
   return useMutation({

@@ -30,6 +30,7 @@ fn make_builder() -> Builder<tauri::Wry> {
             commands::asset::list_asset_labels,
             commands::asset::list_assets,
             commands::asset::update_asset_label,
+            commands::asset::update_asset_original_name,
             commands::canvas_layout::delete_canvas_layout,
             commands::canvas_layout::get_canvas_layout,
             commands::canvas_layout::upsert_canvas_layout,
