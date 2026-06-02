@@ -72,6 +72,53 @@ pub async fn run(engine: TaskEngineHandle, task_id: String) {
     // already-resolved credentials without hitting the keyring again.
     let credentials_for_cleanup = credentials.clone();
 
+    // === Resume path ===
+    // If the row already carries an `external_task_id`, the previous app
+    // session had successfully submitted to the cloud before being killed.
+    // Re-submitting here would double-charge the user's quota, leak the
+    // earlier cloud-side job (we'd overwrite the id and never download its
+    // result), and potentially re-upload reference images. Instead, jump
+    // straight to the poll loop with the persisted id and let the
+    // materializer pick up the result whenever the cloud finishes.
+    if let Some(ext_id) = task.external_task_id.clone() {
+        if !matches!(task.status, GenerationTaskStatus::Running)
+            && let Err(e) = state::transition(
+                &engine.db,
+                &engine.event_tx,
+                &task_id,
+                GenerationTaskStatus::Running,
+                None,
+                None,
+            )
+            .await
+        {
+            tracing::error!(task_id = %task_id, error = %e, "transition→running on resume failed");
+            return;
+        }
+        let _ = state::record_event(
+            &engine.db,
+            &engine.event_tx,
+            &task_id,
+            EventPhase::SubmitCall,
+            EventSeverity::Info,
+            "恢复轮询（沿用上次提交的 external_task_id）".to_string(),
+            EventBuilder::new().details(serde_json::json!({
+                "external_task_id": ext_id,
+                "resume": true,
+            })),
+        )
+        .await;
+        poll_loop(
+            &engine,
+            &task_id,
+            provider.as_ref(),
+            &ext_id,
+            credentials_for_cleanup,
+        )
+        .await;
+        return;
+    }
+
     let mut params = match build_generation_params(&task, credentials) {
         Ok(p) => p,
         Err(e) => {

@@ -76,6 +76,11 @@ mod tests {
 
         initialize(&conn).unwrap();
 
+        // Recovery is routine — running rows just get nudged back to
+        // pending. The runner's resume path (in `task_engine::runner::run`)
+        // then re-attaches via the preserved external_task_id, so the
+        // user's quota isn't burned a second time. See `reset_orphan_running`
+        // for the rationale on not bumping retry_count or error_message.
         let (status, retry, err): (String, i64, Option<String>) = conn
             .query_row(
                 "SELECT status, retry_count, error_message FROM generation_task WHERE id = 't1'",
@@ -84,8 +89,8 @@ mod tests {
             )
             .unwrap();
         assert_eq!(status, "pending");
-        assert_eq!(retry, 1);
-        assert!(err.unwrap_or_default().contains("orphan reset on startup"));
+        assert_eq!(retry, 0);
+        assert!(err.is_none());
 
         // params is imported only to silence unused-import warnings if any
         // downstream test removes its own usages; keep it referenced here.
