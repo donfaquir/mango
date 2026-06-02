@@ -25,7 +25,24 @@ import { useSubmitTasksBatch } from "@/hooks/useTasks";
 import type { TaskKind } from "@/lib/bindings/commands";
 
 import { MultiModelSelect } from "./MultiModelSelect";
-import { buildBatchTaskInputs } from "./buildBatchTaskInputs";
+import {
+  buildBatchTaskInputs,
+  type SkippedItem,
+} from "./buildBatchTaskInputs";
+
+// Group skipped shots by reason so the user sees "缺少图像 prompt: #1、#2"
+// instead of an opaque list of shot labels.
+function summarizeSkipped(skipped: SkippedItem[]): string {
+  const byReason = new Map<string, string[]>();
+  for (const s of skipped) {
+    const list = byReason.get(s.reason) ?? [];
+    list.push(s.shotLabel);
+    byReason.set(s.reason, list);
+  }
+  return Array.from(byReason.entries())
+    .map(([reason, labels]) => `${reason}（${labels.join("、")}）`)
+    .join("；");
+}
 
 const PROVIDER_ID = "bailian";
 
@@ -91,20 +108,18 @@ export function BatchSubmitDialog({
     });
 
     if (inputs.length === 0) {
-      toast.error(
-        `所有分镜都被跳过：${skipped.map((s) => s.shotLabel).join("、") || "无可提交项"}`,
-      );
+      const detail =
+        skipped.length === 0
+          ? "未选中任何分镜"
+          : summarizeSkipped(skipped);
+      toast.error(`所有分镜都被跳过：${detail}`);
       return;
     }
 
     try {
       const outcome = await submit.mutateAsync(inputs);
       if (skipped.length > 0) {
-        toast.warning(
-          `已跳过 ${skipped.length} 个分镜：${skipped
-            .map((s) => `${s.shotLabel}（${s.reason}）`)
-            .join("、")}`,
-        );
+        toast.warning(`已跳过 ${skipped.length} 个分镜：${summarizeSkipped(skipped)}`);
       }
       toast.success(`已提交 ${outcome.created_count} 个任务`);
       onSubmitted?.(outcome.batch_id);
