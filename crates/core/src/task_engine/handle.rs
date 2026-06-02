@@ -3,7 +3,7 @@
 //! refcounted (`Arc<Semaphore>`, `tokio_rusqlite::Connection` is itself an Arc
 //! over a worker thread).
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
@@ -42,6 +42,15 @@ use super::runner;
 /// [`TaskEngineHandle::spawn_with`] to drive the loop faster.
 const DEFAULT_POLL_INTERVAL: Duration = Duration::from_secs(5);
 
+/// Default backoff schedule for retryable provider failures (spec-27 §3.2).
+/// The Nth entry is slept before the (N+1)th attempt. Tests override this
+/// with a near-zero schedule to keep the suite quick.
+pub const DEFAULT_RETRY_BACKOFFS: &[Duration] = &[
+    Duration::from_secs(1),
+    Duration::from_secs(2),
+    Duration::from_secs(4),
+];
+
 /// Filter passed to [`TaskEngineHandle::list`]. Uses the `project_id` column
 /// directly on the `generation_task` table.
 #[derive(Debug, Default, Clone)]
@@ -55,11 +64,20 @@ pub struct ListFilter {
 pub struct TaskEngineHandle {
     pub(super) db: AsyncConnection,
     pub(super) providers: ProviderRegistry,
-    pub(super) semaphore: Arc<Semaphore>,
+    /// Outer Arc lets the handle be cloned cheaply; the Mutex lets
+    /// [`Self::set_max_concurrency`] swap the inner `Arc<Semaphore>` at
+    /// runtime. Existing `OwnedSemaphorePermit`s hold their own strong
+    /// reference to the old semaphore, so swapping never invalidates a
+    /// permit in flight — it only changes which semaphore *new* acquires
+    /// see (spec-27 §2).
+    pub(super) semaphore: Arc<Mutex<Arc<Semaphore>>>,
     pub(super) event_tx: UnboundedSender<TaskEvent>,
     pub(super) keyring: Arc<dyn KeyringStore>,
     pub(super) materializer: Arc<dyn ResultMaterializer>,
     pub(super) poll_interval: Duration,
+    /// Backoff schedule applied between auto-retry attempts. Length doubles
+    /// as the retry cap: 3-entry default → 3 retries max (spec-27 §3.2).
+    pub(super) retry_backoffs: Arc<Vec<Duration>>,
     /// Absolute path of the mounted workspace. Joined with the
     /// workspace-relative `project.root_path` whenever the runner needs to
     /// touch on-disk files (asset path resolution, downloaded result
@@ -102,18 +120,61 @@ impl TaskEngineHandle {
         max_concurrency: usize,
         poll_interval: Duration,
     ) -> (Self, UnboundedReceiver<TaskEvent>) {
+        Self::spawn_full(
+            db,
+            providers,
+            keyring,
+            materializer,
+            workspace_root,
+            max_concurrency,
+            poll_interval,
+            DEFAULT_RETRY_BACKOFFS.to_vec(),
+        )
+    }
+
+    /// Full constructor — every knob explicit. Tests pin both `poll_interval`
+    /// and `retry_backoffs` to near-zero so the auto-retry suite finishes in
+    /// well under a second.
+    #[allow(clippy::too_many_arguments)] // wiring knobs for tests; not a public-facing builder
+    pub fn spawn_full(
+        db: AsyncConnection,
+        providers: ProviderRegistry,
+        keyring: Arc<dyn KeyringStore>,
+        materializer: Arc<dyn ResultMaterializer>,
+        workspace_root: std::path::PathBuf,
+        max_concurrency: usize,
+        poll_interval: Duration,
+        retry_backoffs: Vec<Duration>,
+    ) -> (Self, UnboundedReceiver<TaskEvent>) {
         let (tx, rx) = mpsc::unbounded_channel();
         let handle = Self {
             db,
             providers,
-            semaphore: Arc::new(Semaphore::new(max_concurrency)),
+            semaphore: Arc::new(Mutex::new(Arc::new(Semaphore::new(max_concurrency)))),
             event_tx: tx,
             keyring,
             materializer,
             poll_interval,
+            retry_backoffs: Arc::new(retry_backoffs),
             workspace_root,
         };
         (handle, rx)
+    }
+
+    /// Snapshot the current concurrency-limit semaphore. Runners call this
+    /// once per task to acquire a permit. Holding a permit across a swap is
+    /// safe because the old semaphore stays alive as long as any permit
+    /// references it.
+    pub(super) fn semaphore_snapshot(&self) -> Arc<Semaphore> {
+        self.semaphore.lock().expect("semaphore mutex poisoned").clone()
+    }
+
+    /// Swap the concurrency-limit semaphore. New `acquire`s see the new cap
+    /// immediately; permits already held by running tasks remain valid until
+    /// they drop on their own (spec-27 §2 "已在跑的不中断").
+    pub fn set_max_concurrency(&self, n: usize) {
+        let mut guard = self.semaphore.lock().expect("semaphore mutex poisoned");
+        *guard = Arc::new(Semaphore::new(n));
     }
 
     pub async fn submit(&self, input: CreateGenerationTaskInput) -> Result<String> {

@@ -171,8 +171,10 @@ export const commands = {
 	updateShot: (id: string, input: UpdateShotInput_Deserialize) => typedError<Shot, IpcError_Serialize>(__TAURI_INVOKE("update_shot", { id, input })),
 	cancelTask: (taskId: string) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("cancel_task", { taskId })),
 	getTask: (taskId: string) => typedError<GenerationTask, IpcError_Serialize>(__TAURI_INVOKE("get_task", { taskId })),
+	getTaskMaxConcurrency: () => typedError<number, IpcError_Serialize>(__TAURI_INVOKE("get_task_max_concurrency")),
 	listTaskEvents: (taskId: string) => typedError<GenerationTaskEvent[], IpcError_Serialize>(__TAURI_INVOKE("list_task_events", { taskId })),
 	listTasks: (projectId: string | null, status: "pending" | "running" | "success" | "failed" | "cancelled" | null, limit: number | null) => typedError<GenerationTask[], IpcError_Serialize>(__TAURI_INVOKE("list_tasks", { projectId, status, limit })),
+	setTaskMaxConcurrency: (value: number) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("set_task_max_concurrency", { value })),
 	submitTask: (input: CreateGenerationTaskInput) => typedError<string, IpcError_Serialize>(__TAURI_INVOKE("submit_task", { input })),
 	submitTasksBatch: (inputs: CreateGenerationTaskInput[]) => typedError<SubmitBatchOutcome, IpcError_Serialize>(__TAURI_INVOKE("submit_tasks_batch", { inputs })),
 	/**

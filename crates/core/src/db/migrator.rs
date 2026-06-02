@@ -61,6 +61,14 @@ const MIGRATIONS: &[Migration] = &[
         name: "add_generation_task_batch_id",
         sql: include_str!("migrations/009_generation_task_batch_id.sql"),
     },
+    // NOTE: migration 010 is reserved for spec-28 (shot.result_asset_id) —
+    // skipped here so spec-27 ships independently. The migrator handles
+    // version gaps cleanly by skipping rows whose version <= MAX(applied).
+    Migration {
+        version: 11,
+        name: "add_app_preference",
+        sql: include_str!("migrations/011_app_preference.sql"),
+    },
 ];
 
 /// Execute all pending migrations. Each migration runs in its own transaction.

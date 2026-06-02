@@ -79,7 +79,8 @@ mod tests {
             .collect::<Result<_, _>>()
             .unwrap();
 
-        assert_eq!(tables.len(), 19, "expected 19 tables, got: {tables:?}");
+        // Bumped from 19 to 20 when spec-27 added `app_preference`.
+        assert_eq!(tables.len(), 20, "expected 20 tables, got: {tables:?}");
     }
 
     #[test]

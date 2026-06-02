@@ -327,6 +327,52 @@ pub fn list_pending_ids(conn: &Connection) -> rusqlite::Result<Vec<String>> {
     Ok(ids)
 }
 
+/// Re-arm a failed task for automatic retry: bump `retry_count`, clear
+/// transient diagnostic fields, drop back to `pending`. Bypasses
+/// `transition_status` because auto-retry is a recovery flow, not a normal
+/// state-machine edge — the runner that calls this is about to re-acquire
+/// a permit and re-enter the normal flow from `pending`.
+///
+/// `clear_external_task_id`: pass true when the failure happened during
+/// submit (vendor never got our request or returned an unusable id); false
+/// when it happened during poll so the runner's resume path can re-attach
+/// to the still-valid cloud-side job.
+pub fn mark_for_retry(
+    conn: &Connection,
+    id: &str,
+    clear_external_task_id: bool,
+) -> Result<()> {
+    let n = if clear_external_task_id {
+        conn.execute(
+            "UPDATE generation_task SET status='pending', \
+                retry_count = retry_count + 1, \
+                external_task_id = NULL, \
+                error_message = NULL, \
+                started_at = NULL, \
+                finished_at = NULL \
+             WHERE id = ?1",
+            params![id],
+        )?
+    } else {
+        conn.execute(
+            "UPDATE generation_task SET status='pending', \
+                retry_count = retry_count + 1, \
+                error_message = NULL, \
+                started_at = NULL, \
+                finished_at = NULL \
+             WHERE id = ?1",
+            params![id],
+        )?
+    };
+    if n == 0 {
+        return Err(CoreError::NotFound {
+            entity: "generation_task",
+            id: id.to_string(),
+        });
+    }
+    Ok(())
+}
+
 /// Reset all rows whose `status='running'` to `pending` on startup. The
 /// previous app process owned a runner coroutine that no longer exists, so
 /// the row is orphaned and `recover_pending` will re-spawn a runner for it.
@@ -569,6 +615,53 @@ mod tests {
 
         let limited = list(&conn, None, None, Some(2)).unwrap();
         assert_eq!(limited.len(), 2);
+    }
+
+    #[test]
+    fn mark_for_retry_bumps_count_and_resets_to_pending() {
+        let conn = open_sync(Path::new(":memory:")).unwrap();
+        let (p, m, a) = seed_provider_chain(&conn);
+        let task = create(&conn, make_input(&p, &m, &a)).unwrap();
+        transition_status(&conn, &task.id, GenerationTaskStatus::Running, None).unwrap();
+        transition_status(
+            &conn,
+            &task.id,
+            GenerationTaskStatus::Failed,
+            Some("transient"),
+        )
+        .unwrap();
+        set_external_id(&conn, &task.id, "ext-42").unwrap();
+
+        mark_for_retry(&conn, &task.id, false).unwrap();
+        let after = get_by_id(&conn, &task.id).unwrap();
+        assert_eq!(after.status, GenerationTaskStatus::Pending);
+        assert_eq!(after.retry_count, 1);
+        assert!(after.error_message.is_none());
+        assert!(after.started_at.is_none());
+        assert!(after.finished_at.is_none());
+        // Poll-stage retry preserves external_task_id so the runner can
+        // resume polling instead of double-charging the vendor.
+        assert_eq!(after.external_task_id.as_deref(), Some("ext-42"));
+    }
+
+    #[test]
+    fn mark_for_retry_with_clear_drops_external_id() {
+        let conn = open_sync(Path::new(":memory:")).unwrap();
+        let (p, m, a) = seed_provider_chain(&conn);
+        let task = create(&conn, make_input(&p, &m, &a)).unwrap();
+        set_external_id(&conn, &task.id, "ext-x").unwrap();
+        transition_status(
+            &conn,
+            &task.id,
+            GenerationTaskStatus::Failed,
+            Some("submit timed out"),
+        )
+        .unwrap();
+
+        mark_for_retry(&conn, &task.id, true).unwrap();
+        let after = get_by_id(&conn, &task.id).unwrap();
+        assert!(after.external_task_id.is_none());
+        assert_eq!(after.retry_count, 1);
     }
 
     #[test]

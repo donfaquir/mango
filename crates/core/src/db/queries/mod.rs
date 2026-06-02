@@ -1,4 +1,5 @@
 pub mod api_account;
+pub mod app_preference;
 pub mod asset;
 pub mod canvas_layout;
 pub mod character;

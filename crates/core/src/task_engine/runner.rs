@@ -21,7 +21,11 @@ use super::handle::TaskEngineHandle;
 use super::state::{self, EventBuilder};
 
 pub async fn run(engine: TaskEngineHandle, task_id: String) {
-    let _permit = match engine.semaphore.clone().acquire_owned().await {
+    // Snapshot the current semaphore so a concurrent `set_max_concurrency`
+    // swap doesn't invalidate the permit we're about to acquire. Holding
+    // `_permit` keeps the old semaphore alive even if the engine swaps in
+    // a new one mid-task.
+    let _permit = match engine.semaphore_snapshot().acquire_owned().await {
         Ok(p) => p,
         Err(_) => {
             tracing::error!(task_id = %task_id, "semaphore closed; runner aborting");
@@ -270,20 +274,13 @@ async fn poll_loop(
         let poll_outcome = match poll_result {
             Ok(o) => o,
             Err(e) => {
-                // Transient failure inside poll. Emit a `poll` warn event but
-                // do NOT terminate the task — the next tick may succeed.
+                // spec-27 §3: poll-stage failures flow through fail_with_detail
+                // so the retry classifier can decide between continuing the
+                // poll loop (after a backoff + re-spawn) or giving up. The
+                // retry path keeps `external_task_id` so the resume code in
+                // `run()` re-attaches to the same vendor job.
                 let detail = detail_from_error(&e);
-                let _ = state::record_event(
-                    &engine.db,
-                    &engine.event_tx,
-                    task_id,
-                    EventPhase::Poll,
-                    EventSeverity::Warn,
-                    format!("轮询失败: {}", detail.message),
-                    EventBuilder::from_detail(&detail),
-                )
-                .await;
-                continue;
+                return fail_with_detail(engine, task_id, EventPhase::Poll, detail).await;
             }
         };
 
@@ -490,10 +487,11 @@ fn detail_from_error(e: &CoreError) -> ProviderErrorDetail {
     }
 }
 
-/// Records a structured error event then transitions the task to `Failed`.
-/// Replaces the old `fail(message)` helper — every failure now carries a
-/// `phase` for the diagnostics UI and a `ProviderErrorDetail` so the
-/// `request_id` / `http_status` / `kind` make it into the event row.
+/// Records a structured error event, then either schedules an auto-retry or
+/// transitions the task to `Failed`. spec-27 §3.2:
+/// 1. retry_count >= MAX → terminal failed
+/// 2. !retryable kind (and not Unknown+5xx) → terminal failed
+/// 3. otherwise → mark_for_retry + sleep(backoff) + re-spawn runner
 async fn fail_with_detail(
     engine: &TaskEngineHandle,
     task_id: &str,
@@ -510,6 +508,50 @@ async fn fail_with_detail(
         EventBuilder::from_detail(&detail),
     )
     .await;
+
+    if let Some(delay) = pick_retry_delay(engine, task_id, phase, &detail).await {
+        // mark_for_retry bumps retry_count and resets the row to pending.
+        // We clear external_task_id on submit-phase failures so the retry
+        // re-submits cleanly; on poll-phase we keep it so resume can
+        // re-attach to the existing cloud job.
+        let clear_ext = matches!(phase, EventPhase::SubmitCall | EventPhase::SubmitUpload);
+        let id = task_id.to_string();
+        let mark_result: std::result::Result<
+            crate::error::Result<()>,
+            tokio_rusqlite::Error,
+        > = engine
+            .db
+            .call(move |conn| {
+                Ok(crate::db::queries::generation_task::mark_for_retry(
+                    conn, &id, clear_ext,
+                ))
+            })
+            .await;
+        match mark_result {
+            Ok(Ok(())) => {
+                let _ = engine.event_tx.send(super::events::TaskEvent::status_changed(
+                    task_id,
+                    GenerationTaskStatus::Pending,
+                    None,
+                    None,
+                ));
+                let engine_clone = engine.clone();
+                let task_id_clone = task_id.to_string();
+                tokio::spawn(async move {
+                    sleep(delay).await;
+                    runner_run_boxed(engine_clone, task_id_clone).await;
+                });
+                return;
+            }
+            Ok(Err(e)) => {
+                tracing::error!(task_id = %task_id, error = %e, "mark_for_retry failed; falling through to terminal failed");
+            }
+            Err(e) => {
+                tracing::error!(task_id = %task_id, error = %e, "mark_for_retry db.call failed; falling through to terminal failed");
+            }
+        }
+    }
+
     if let Err(e) = state::transition(
         &engine.db,
         &engine.event_tx,
@@ -522,6 +564,54 @@ async fn fail_with_detail(
     {
         tracing::error!(task_id = %task_id, error = %e, "transition→failed failed");
     }
+}
+
+/// Returns `Some(backoff)` if the current failure is eligible for auto-retry,
+/// `None` otherwise. Eligibility = retry budget remaining AND error class is
+/// retryable. The Unknown-with-5xx special case lives here so callers can
+/// stay class-agnostic.
+async fn pick_retry_delay(
+    engine: &TaskEngineHandle,
+    task_id: &str,
+    phase: EventPhase,
+    detail: &ProviderErrorDetail,
+) -> Option<std::time::Duration> {
+    // Pre-flight validation errors and credential/keyring failures aren't
+    // transient — retrying won't change the row's params or the user's
+    // keychain. Keep auto-retry scoped to network-stage failures.
+    if !matches!(
+        phase,
+        EventPhase::SubmitCall | EventPhase::SubmitUpload | EventPhase::Poll
+    ) {
+        return None;
+    }
+
+    let retryable = detail.kind.is_retryable()
+        || (matches!(detail.kind, ProviderErrorKind::Unknown)
+            && detail.http_status.is_some_and(|s| s >= 500));
+    if !retryable {
+        return None;
+    }
+
+    let task = match state::load(&engine.db, task_id).await {
+        Ok(t) => t,
+        Err(e) => {
+            tracing::error!(task_id = %task_id, error = %e, "could not load task for retry decision");
+            return None;
+        }
+    };
+    let attempt = task.retry_count as usize;
+    engine.retry_backoffs.get(attempt).copied()
+}
+
+/// Box the recursive call so the `Future` returned by `fail_with_detail`
+/// stays `Sized`. `run` is async-recursive via the retry spawn; the spawn
+/// itself avoids the direct cycle, but we still pay a heap alloc per retry.
+fn runner_run_boxed(
+    engine: TaskEngineHandle,
+    task_id: String,
+) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> {
+    Box::pin(run(engine, task_id))
 }
 
 /// Merge `remote_ids` into the task's `params_json` under
