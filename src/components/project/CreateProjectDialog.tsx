@@ -11,12 +11,29 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useCreateProject } from "@/hooks/useProjects";
-import { commands } from "@/lib/bindings/commands";
-import { unwrap } from "@/lib/ipc";
 
 interface CreateProjectDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+}
+
+// Frontend-side slug for the default subdir field. Preserves unicode
+// (CJK names like "我的第一部漫剧" become "我的第一部漫剧") because all
+// three target filesystems (macOS APFS, Linux ext/btrfs, Windows NTFS)
+// store UTF-8 directory names natively. Only the characters that are
+// genuinely unsafe for a directory name are stripped — the backend
+// (`validate_subdir_segment` in crates/core/src/paths.rs) re-checks the
+// same restrictions on submit.
+function slugify(s: string): string {
+  return s
+    .trim()
+    .replace(/\s+/g, "-")
+    // Path separators + Windows-reserved chars + NUL.
+    .replace(/[/\\:*?"<>|\0]/g, "")
+    // Unicode control characters (the regex `\p{C}` covers them all).
+    .replace(/\p{C}/gu, "")
+    // No leading/trailing `.` (POSIX hidden) or `-` (looks like a flag).
+    .replace(/^[.-]+|[.-]+$/g, "");
 }
 
 export function CreateProjectDialog({
@@ -26,8 +43,8 @@ export function CreateProjectDialog({
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [stylePrompt, setStylePrompt] = useState("");
-  const [rootPath, setRootPath] = useState("");
-  const [rootPathEdited, setRootPathEdited] = useState(false);
+  const [subdir, setSubdir] = useState("");
+  const [subdirEdited, setSubdirEdited] = useState(false);
 
   const createProject = useCreateProject();
 
@@ -35,8 +52,8 @@ export function CreateProjectDialog({
     setName("");
     setDescription("");
     setStylePrompt("");
-    setRootPath("");
-    setRootPathEdited(false);
+    setSubdir("");
+    setSubdirEdited(false);
     createProject.reset();
   };
 
@@ -45,49 +62,23 @@ export function CreateProjectDialog({
     onOpenChange(next);
   };
 
-  // Re-suggest a root path whenever the name changes, unless the user has
-  // edited the path field themselves (we don't want to clobber their pick).
+  // Pre-fill subdir from name unless the user has already edited it. The
+  // backend appends a short uuid suffix to the actual on-disk slot so even
+  // an empty slug here resolves to a unique directory.
   useEffect(() => {
-    if (rootPathEdited) return;
-    const trimmed = name.trim();
-    if (!trimmed) {
-      setRootPath("");
-      return;
-    }
-    let cancelled = false;
-    unwrap(commands.suggestProjectRoot(trimmed))
-      .then((suggested) => {
-        if (!cancelled) setRootPath(suggested);
-      })
-      .catch(() => {
-        // Suggestion is best-effort; leave the field as-is on failure.
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [name, rootPathEdited]);
-
-  const handlePick = async () => {
-    try {
-      const picked = await unwrap(commands.pickProjectDirectory());
-      if (picked) {
-        setRootPath(picked);
-        setRootPathEdited(true);
-      }
-    } catch (err) {
-      console.error("pick directory failed", err);
-    }
-  };
+    if (subdirEdited) return;
+    setSubdir(slugify(name));
+  }, [name, subdirEdited]);
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     const trimmedName = name.trim();
-    const trimmedRoot = rootPath.trim();
-    if (!trimmedName || !trimmedRoot) return;
+    if (!trimmedName) return;
 
+    const trimmedSubdir = subdir.trim();
     await createProject.mutateAsync({
       name: trimmedName,
-      root_path: trimmedRoot,
+      subdir: trimmedSubdir.length > 0 ? trimmedSubdir : null,
       description: description.trim() || null,
       style_prompt: stylePrompt.trim() || null,
       global_seed: null,
@@ -117,23 +108,19 @@ export function CreateProjectDialog({
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="project-root">项目位置 *</Label>
-            <div className="flex gap-2">
-              <Input
-                id="project-root"
-                value={rootPath}
-                onChange={(e) => {
-                  setRootPath(e.target.value);
-                  setRootPathEdited(true);
-                }}
-                placeholder="项目目录路径"
-              />
-              <Button type="button" variant="outline" onClick={handlePick}>
-                选择
-              </Button>
-            </div>
+            <Label htmlFor="project-subdir">项目子目录名</Label>
+            <Input
+              id="project-subdir"
+              value={subdir}
+              onChange={(e) => {
+                setSubdir(e.target.value);
+                setSubdirEdited(true);
+              }}
+              placeholder="自动从名称生成"
+            />
             <p className="text-xs text-muted-foreground">
-              将自动创建 assets/ 和 thumbnails/ 子目录。
+              将创建为 <code>&lt;工作区&gt;/projects/{subdir || "{slug}"}/</code>，
+              内含 assets/ 和 thumbnails/ 子目录。
             </p>
           </div>
 
@@ -178,9 +165,7 @@ export function CreateProjectDialog({
             </Button>
             <Button
               type="submit"
-              disabled={
-                !name.trim() || !rootPath.trim() || createProject.isPending
-              }
+              disabled={!name.trim() || createProject.isPending}
             >
               {createProject.isPending ? "创建中..." : "创建"}
             </Button>

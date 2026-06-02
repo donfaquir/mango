@@ -1,4 +1,3 @@
-use tauri::Manager;
 use tauri_plugin_dialog::{DialogExt, FilePath};
 use tokio::sync::oneshot;
 
@@ -48,22 +47,7 @@ pub async fn pick_image_file(
         .map_err(|e| IpcError::internal(format!("dialog channel closed: {e}")))
 }
 
-/// Suggest a default project root for a given (display) name. The returned
-/// path is `<app_data>/projects/<slug>` where slug is name-derived for human
-/// readability; the actual persisted root is whatever the user submits.
-#[tauri::command]
-#[specta::specta]
-pub async fn suggest_project_root(
-    app: tauri::AppHandle,
-    project_name: String,
-) -> Result<String, IpcError> {
-    let app_data = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| IpcError::internal(e.to_string()))?;
-
-    let slug = slug::slugify(&project_name);
-    let dir_name = if slug.is_empty() { "untitled" } else { slug.as_str() };
-    let dir = app_data.join("projects").join(dir_name);
-    Ok(dir.to_string_lossy().into_owned())
-}
+// `suggest_project_root` was removed. The CreateProjectDialog no longer asks
+// the user to pick a directory — it just takes a subdirectory name that
+// lands under `<workspace>/projects/`, defaulting to a slug of the project
+// name. See `paths::make_relative_project_root`.

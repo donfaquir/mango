@@ -46,6 +46,12 @@ pub struct TaskEngineHandle {
     pub(super) keyring: Arc<dyn KeyringStore>,
     pub(super) materializer: Arc<dyn ResultMaterializer>,
     pub(super) poll_interval: Duration,
+    /// Absolute path of the mounted workspace. Joined with the
+    /// workspace-relative `project.root_path` whenever the runner needs to
+    /// touch on-disk files (asset path resolution, downloaded result
+    /// materialisation). Set at construction time by the shell after the
+    /// user picks a workspace.
+    pub(super) workspace_root: std::path::PathBuf,
 }
 
 impl TaskEngineHandle {
@@ -57,6 +63,7 @@ impl TaskEngineHandle {
         providers: ProviderRegistry,
         keyring: Arc<dyn KeyringStore>,
         materializer: Arc<dyn ResultMaterializer>,
+        workspace_root: std::path::PathBuf,
         max_concurrency: usize,
     ) -> (Self, UnboundedReceiver<TaskEvent>) {
         Self::spawn_with(
@@ -64,6 +71,7 @@ impl TaskEngineHandle {
             providers,
             keyring,
             materializer,
+            workspace_root,
             max_concurrency,
             DEFAULT_POLL_INTERVAL,
         )
@@ -76,6 +84,7 @@ impl TaskEngineHandle {
         providers: ProviderRegistry,
         keyring: Arc<dyn KeyringStore>,
         materializer: Arc<dyn ResultMaterializer>,
+        workspace_root: std::path::PathBuf,
         max_concurrency: usize,
         poll_interval: Duration,
     ) -> (Self, UnboundedReceiver<TaskEvent>) {
@@ -88,6 +97,7 @@ impl TaskEngineHandle {
             keyring,
             materializer,
             poll_interval,
+            workspace_root,
         };
         (handle, rx)
     }

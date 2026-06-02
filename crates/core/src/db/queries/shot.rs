@@ -273,7 +273,7 @@ mod tests {
             app_data.path(),
             CreateProjectInput {
                 name: "P".into(),
-                root_path: None,
+                subdir: None,
                 description: None,
                 style_prompt: None,
                 global_seed: None,

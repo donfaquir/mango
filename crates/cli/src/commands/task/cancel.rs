@@ -71,8 +71,17 @@ pub async fn run(conn: &AsyncConnection, args: CancelArgs) -> anyhow::Result<i32
     let materializer: Arc<dyn mango_core::task_engine::ResultMaterializer> =
         Arc::new(NoopMaterializer);
 
-    let (engine, _rx) =
-        TaskEngineHandle::spawn(conn.clone(), providers, keyring, materializer, 4);
+    // cancel doesn't materialise results — pass an empty workspace root
+    // because the runner never executes here, it only sends the cancel
+    // signal through the engine handle's channel.
+    let (engine, _rx) = TaskEngineHandle::spawn(
+        conn.clone(),
+        providers,
+        keyring,
+        materializer,
+        std::path::PathBuf::new(),
+        4,
+    );
 
     engine
         .cancel(&args.task_id)

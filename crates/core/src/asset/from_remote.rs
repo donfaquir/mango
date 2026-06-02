@@ -7,7 +7,7 @@
 //! - Is designed for async callers (the runner calling through
 //!   `ResultMaterializer`).
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use rusqlite::params;
 use uuid::Uuid;
@@ -30,10 +30,17 @@ pub struct DownloadOutcome {
 
 /// Download a result URL and persist it as a local asset file + DB row.
 ///
+/// `workspace_root` is the absolute path of the mounted workspace; it is
+/// joined with the DB-stored relative `project.root_path` to produce the
+/// absolute on-disk destination. Callers must have a workspace mounted
+/// (the task engine guarantees this — runners do not execute when none
+/// is mounted).
+///
 /// Returns the newly created [`Asset`] together with the raw byte count and
 /// wall-clock download duration so callers can record diagnostic events.
 pub async fn download_to_asset(
     db: &tokio_rusqlite::Connection,
+    workspace_root: &Path,
     project_id: &str,
     shot_id: Option<&str>,
     url: &str,
@@ -41,16 +48,17 @@ pub async fn download_to_asset(
 ) -> Result<DownloadOutcome> {
     let download_started = std::time::Instant::now();
 
-    // 1) Resolve project root from DB.
+    // 1) Resolve project root from DB (relative) and join workspace_root.
     let pid = project_id.to_string();
+    let workspace = workspace_root.to_path_buf();
     let project_root: PathBuf = db
         .call(move |conn| {
-            conn.query_row(
+            let relative: String = conn.query_row(
                 "SELECT root_path FROM project WHERE id = ?1",
                 params![pid],
                 |r| r.get::<_, String>(0),
-            )
-            .map(PathBuf::from)
+            )?;
+            Ok(crate::paths::resolve_project_root(&workspace, &relative))
         })
         .await
         .map_err(|e| match e {
@@ -62,7 +70,7 @@ pub async fn download_to_asset(
                 other => CoreError::Sqlite(other),
             },
             other => CoreError::TaskEngine(format!("db worker error: {other}")),
-        })?;
+        })??;
 
     paths::ensure_project_layout(&project_root)?;
 

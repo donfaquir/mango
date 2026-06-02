@@ -1,25 +1,17 @@
 mod commands;
 mod error;
 mod events;
+mod init;
 mod state;
 
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use mango_core::account::keyring::{CachedKeyringStore, SystemKeyring};
-use mango_core::provider::bailian::BailianProvider;
-use mango_core::provider::bailian::materializer::BailianResultMaterializer;
-use mango_core::provider::ProviderRegistry;
-use mango_core::task_engine::{TaskEngineHandle, TaskEvent};
 #[cfg(any(debug_assertions, test))]
 use specta_typescript::Typescript;
 use tauri::Manager;
 use tauri_specta::{collect_commands, collect_events, Builder};
-use tauri_specta::Event;
 use tracing_subscriber::EnvFilter;
-
-/// Filename of the global metadata database in the app data directory.
-/// Per-project databases live elsewhere and are opened on demand.
-const METADATA_DB_FILENAME: &str = "mango.db";
 
 fn make_builder() -> Builder<tauri::Wry> {
     Builder::<tauri::Wry>::new()
@@ -37,7 +29,6 @@ fn make_builder() -> Builder<tauri::Wry> {
             commands::asset::import_asset,
             commands::asset::list_asset_labels,
             commands::asset::list_assets,
-            commands::asset::register_project_asset_scope,
             commands::asset::update_asset_label,
             commands::canvas_layout::delete_canvas_layout,
             commands::canvas_layout::get_canvas_layout,
@@ -54,7 +45,6 @@ fn make_builder() -> Builder<tauri::Wry> {
             commands::costume::update_costume,
             commands::dialog::pick_image_file,
             commands::dialog::pick_project_directory,
-            commands::dialog::suggest_project_root,
             commands::episode::create_episode,
             commands::episode::delete_episode,
             commands::episode::get_episode,
@@ -94,6 +84,7 @@ fn make_builder() -> Builder<tauri::Wry> {
             commands::task::list_tasks,
             commands::task::submit_task,
             commands::workspace::get_workspace_status,
+            commands::workspace::mount_workspace,
             commands::workspace::probe_workspace,
             commands::workspace::set_workspace_and_relaunch,
         ])
@@ -140,108 +131,66 @@ pub fn run() {
 
             let app_dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&app_dir)?;
-            let db_path = app_dir.join(METADATA_DB_FILENAME);
 
-            let db = tauri::async_runtime::block_on(mango_core::db::open_async(&db_path))
-                .expect("Failed to initialize metadata database");
-
-            // Unified startup hook (backfill legacy root_path NULL rows, etc.).
-            // Hard failure here is intentional — a half-initialized DB leads to
-            // user-visible crashes that are far harder to diagnose later.
-            // tokio-rusqlite 0.7 has no Other variant on its Error, so we
-            // surface the CoreError through the Ok(...) channel like with_db.
-            let app_data_for_init = app_dir.clone();
-            let init_result: mango_core::error::Result<()> = tauri::async_runtime::block_on(async {
-                db.call(
-                    move |conn| -> std::result::Result<
-                        mango_core::error::Result<()>,
-                        rusqlite::Error,
-                    > {
-                        Ok(mango_core::startup::initialize(conn, &app_data_for_init))
-                    },
-                )
-                .await
-                .expect("startup initialize call failed on DB thread")
-            });
-            init_result.expect("Failed to run startup initialize");
-
-            // Register BailianProvider for the "bailian" provider id.
-            let providers = ProviderRegistry::builder()
-                .register("bailian", Arc::new(BailianProvider::new()))
-                .build();
             // Wrap the OS-backed keyring in a session-level cache so repeated
             // fetches within one app session don't each trigger a macOS
             // Keychain authorization popup.
             let keyring: Arc<dyn mango_core::account::keyring::KeyringStore> =
                 Arc::new(CachedKeyringStore::new(Box::new(SystemKeyring)));
-            let materializer: Arc<dyn mango_core::task_engine::ResultMaterializer> =
-                Arc::new(BailianResultMaterializer::new(db.clone(), keyring.clone()));
-            let (engine, mut event_rx) = TaskEngineHandle::spawn(
-                db.clone(),
-                providers,
-                keyring.clone(),
-                materializer,
-                4,
-            );
 
-            // Re-spawn runner coroutines for any pending tasks left over from
-            // a previous session. Runs in the background so setup() returns
-            // promptly even if the DB has many pending rows.
-            let engine_for_recovery = engine.clone();
-            tauri::async_runtime::spawn(async move {
-                if let Err(e) = engine_for_recovery.recover_pending().await {
-                    tracing::error!("failed to recover pending tasks: {e}");
-                }
-            });
-
-            let app_handle = app.handle().clone();
-            tauri::async_runtime::spawn(async move {
-                while let Some(ev) = event_rx.recv().await {
-                    match ev {
-                        TaskEvent::StatusChanged {
-                            task_id,
-                            status,
-                            progress,
-                            error_message,
-                        } => {
-                            if let Err(e) = (events::TaskStatusChanged {
-                                task_id,
-                                status,
-                                progress,
-                                error_message,
-                            })
-                            .emit(&app_handle)
-                            {
-                                tracing::warn!(error = %e, "failed to emit TaskStatusChanged");
-                            }
-                        }
-                        TaskEvent::EventLogged { task_id, event } => {
-                            if let Err(e) = (events::TaskEventLogged { task_id, event })
-                                .emit(&app_handle)
-                            {
-                                tracing::warn!(error = %e, "failed to emit TaskEventLogged");
-                            }
-                        }
-                        TaskEvent::ProgressTick { task_id, progress } => {
-                            if let Err(e) = (events::TaskProgressTick { task_id, progress })
-                                .emit(&app_handle)
-                            {
-                                tracing::warn!(error = %e, "failed to emit TaskProgressTick");
-                            }
+            // Resolve the user-chosen workspace, if any. A missing or invalid
+            // pointer config means we boot into onboarding mode: `mounted`
+            // stays `None`, every business command short-circuits with
+            // `WORKSPACE_NOT_MOUNTED`, and the frontend routes the user to
+            // the onboarding flow. `mount_workspace` (called from the
+            // onboarding UI) fills the OnceLock at runtime — no restart
+            // needed.
+            let workspace_root: Option<std::path::PathBuf> =
+                match mango_core::app_config::read(&app_dir) {
+                    Ok(Some(cfg)) => {
+                        let p = cfg.workspace_path;
+                        if p.is_dir() && p.join(init::METADATA_DB_FILENAME).is_file() {
+                            Some(p)
+                        } else {
+                            tracing::warn!(
+                                workspace = %p.display(),
+                                "configured workspace path is invalid or missing mango.db; \
+                                 booting into onboarding mode"
+                            );
+                            None
                         }
                     }
-                }
-            });
+                    Ok(None) => None,
+                    Err(e) => {
+                        tracing::warn!(error = %e, "failed to read app_config; booting into onboarding mode");
+                        None
+                    }
+                };
 
-            // PR1: workspace_root stays None — the conditional-mount setup
-            // lands in PR2. Existing flow is unchanged because no command
-            // reads `workspace_root` yet.
+            let mounted_cell: OnceLock<state::MountedState> = OnceLock::new();
+            if let Some(ws) = workspace_root {
+                let app_handle = app.handle().clone();
+                let keyring_for_mount = keyring.clone();
+                // Run the boot-time mount synchronously: a workspace that's
+                // configured must be ready before any command can fire,
+                // otherwise the frontend would briefly think it's in
+                // onboarding mode.
+                let mounted = tauri::async_runtime::block_on(init::init_workspace(
+                    &app_handle,
+                    keyring_for_mount,
+                    &ws,
+                ))
+                .expect("failed to mount workspace");
+                mounted_cell
+                    .set(mounted)
+                    .map_err(|_| ())
+                    .expect("OnceLock was unexpectedly already set");
+            }
+
             app.manage(state::AppState {
-                db,
                 app_data_dir: app_dir,
-                workspace_root: None,
                 keyring,
-                task_engine: Arc::new(engine),
+                mounted: mounted_cell,
             });
             Ok(())
         })

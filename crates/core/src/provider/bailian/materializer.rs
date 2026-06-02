@@ -2,6 +2,7 @@
 //! and persists it as a local [`Asset`], then cleans up any temporary OSS
 //! objects that were uploaded as reference images.
 
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -19,11 +20,22 @@ use crate::task_engine::materializer::{CleanupOutcome, MaterializeOutcome, Resul
 pub struct BailianResultMaterializer {
     db: tokio_rusqlite::Connection,
     keyring: Arc<dyn KeyringStore>,
+    /// Absolute workspace path used to materialise downloaded results under
+    /// `<workspace>/<project.root_path>/assets/`.
+    workspace_root: PathBuf,
 }
 
 impl BailianResultMaterializer {
-    pub fn new(db: tokio_rusqlite::Connection, keyring: Arc<dyn KeyringStore>) -> Self {
-        Self { db, keyring }
+    pub fn new(
+        db: tokio_rusqlite::Connection,
+        keyring: Arc<dyn KeyringStore>,
+        workspace_root: PathBuf,
+    ) -> Self {
+        Self {
+            db,
+            keyring,
+            workspace_root,
+        }
     }
 }
 
@@ -51,6 +63,7 @@ impl ResultMaterializer for BailianResultMaterializer {
 
         let outcome = download_to_asset(
             &self.db,
+            &self.workspace_root,
             &project_id,
             task.shot_id.as_deref(),
             result_url,

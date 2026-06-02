@@ -29,10 +29,15 @@ pub struct ImportArtifacts {
     pub metadata_json: Option<String>,
 }
 
-/// Stage 1 — read the project root from the DB. Holds the connection only
-/// for the lifetime of a single SELECT.
-pub fn resolve_project_root(conn: &Connection, project_id: &str) -> Result<PathBuf> {
-    let path: String = conn
+/// Stage 1 — read the project's workspace-relative `root_path` from the DB
+/// and resolve it to an absolute filesystem path under `workspace_root`.
+/// Holds the connection only for the lifetime of a single SELECT.
+pub fn resolve_project_root(
+    conn: &Connection,
+    workspace_root: &Path,
+    project_id: &str,
+) -> Result<PathBuf> {
+    let relative: String = conn
         .query_row(
             "SELECT root_path FROM project WHERE id = ?1",
             params![project_id],
@@ -45,7 +50,7 @@ pub fn resolve_project_root(conn: &Connection, project_id: &str) -> Result<PathB
             },
             other => CoreError::Sqlite(other),
         })?;
-    Ok(PathBuf::from(path))
+    paths::resolve_project_root(workspace_root, &relative)
 }
 
 /// Stage 2 — pure filesystem work. Does NOT hold any DB connection so a
@@ -168,8 +173,8 @@ pub fn persist_artifacts(
 /// High-level helper that runs all three stages on a synchronous Connection.
 /// Used by the CLI and tests. The Tauri layer orchestrates the stages itself
 /// to avoid holding the DB worker during stage 2.
-pub fn import(conn: &Connection, input: ImportAssetInput) -> Result<Asset> {
-    let project_root = resolve_project_root(conn, &input.project_id)?;
+pub fn import(conn: &Connection, workspace_root: &Path, input: ImportAssetInput) -> Result<Asset> {
+    let project_root = resolve_project_root(conn, workspace_root, &input.project_id)?;
     let artifacts = prepare_artifacts(&project_root, &input.source_path)?;
     let shot_id = trim_shot_id(input.shot_id.as_deref());
     persist_artifacts(
@@ -229,21 +234,24 @@ mod tests {
 
     fn setup() -> (Connection, TempDir, String, PathBuf) {
         let conn = open_sync(Path::new(":memory:")).unwrap();
-        let app_data = tempdir().unwrap();
+        // `ws` is the workspace root; project.root_path is now stored as a
+        // workspace-relative POSIX path, so we join to materialise the
+        // absolute project root the FS helpers operate on.
+        let ws = tempdir().unwrap();
         let project = project_queries::create(
             &conn,
-            app_data.path(),
+            ws.path(),
             CreateProjectInput {
                 name: "P".into(),
-                root_path: None,
+                subdir: None,
                 description: None,
                 style_prompt: None,
                 global_seed: None,
             },
         )
         .unwrap();
-        let root = PathBuf::from(&project.root_path);
-        (conn, app_data, project.id, root)
+        let root = ws.path().join(&project.root_path);
+        (conn, ws, project.id, root)
     }
 
     fn write_sample_png(path: &Path, w: u32, h: u32) {
@@ -341,13 +349,14 @@ mod tests {
 
     #[test]
     fn persist_dedupes_same_content_hash() {
-        let (conn, _td, pid, root) = setup();
+        let (conn, ws, pid, root) = setup();
         let src_dir = tempdir().unwrap();
         let src = src_dir.path().join("orig.png");
         write_sample_png(&src, 32, 32);
 
         let first = import(
             &conn,
+            ws.path(),
             ImportAssetInput {
                 project_id: pid.clone(),
                 source_path: src.to_str().unwrap().to_string(),
@@ -358,6 +367,7 @@ mod tests {
         .unwrap();
         let second = import(
             &conn,
+            ws.path(),
             ImportAssetInput {
                 project_id: pid.clone(),
                 source_path: src.to_str().unwrap().to_string(),
@@ -374,13 +384,14 @@ mod tests {
 
     #[test]
     fn shot_id_empty_string_becomes_none() {
-        let (conn, _td, pid, _root) = setup();
+        let (conn, ws, pid, _root) = setup();
         let src_dir = tempdir().unwrap();
         let src = src_dir.path().join("orig.png");
         write_sample_png(&src, 32, 32);
 
         let a = import(
             &conn,
+            ws.path(),
             ImportAssetInput {
                 project_id: pid,
                 source_path: src.to_str().unwrap().to_string(),
@@ -394,9 +405,10 @@ mod tests {
 
     #[test]
     fn import_unknown_project_returns_not_found() {
-        let (conn, _td, _pid, _root) = setup();
+        let (conn, ws, _pid, _root) = setup();
         let r = import(
             &conn,
+            ws.path(),
             ImportAssetInput {
                 project_id: "no-such".into(),
                 source_path: "/tmp/whatever.png".into(),

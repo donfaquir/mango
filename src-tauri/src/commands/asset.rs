@@ -1,12 +1,18 @@
-use std::path::Path;
+use std::path::PathBuf;
 
-use super::with_db;
+use super::{require_mount, with_db};
 use crate::error::IpcError;
 use crate::state::AppState;
 use mango_core::asset::import as import_pipeline;
 use mango_core::db::queries::asset as asset_queries;
 use mango_core::models::asset::{Asset, ImportAssetInput, ListAssetsOptions};
-use tauri::{AppHandle, Manager, State};
+use tauri::State;
+
+/// Same shape as `commands::project::require_workspace` — extracted here to
+/// keep the asset commands self-contained.
+fn require_workspace(state: &State<'_, AppState>) -> Result<PathBuf, IpcError> {
+    Ok(require_mount(state)?.workspace_root.clone())
+}
 
 /// Import an external image into the project.
 ///
@@ -18,19 +24,21 @@ use tauri::{AppHandle, Manager, State};
 #[specta::specta]
 pub async fn import_asset(
     state: State<'_, AppState>,
-    app: AppHandle,
     input: ImportAssetInput,
 ) -> Result<Asset, IpcError> {
+    let workspace = require_workspace(&state)?;
+
     // Stage 1 — resolve project root from DB (very short lock hold).
     let project_id_stage1 = input.project_id.clone();
+    let workspace_stage1 = workspace.clone();
     let project_root = with_db(&state, move |conn| {
-        import_pipeline::resolve_project_root(conn, &project_id_stage1)
+        import_pipeline::resolve_project_root(conn, &workspace_stage1, &project_id_stage1)
     })
     .await?;
 
-    // 1.5 — register the project root with the asset-protocol scope so
-    // `convertFileSrc` URLs from the webview actually resolve. Idempotent.
-    register_project_scope(&app, &project_root)?;
+    // No per-project scope registration: the workspace-wide scope was
+    // registered once at startup, which already covers every project root
+    // because they all live under `<workspace>/projects/`.
 
     // Stage 2 — copy + hash + thumbnail, off the DB worker.
     let source_path = input.source_path.clone();
@@ -144,25 +152,11 @@ pub async fn assign_asset_to_shot(
     .await
 }
 
-/// Allow the asset protocol to read files under `project_root`. The webview
-/// needs this before `convertFileSrc(<absolute path>)` URLs can resolve.
-/// Safe to call repeatedly; `allow_directory` is idempotent.
-#[tauri::command]
-#[specta::specta]
-pub async fn register_project_asset_scope(
-    state: State<'_, AppState>,
-    app: AppHandle,
-    project_id: String,
-) -> Result<(), IpcError> {
-    let project_root = with_db(&state, move |conn| {
-        import_pipeline::resolve_project_root(conn, &project_id)
-    })
-    .await?;
-    register_project_scope(&app, &project_root)
-}
+// `register_project_asset_scope` was removed: the asset-protocol scope is
+// now granted once at app startup for the whole `<workspace>` directory by
+// `lib.rs::setup`, which subsumes every per-project root because they all
+// live under `<workspace>/projects/`. The frontend hook and the
+// per-project mount effect that used to call this command were removed in
+// the same PR.
 
-fn register_project_scope(app: &AppHandle, project_root: &Path) -> Result<(), IpcError> {
-    app.asset_protocol_scope()
-        .allow_directory(project_root, true)
-        .map_err(|e| IpcError::internal(format!("failed to register asset scope: {e}")))
-}
+// (no helper here — the workspace-wide scope is registered in `lib.rs` setup)

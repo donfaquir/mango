@@ -126,14 +126,6 @@ export function useDeleteAsset(projectId: string) {
   });
 }
 
-/**
- * Register the project's root directory with the asset-protocol scope so
- * `convertFileSrc` URLs from the webview resolve. Idempotent on the Rust
- * side; safe to call on every project mount.
- */
-export function useRegisterProjectAssetScope() {
-  return useMutation({
-    mutationFn: (projectId: string) =>
-      unwrap(commands.registerProjectAssetScope(projectId)),
-  });
-}
+// `useRegisterProjectAssetScope` removed — the workspace-wide asset-protocol
+// scope is granted once at app startup, so per-project mount registration
+// is no longer needed.

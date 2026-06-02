@@ -74,12 +74,6 @@ export const commands = {
 	listAssetLabels: (projectId: string) => typedError<string[], IpcError_Serialize>(__TAURI_INVOKE("list_asset_labels", { projectId })),
 	listAssets: (opts: ListAssetsOptions) => typedError<Asset[], IpcError_Serialize>(__TAURI_INVOKE("list_assets", { opts })),
 	/**
-	 *  Allow the asset protocol to read files under `project_root`. The webview
-	 *  needs this before `convertFileSrc(<absolute path>)` URLs can resolve.
-	 *  Safe to call repeatedly; `allow_directory` is idempotent.
-	 */
-	registerProjectAssetScope: (projectId: string) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("register_project_asset_scope", { projectId })),
-	/**
 	 *  Update the free-form `label` of an asset (e.g. user-applied tag in the
 	 *  asset library). An empty string clears the tag. Returns the post-update
 	 *  row so the caller's cache can refresh in a single roundtrip.
@@ -122,12 +116,6 @@ export const commands = {
 	 *  the tokio executor thread is not parked while the user is choosing.
 	 */
 	pickProjectDirectory: () => typedError<string | null, IpcError_Serialize>(__TAURI_INVOKE("pick_project_directory")),
-	/**
-	 *  Suggest a default project root for a given (display) name. The returned
-	 *  path is `<app_data>/projects/<slug>` where slug is name-derived for human
-	 *  readability; the actual persisted root is whatever the user submits.
-	 */
-	suggestProjectRoot: (projectName: string) => typedError<string, IpcError_Serialize>(__TAURI_INVOKE("suggest_project_root", { projectName })),
 	createEpisode: (input: CreateEpisodeInput) => typedError<Episode, IpcError_Serialize>(__TAURI_INVOKE("create_episode", { input })),
 	deleteEpisode: (id: string) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("delete_episode", { id })),
 	getEpisode: (id: string) => typedError<Episode, IpcError_Serialize>(__TAURI_INVOKE("get_episode", { id })),
@@ -180,11 +168,21 @@ export const commands = {
 	listTasks: (projectId: string | null, status: "pending" | "running" | "success" | "failed" | "cancelled" | null, limit: number | null) => typedError<GenerationTask[], IpcError_Serialize>(__TAURI_INVOKE("list_tasks", { projectId, status, limit })),
 	submitTask: (input: CreateGenerationTaskInput) => typedError<string, IpcError_Serialize>(__TAURI_INVOKE("submit_task", { input })),
 	/**
-	 *  Current workspace mount state. PR1 always returns `None` because the
-	 *  conditional-mount setup() lands in PR2. The frontend can already call
-	 *  this — it will just always route to onboarding for now.
+	 *  Current workspace mount state. Drives the frontend's onboarding vs
+	 *  main-app routing decision.
 	 */
 	getWorkspaceStatus: () => typedError<WorkspaceStatus, IpcError_Serialize>(__TAURI_INVOKE("get_workspace_status")),
+	/**
+	 *  Hot-mount a workspace at `path`: write the pointer config, open the DB,
+	 *  register the asset-protocol scope, spawn the task engine, and install
+	 *  `MountedState` into the OnceLock. After this returns the frontend can
+	 *  `invalidate(['workspace', 'status'])` and the app slides into the main
+	 *  UI — no process restart involved.
+	 * 
+	 *  Refuses if a workspace is already mounted (the OnceLock would reject
+	 *  the `.set` anyway, but we want a clean error code for the frontend).
+	 */
+	mountWorkspace: (path: string) => typedError<WorkspaceStatus, IpcError_Serialize>(__TAURI_INVOKE("mount_workspace", { path })),
 	/**
 	 *  Probe a candidate workspace directory. Pure inspection — no writes, no
 	 *  state mutation. The frontend calls this before showing a confirmation
@@ -192,10 +190,28 @@ export const commands = {
 	 */
 	probeWorkspace: (path: string) => typedError<WorkspaceProbe, IpcError_Serialize>(__TAURI_INVOKE("probe_workspace", { path })),
 	/**
-	 *  Persist `path` as the workspace pointer in `<app_data>/config.json`,
-	 *  then restart the app so the next boot mounts the new workspace.
-	 *  Caller is expected to have run `probe_workspace` and presented the
-	 *  appropriate confirmation already — this command does NOT re-probe.
+	 *  Switch the workspace pointer and schedule a clean exit so the user
+	 *  relaunches into the new workspace. Used when a workspace is already
+	 *  mounted — hot-swap isn't feasible because the frontend's React Query
+	 *  cache + router state would still reference projects under the old
+	 *  workspace.
+	 * 
+	 *  Steps:
+	 *  1. Probe + validate the target.
+	 *  2. Materialise the new workspace on disk (`prepare_workspace` mkdir +
+	 *     open + migrations) so `setup()` finds a ready `mango.db` on the
+	 *     next boot. **This is the bit that was missing in the first cut and
+	 *     caused the relaunch to fall back to onboarding** when the user
+	 *     picked an empty directory.
+	 *  3. Write the pointer config.
+	 *  4. Schedule `app.exit(0)` 200 ms out so the IPC response delivers and
+	 *     the frontend can render a "please relaunch" toast.
+	 * 
+	 *  We use `app.exit(0)` rather than `app.restart()` because under
+	 *  `tauri dev` restart re-execs the cargo target binary and disconnects
+	 *  from the cargo-tauri parent that owns the vite watcher (observed as
+	 *  "click does nothing"). Exiting cleanly is reliable in both dev and
+	 *  production.
 	 */
 	setWorkspaceAndRelaunch: (path: string) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("set_workspace_and_relaunch", { path })),
 };
@@ -410,10 +426,11 @@ export type CreateGenerationTaskInput = {
 export type CreateProjectInput = {
 	name: string,
 	/**
-	 *  None → fall back to `<app_data>/projects/{uuid}/` (convention path).
-	 *  Some(path) → must be absolute and empty/non-existent (validated).
+	 *  User-chosen subdirectory name under `<workspace>/projects/`. None
+	 *  falls back to a slug derived from `name`. Must be a single path
+	 *  segment — no separators, no `..`, no control chars.
 	 */
-	root_path?: string | null,
+	subdir?: string | null,
 	description?: string | null,
 	style_prompt?: string | null,
 	global_seed?: number | null,
@@ -699,9 +716,11 @@ export type Project = {
 	description: string,
 	style_prompt: string,
 	/**
-	 *  Absolute filesystem path to the project root directory. Guaranteed
-	 *  non-empty by `startup::backfill_project_roots` for legacy rows and by
-	 *  `queries::project::create` for all new rows.
+	 *  Workspace-relative POSIX path to the project root (e.g.
+	 *  `projects/ep4-the-rain`). Resolved to an absolute filesystem path at
+	 *  the IPC boundary by `paths::resolve_project_root(workspace, ...)`, so
+	 *  frontend consumers see an absolute path. The relative form keeps the
+	 *  whole workspace portable across machines.
 	 */
 	root_path: string,
 	global_seed: number | null,

@@ -634,10 +634,11 @@ async fn resolve_media_paths(
     // Resolve project root and all asset file_paths in a single DB call.
     let ids = asset_ids.clone();
     let pid = project_id.clone();
+    let workspace = engine.workspace_root.clone();
     let resolved: Vec<(String, String)> = engine
         .db
         .call(move |conn| {
-            Ok(resolve_asset_paths_sync(conn, &pid, &ids))
+            Ok(resolve_asset_paths_sync(conn, &workspace, &pid, &ids))
         })
         .await
         .map_err(|e: tokio_rusqlite::Error| CoreError::TaskEngine(format!("failed to resolve media paths: {e}")))??;
@@ -665,18 +666,21 @@ async fn resolve_media_paths(
     Ok(())
 }
 
-/// Synchronous helper for resolve_media_paths: runs inside db.call().
+/// Synchronous helper for resolve_media_paths: runs inside db.call(). The
+/// stored `project.root_path` is workspace-relative; we join it under
+/// `workspace_root` before composing the per-asset absolute path.
 fn resolve_asset_paths_sync(
     conn: &rusqlite::Connection,
+    workspace_root: &Path,
     project_id: &str,
     asset_ids: &[String],
 ) -> Result<Vec<(String, String)>> {
     let project = project_q::get_by_id(conn, project_id)?;
-    let root = project.root_path;
+    let project_root = crate::paths::resolve_project_root(workspace_root, &project.root_path)?;
     let mut results = Vec::with_capacity(asset_ids.len());
     for aid in asset_ids {
         let asset = asset_q::get_by_id(conn, aid)?;
-        let abs = Path::new(&root).join(&asset.file_path);
+        let abs = project_root.join(&asset.file_path);
         results.push((aid.clone(), abs.to_string_lossy().to_string()));
     }
     Ok(results)

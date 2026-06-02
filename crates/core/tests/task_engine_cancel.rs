@@ -93,6 +93,7 @@ async fn cancel_running_task_lands_in_cancelled_state() {
         providers,
         keyring,
         Arc::new(NoopMaterializer),
+        std::path::PathBuf::new(),
         4,
         Duration::from_millis(50),
     );
