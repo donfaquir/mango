@@ -6,6 +6,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { TaskStatusBadge } from "./TaskStatusBadge";
 import { useTaskEvents } from "@/hooks/useTasks";
 import { cn } from "@/lib/utils";
+import { parseDbDate } from "@/lib/datetime";
 import type {
   GenerationTask,
   GenerationTaskEvent,
@@ -26,10 +27,7 @@ const PHASE_LABEL: Record<GenerationTaskEvent["phase"], string> = {
 };
 
 function formatTime(occurredAt: string): string {
-  // SQLite emits "YYYY-MM-DD HH:mm:ss" in UTC. Append the marker so the
-  // browser parses it correctly; otherwise it's interpreted as local time.
-  const ts = occurredAt.includes("T") ? occurredAt : `${occurredAt}Z`;
-  const d = new Date(ts);
+  const d = parseDbDate(occurredAt);
   if (Number.isNaN(d.getTime())) return occurredAt;
   return d.toLocaleTimeString("zh-CN", { hour12: false });
 }

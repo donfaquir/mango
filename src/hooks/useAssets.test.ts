@@ -15,7 +15,11 @@ vi.mock("@/lib/bindings/commands", () => ({
   },
 }));
 
-import { useAssetList, useImportAsset } from "./useAssets";
+import {
+  useAssetList,
+  useImportAsset,
+  useUpdateAssetLabel,
+} from "./useAssets";
 
 function makeWrapper() {
   const queryClient = new QueryClient({
@@ -64,6 +68,7 @@ describe("useAssetList", () => {
       asset_type: "image",
       source: null,
       keyword: null,
+      label: null,
       limit: null,
       offset: null,
     });
@@ -100,5 +105,30 @@ describe("useImportAsset", () => {
     const p2 = queryClient.getQueryState(["assets", "p2", "all"]);
     expect(p1?.isInvalidated).toBe(true);
     expect(p2?.isInvalidated).toBe(false);
+  });
+});
+
+describe("useUpdateAssetLabel", () => {
+  beforeEach(() => {
+    updateAssetLabel.mockReset();
+  });
+
+  it("seeds the detail cache from the returned asset and invalidates the project list", async () => {
+    const updated = { ...sampleAsset, label: "hero" };
+    updateAssetLabel.mockResolvedValueOnce({ status: "ok", data: updated });
+    const { queryClient, wrapper } = makeWrapper();
+
+    queryClient.setQueryData(["assets", "p1", "all"], [sampleAsset]);
+    queryClient.setQueryData(["assets", "p2", "all"], []);
+
+    const { result } = renderHook(() => useUpdateAssetLabel(), { wrapper });
+    await result.current.mutateAsync({ id: "a1", label: "hero" });
+
+    expect(updateAssetLabel).toHaveBeenCalledWith("a1", "hero");
+    expect(queryClient.getQueryData(["asset", "a1"])).toEqual(updated);
+    expect(queryClient.getQueryState(["assets", "p1", "all"])?.isInvalidated)
+      .toBe(true);
+    expect(queryClient.getQueryState(["assets", "p2", "all"])?.isInvalidated)
+      .toBe(false);
   });
 });

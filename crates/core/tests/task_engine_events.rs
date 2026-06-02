@@ -183,6 +183,7 @@ async fn submit_failure_records_structured_error_event() {
         providers,
         keyring,
         Arc::new(NoopMaterializer),
+        std::path::PathBuf::new(),
         4,
         Duration::from_millis(50),
     );
@@ -249,6 +250,7 @@ async fn poll_failure_records_phase_attribution_and_request_id() {
         providers,
         keyring,
         Arc::new(NoopMaterializer),
+        std::path::PathBuf::new(),
         4,
         Duration::from_millis(50),
     );

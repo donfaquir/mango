@@ -72,6 +72,53 @@ pub async fn run(engine: TaskEngineHandle, task_id: String) {
     // already-resolved credentials without hitting the keyring again.
     let credentials_for_cleanup = credentials.clone();
 
+    // === Resume path ===
+    // If the row already carries an `external_task_id`, the previous app
+    // session had successfully submitted to the cloud before being killed.
+    // Re-submitting here would double-charge the user's quota, leak the
+    // earlier cloud-side job (we'd overwrite the id and never download its
+    // result), and potentially re-upload reference images. Instead, jump
+    // straight to the poll loop with the persisted id and let the
+    // materializer pick up the result whenever the cloud finishes.
+    if let Some(ext_id) = task.external_task_id.clone() {
+        if !matches!(task.status, GenerationTaskStatus::Running)
+            && let Err(e) = state::transition(
+                &engine.db,
+                &engine.event_tx,
+                &task_id,
+                GenerationTaskStatus::Running,
+                None,
+                None,
+            )
+            .await
+        {
+            tracing::error!(task_id = %task_id, error = %e, "transition→running on resume failed");
+            return;
+        }
+        let _ = state::record_event(
+            &engine.db,
+            &engine.event_tx,
+            &task_id,
+            EventPhase::SubmitCall,
+            EventSeverity::Info,
+            "恢复轮询（沿用上次提交的 external_task_id）".to_string(),
+            EventBuilder::new().details(serde_json::json!({
+                "external_task_id": ext_id,
+                "resume": true,
+            })),
+        )
+        .await;
+        poll_loop(
+            &engine,
+            &task_id,
+            provider.as_ref(),
+            &ext_id,
+            credentials_for_cleanup,
+        )
+        .await;
+        return;
+    }
+
     let mut params = match build_generation_params(&task, credentials) {
         Ok(p) => p,
         Err(e) => {
@@ -634,10 +681,11 @@ async fn resolve_media_paths(
     // Resolve project root and all asset file_paths in a single DB call.
     let ids = asset_ids.clone();
     let pid = project_id.clone();
+    let workspace = engine.workspace_root.clone();
     let resolved: Vec<(String, String)> = engine
         .db
         .call(move |conn| {
-            Ok(resolve_asset_paths_sync(conn, &pid, &ids))
+            Ok(resolve_asset_paths_sync(conn, &workspace, &pid, &ids))
         })
         .await
         .map_err(|e: tokio_rusqlite::Error| CoreError::TaskEngine(format!("failed to resolve media paths: {e}")))??;
@@ -665,18 +713,21 @@ async fn resolve_media_paths(
     Ok(())
 }
 
-/// Synchronous helper for resolve_media_paths: runs inside db.call().
+/// Synchronous helper for resolve_media_paths: runs inside db.call(). The
+/// stored `project.root_path` is workspace-relative; we join it under
+/// `workspace_root` before composing the per-asset absolute path.
 fn resolve_asset_paths_sync(
     conn: &rusqlite::Connection,
+    workspace_root: &Path,
     project_id: &str,
     asset_ids: &[String],
 ) -> Result<Vec<(String, String)>> {
     let project = project_q::get_by_id(conn, project_id)?;
-    let root = project.root_path;
+    let project_root = crate::paths::resolve_project_root(workspace_root, &project.root_path)?;
     let mut results = Vec::with_capacity(asset_ids.len());
     for aid in asset_ids {
         let asset = asset_q::get_by_id(conn, aid)?;
-        let abs = Path::new(&root).join(&asset.file_path);
+        let abs = project_root.join(&asset.file_path);
         results.push((aid.clone(), abs.to_string_lossy().to_string()));
     }
     Ok(results)

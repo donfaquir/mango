@@ -8,13 +8,14 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import type { Project } from "@/lib/bindings/commands";
+import { parseDbDate } from "@/lib/datetime";
 
 interface ProjectCardProps {
   project: Project;
 }
 
 function formatDate(dateStr: string): string {
-  const date = new Date(dateStr);
+  const date = parseDbDate(dateStr);
   return date.toLocaleDateString("zh-CN", {
     year: "numeric",
     month: "short",

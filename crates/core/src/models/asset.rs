@@ -34,9 +34,10 @@ impl AssetType {
 /// Provenance of an asset row. `Imported` covers user drag-drop / file picker
 /// flows; `Generated` covers artifacts written back by the runner after a
 /// successful generation_task.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum AssetSource {
+    #[default]
     Imported,
     Generated,
 }
@@ -55,12 +56,6 @@ impl AssetSource {
             "generated" => Some(AssetSource::Generated),
             _ => None,
         }
-    }
-}
-
-impl Default for AssetSource {
-    fn default() -> Self {
-        AssetSource::Imported
     }
 }
 
@@ -113,6 +108,11 @@ pub struct ListAssetsOptions {
     /// or `label`. Empty / whitespace-only strings are treated as `None`.
     #[serde(default)]
     pub keyword: Option<String>,
+    /// Optional exact-match filter on the `label` column. `Some("")` selects
+    /// rows with no label set (the canonical "unlabeled" state); `Some("x")`
+    /// selects rows whose label equals `"x"` exactly; `None` means "any".
+    #[serde(default)]
+    pub label: Option<String>,
     #[serde(default)]
     #[specta(type = Option<specta_typescript::Number>)]
     pub limit: Option<i64>,

@@ -1,5 +1,5 @@
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use mango_core::account::keyring::KeyringStore;
 use mango_core::task_engine::TaskEngineHandle;
@@ -7,25 +7,43 @@ use tokio_rusqlite::Connection as AsyncConnection;
 
 /// Tauri global managed state.
 ///
-/// `tokio_rusqlite::Connection` is internally `Arc` + channel: calls from any task
-/// are queued onto a dedicated DB thread, so it is `Clone + Send + Sync` and needs
-/// no outer `Arc<Mutex<>>`.
+/// Split into two halves: immutable pre-mount fields (always available) and
+/// `mounted`, a `OnceLock<MountedState>` that is filled exactly once when
+/// the user picks a workspace.
 ///
-/// `app_data_dir` is captured at startup and used by commands that need to
-/// fall back to the convention project path (e.g. `create_project` with
-/// `root_path = None`).
+/// Why `OnceLock` instead of a `RwLock` / `ArcSwap`: workspace can only be
+/// chosen once per process lifetime — switching to a different workspace
+/// goes through `set_workspace_and_relaunch` (write config + exit; user
+/// relaunches). That matches `OnceLock`'s "set once, read freely" semantic
+/// exactly, and gives us lock-free reads on the hot path with no `await`.
 ///
-/// `keyring` is an `Arc<dyn KeyringStore>` so the production setup wires the
-/// system keyring (via `keyring::use_native_store`) and tests can inject a
-/// `InMemoryKeyring`.
+/// `app_data_dir` is captured at startup and used to read/write the pointer
+/// config (`<app_data>/config.json`). It is always available, even before
+/// a workspace is mounted, because the pointer file lives outside the
+/// workspace.
 ///
-/// `task_engine` is an `Arc<TaskEngineHandle>` because the handle itself is
-/// already cheap to clone (its inner state is refcounted) but the forwarder
-/// coroutine and command layer both need long-lived references; `Arc` keeps
-/// the call sites uniform with `keyring`.
+/// `keyring` is an `Arc<dyn KeyringStore>` so the production setup wires
+/// the system keyring (via `keyring::use_native_store`) and tests can
+/// inject `InMemoryKeyring`. API keys never depend on a mounted workspace,
+/// so this stays at the top level.
 pub struct AppState {
-    pub db: AsyncConnection,
     pub app_data_dir: PathBuf,
     pub keyring: Arc<dyn KeyringStore>,
+    pub mounted: OnceLock<MountedState>,
+}
+
+/// State that only exists once a workspace has been mounted. Filled by
+/// `init_workspace` (called from `setup()` on a happy boot, or from the
+/// `mount_workspace` IPC command on first-time onboarding).
+pub struct MountedState {
+    /// Async connection to `<workspace>/mango.db`. Cheap to clone — the
+    /// inner channel handle is `Arc`.
+    pub db: AsyncConnection,
+    /// Absolute path of the mounted workspace. Joined with the
+    /// workspace-relative `project.root_path` whenever the runner or
+    /// the import pipeline needs to touch on-disk files.
+    pub workspace_root: PathBuf,
+    /// Task engine spawned against the mounted DB and workspace. `Arc` so
+    /// command code can clone the handle cheaply per call.
     pub task_engine: Arc<TaskEngineHandle>,
 }

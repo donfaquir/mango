@@ -1,10 +1,14 @@
 pub mod api_account;
 pub mod asset;
+pub mod canvas_layout;
 pub mod character;
 pub mod costume;
+pub mod episode;
+pub mod episode_checkpoint;
 pub mod generation_task;
 pub mod generation_task_event;
 pub mod project;
 pub mod provider;
 pub mod prop;
 pub mod scene;
+pub mod shot;

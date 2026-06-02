@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use rusqlite::{params, Connection};
 use uuid::Uuid;
@@ -11,12 +11,14 @@ use crate::paths;
 
 /// Create a new project.
 ///
-/// `app_data_dir` is the per-installation data directory used only when
-/// `input.root_path` is None (CLI ergonomics, internal callers); it is
-/// ignored when the caller supplies an explicit path.
+/// `workspace_root` is the absolute path of the mounted workspace; it is
+/// used to materialise the on-disk `<workspace>/projects/<subdir>/` layout
+/// at creation time but is NOT stored — the DB stores only the
+/// workspace-relative `root_path`. Callers (the Tauri / CLI shells) must
+/// have already verified that a workspace is mounted before invoking this.
 pub fn create(
     conn: &Connection,
-    app_data_dir: &Path,
+    workspace_root: &Path,
     input: CreateProjectInput,
 ) -> Result<Project> {
     let name = input.name.trim().to_string();
@@ -25,17 +27,30 @@ pub fn create(
     }
 
     let id = Uuid::new_v4().to_string();
+    let default_slug = derive_subdir_slug(&name, &id);
+    let relative_root = paths::make_relative_project_root(input.subdir.as_deref(), &default_slug)?;
+    let absolute_root = paths::resolve_project_root(workspace_root, &relative_root)?;
 
-    let root = match input.root_path.as_deref().map(str::trim) {
-        Some(s) if !s.is_empty() => {
-            let p = PathBuf::from(s);
-            validate_user_root_path(&p)?;
-            p
+    // Refuse to clobber an existing non-empty directory — mirrors the
+    // previous absolute-path validation so the user does not accidentally
+    // shadow another project's files.
+    if absolute_root.exists() {
+        if !absolute_root.is_dir() {
+            return Err(CoreError::Validation(format!(
+                "project root exists but is not a directory: {}",
+                absolute_root.display()
+            )));
         }
-        _ => paths::convention_root(app_data_dir, &id),
-    };
+        let mut entries = std::fs::read_dir(&absolute_root)?;
+        if entries.next().is_some() {
+            return Err(CoreError::Validation(format!(
+                "project root directory is not empty: {}",
+                absolute_root.display()
+            )));
+        }
+    }
 
-    paths::ensure_project_layout(&root)?;
+    paths::ensure_project_layout(&absolute_root)?;
 
     conn.execute(
         "INSERT INTO project (id, name, description, style_prompt, global_seed, root_path)
@@ -46,58 +61,67 @@ pub fn create(
             input.description.unwrap_or_default(),
             input.style_prompt.unwrap_or_default(),
             input.global_seed,
-            root.to_string_lossy(),
+            relative_root,
         ],
     )?;
 
     get_by_id(conn, &id)
 }
 
-fn validate_user_root_path(root: &Path) -> Result<()> {
-    if !root.is_absolute() {
-        return Err(CoreError::Validation(
-            "root_path must be absolute".into(),
-        ));
-    }
-
-    if root.exists() {
-        // Exists → must be a directory AND empty.
-        if !root.is_dir() {
-            return Err(CoreError::Validation(
-                "root_path exists but is not a directory".into(),
-            ));
-        }
-        let mut entries = std::fs::read_dir(root)?;
-        if entries.next().is_some() {
-            return Err(CoreError::Validation(
-                "root_path must be empty or non-existent".into(),
-            ));
-        }
+/// Derive a default subdirectory name from the project's display name.
+///
+/// Strategy (most → least informative):
+///   1. ASCII slug via the `slug` crate ("My Comic" → "my-comic").
+///   2. Sanitised unicode form of the original name ("我的第一部漫剧"
+///      stays as-is) — modern filesystems on all three platforms accept
+///      UTF-8 directory names, and a CJK label is more useful than an
+///      opaque uuid for users browsing the workspace folder.
+///   3. `p-<uuid8>` as the last resort when both produced an empty
+///      string (e.g. a name made entirely of separator chars).
+///
+/// The `-<uuid8>` suffix guarantees uniqueness across collisions.
+fn derive_subdir_slug(name: &str, id: &str) -> String {
+    let ascii = slug::slugify(name);
+    let candidate = if ascii.is_empty() {
+        sanitize_unicode_for_subdir(name)
     } else {
-        // Doesn't exist → parent must exist (don't recursively create unfamiliar trees).
-        match root.parent() {
-            Some(parent) if parent.as_os_str().is_empty() => {
-                return Err(CoreError::Validation(
-                    "root_path parent directory missing".into(),
-                ));
-            }
-            Some(parent) => {
-                if !parent.is_dir() {
-                    return Err(CoreError::Validation(format!(
-                        "root_path parent directory does not exist: {}",
-                        parent.display()
-                    )));
-                }
-            }
-            None => {
-                return Err(CoreError::Validation(
-                    "root_path parent directory missing".into(),
-                ));
-            }
-        }
+        ascii
+    };
+    if candidate.is_empty() {
+        format!("p-{}", &id[..8])
+    } else {
+        format!("{candidate}-{}", &id[..8])
     }
+}
 
-    Ok(())
+/// Best-effort cleanup of a unicode display name into something safe for
+/// `paths::validate_subdir_segment`. Mirrors the frontend slugify rules:
+/// strip path separators, the Windows-reserved set, NUL, and control
+/// characters; collapse whitespace runs into `-`; trim leading/trailing
+/// `.` and `-`.
+fn sanitize_unicode_for_subdir(name: &str) -> String {
+    let mut out = String::with_capacity(name.len());
+    let mut last_was_dash = false;
+    for c in name.chars() {
+        if c.is_whitespace() {
+            if !last_was_dash && !out.is_empty() {
+                out.push('-');
+                last_was_dash = true;
+            }
+            continue;
+        }
+        if matches!(
+            c,
+            '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' | '\0'
+        ) || c.is_control()
+        {
+            continue;
+        }
+        out.push(c);
+        last_was_dash = false;
+    }
+    let trimmed = out.trim_matches(|c: char| c == '.' || c == '-');
+    trimmed.to_string()
 }
 
 /// Get a project by ID.
@@ -224,23 +248,23 @@ mod tests {
     use std::path::Path;
     use tempfile::{tempdir, TempDir};
 
-    /// Returns `(conn, tempdir)`. Keep the tempdir bound in the test so it
-    /// outlives the project directories created underneath.
+    /// Returns `(conn, workspace_tempdir)`. Keep the tempdir bound in the
+    /// test so it outlives the project directories created underneath.
     fn setup() -> (Connection, TempDir) {
         let conn = open_sync(Path::new(":memory:")).unwrap();
-        let app_data = tempdir().unwrap();
-        (conn, app_data)
+        let ws = tempdir().unwrap();
+        (conn, ws)
     }
 
     #[test]
-    fn test_create_project_with_convention_path() {
-        let (conn, app_data) = setup();
+    fn test_create_project_with_default_subdir() {
+        let (conn, ws) = setup();
         let project = create(
             &conn,
-            app_data.path(),
+            ws.path(),
             CreateProjectInput {
                 name: "测试项目".into(),
-                root_path: None,
+                subdir: None,
                 description: Some("描述".into()),
                 style_prompt: None,
                 global_seed: None,
@@ -251,25 +275,121 @@ mod tests {
         assert!(!project.id.is_empty());
         assert_eq!(project.name, "测试项目");
         assert_eq!(project.description, "描述");
-        assert!(!project.created_at.is_empty());
-        assert_eq!(project.created_at, project.updated_at);
-
-        let expected_root = paths::convention_root(app_data.path(), &project.id);
-        assert_eq!(Path::new(&project.root_path), expected_root);
-        assert!(paths::assets_dir(&expected_root).is_dir());
-        assert!(paths::thumbnails_dir(&expected_root).is_dir());
+        // Workspace-relative.
+        assert!(
+            project.root_path.starts_with("projects/"),
+            "root_path should be workspace-relative, got {}",
+            project.root_path
+        );
+        // The on-disk layout should be materialised under workspace.
+        let abs = ws.path().join(&project.root_path);
+        assert!(paths::assets_dir(&abs).is_dir());
+        assert!(paths::thumbnails_dir(&abs).is_dir());
     }
 
     #[test]
-    fn test_create_project_with_explicit_root_path() {
-        let (conn, app_data) = setup();
-        let custom = app_data.path().join("custom_root");
+    fn derive_subdir_slug_uses_ascii_slug_when_available() {
+        let s = derive_subdir_slug("My First Comic", "abcd1234-rest");
+        assert_eq!(s, "my-first-comic-abcd1234");
+    }
+
+    #[test]
+    fn derive_subdir_slug_cjk_name_produces_nonempty_segment() {
+        // The slug crate transliterates CJK to pinyin (e.g. "我的" → "wo-de"),
+        // so the result is non-empty and ends with the uuid suffix. We
+        // don't pin the exact transliteration since it depends on slug
+        // crate internals — only assert the segment was produced.
+        let s = derive_subdir_slug("我的第一部漫剧", "abcd1234-rest");
+        assert!(s.ends_with("-abcd1234"));
+        assert!(s.len() > "-abcd1234".len());
+    }
+
+    #[test]
+    fn derive_subdir_slug_falls_back_to_uuid_when_name_yields_nothing() {
+        // All chars stripped → final fallback.
+        let s = derive_subdir_slug("///", "abcd1234-rest");
+        assert_eq!(s, "p-abcd1234");
+    }
+
+    #[test]
+    fn sanitize_unicode_for_subdir_keeps_cjk() {
+        assert_eq!(sanitize_unicode_for_subdir("我的漫剧"), "我的漫剧");
+    }
+
+    #[test]
+    fn sanitize_unicode_for_subdir_strips_separators_and_collapses_space() {
+        assert_eq!(
+            sanitize_unicode_for_subdir("路径/测试  名"),
+            "路径测试-名"
+        );
+    }
+
+    #[test]
+    fn sanitize_unicode_for_subdir_trims_dots_and_dashes() {
+        assert_eq!(sanitize_unicode_for_subdir("--.foo.--"), "foo");
+    }
+
+    #[test]
+    fn sanitize_unicode_for_subdir_returns_empty_when_all_stripped() {
+        assert_eq!(sanitize_unicode_for_subdir("///"), "");
+    }
+
+    #[test]
+    fn test_create_project_with_cjk_name_succeeds() {
+        let (conn, ws) = setup();
         let project = create(
             &conn,
-            app_data.path(),
+            ws.path(),
+            CreateProjectInput {
+                name: "我的第一部漫剧".into(),
+                subdir: None,
+                description: None,
+                style_prompt: None,
+                global_seed: None,
+            },
+        )
+        .unwrap();
+        // Slug crate transliterates to pinyin — exact form is opaque, but
+        // it must land under `projects/` and the on-disk layout must be
+        // materialised.
+        assert!(
+            project.root_path.starts_with("projects/"),
+            "got {}",
+            project.root_path
+        );
+        let abs = ws.path().join(&project.root_path);
+        assert!(paths::assets_dir(&abs).is_dir());
+    }
+
+    #[test]
+    fn test_create_project_with_cjk_explicit_subdir_succeeds() {
+        let (conn, ws) = setup();
+        let project = create(
+            &conn,
+            ws.path(),
+            CreateProjectInput {
+                name: "Whatever".into(),
+                subdir: Some("我的漫剧".into()),
+                description: None,
+                style_prompt: None,
+                global_seed: None,
+            },
+        )
+        .unwrap();
+        assert_eq!(project.root_path, "projects/我的漫剧");
+        let abs = ws.path().join(&project.root_path);
+        assert!(paths::assets_dir(&abs).is_dir());
+    }
+
+    #[test]
+    fn test_create_project_with_explicit_subdir() {
+        let (conn, ws) = setup();
+        let project = create(
+            &conn,
+            ws.path(),
             CreateProjectInput {
                 name: "Custom".into(),
-                root_path: Some(custom.to_string_lossy().into_owned()),
+                subdir: Some("custom-slot".into()),
                 description: None,
                 style_prompt: None,
                 global_seed: None,
@@ -277,19 +397,20 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(Path::new(&project.root_path), custom);
-        assert!(paths::assets_dir(&custom).is_dir());
+        assert_eq!(project.root_path, "projects/custom-slot");
+        let abs = ws.path().join(&project.root_path);
+        assert!(paths::assets_dir(&abs).is_dir());
     }
 
     #[test]
-    fn test_create_project_relative_root_path_fails() {
-        let (conn, app_data) = setup();
+    fn test_create_project_subdir_with_separator_fails() {
+        let (conn, ws) = setup();
         let result = create(
             &conn,
-            app_data.path(),
+            ws.path(),
             CreateProjectInput {
-                name: "rel".into(),
-                root_path: Some("relative/path".into()),
+                name: "x".into(),
+                subdir: Some("foo/bar".into()),
                 description: None,
                 style_prompt: None,
                 global_seed: None,
@@ -299,18 +420,18 @@ mod tests {
     }
 
     #[test]
-    fn test_create_project_non_empty_root_path_fails() {
-        let (conn, app_data) = setup();
-        let busy = app_data.path().join("busy");
+    fn test_create_project_subdir_collision_with_non_empty_dir_fails() {
+        let (conn, ws) = setup();
+        let busy = ws.path().join("projects").join("busy");
         std::fs::create_dir_all(&busy).unwrap();
         std::fs::write(busy.join("intruder.txt"), b"hi").unwrap();
 
         let result = create(
             &conn,
-            app_data.path(),
+            ws.path(),
             CreateProjectInput {
                 name: "busy".into(),
-                root_path: Some(busy.to_string_lossy().into_owned()),
+                subdir: Some("busy".into()),
                 description: None,
                 style_prompt: None,
                 global_seed: None,
@@ -321,13 +442,13 @@ mod tests {
 
     #[test]
     fn test_create_project_empty_name_fails() {
-        let (conn, app_data) = setup();
+        let (conn, ws) = setup();
         let result = create(
             &conn,
-            app_data.path(),
+            ws.path(),
             CreateProjectInput {
                 name: "  ".into(),
-                root_path: None,
+                subdir: None,
                 description: None,
                 style_prompt: None,
                 global_seed: None,
@@ -338,21 +459,21 @@ mod tests {
 
     #[test]
     fn test_get_by_id_not_found() {
-        let (conn, _app_data) = setup();
+        let (conn, _ws) = setup();
         let result = get_by_id(&conn, "nonexistent");
         assert!(matches!(result, Err(CoreError::NotFound { .. })));
     }
 
     #[test]
     fn test_list_with_pagination() {
-        let (conn, app_data) = setup();
+        let (conn, ws) = setup();
         for i in 0..5 {
             create(
                 &conn,
-                app_data.path(),
+                ws.path(),
                 CreateProjectInput {
                     name: format!("Project {i}"),
-                    root_path: None,
+                    subdir: None,
                     description: None,
                     style_prompt: None,
                     global_seed: None,
@@ -387,13 +508,13 @@ mod tests {
 
     #[test]
     fn test_update_project_partial() {
-        let (conn, app_data) = setup();
+        let (conn, ws) = setup();
         let project = create(
             &conn,
-            app_data.path(),
+            ws.path(),
             CreateProjectInput {
                 name: "Original".into(),
-                root_path: None,
+                subdir: None,
                 description: Some("desc".into()),
                 style_prompt: None,
                 global_seed: None,
@@ -421,13 +542,13 @@ mod tests {
 
     #[test]
     fn test_update_project_clear_global_seed() {
-        let (conn, app_data) = setup();
+        let (conn, ws) = setup();
         let project = create(
             &conn,
-            app_data.path(),
+            ws.path(),
             CreateProjectInput {
                 name: "With Seed".into(),
-                root_path: None,
+                subdir: None,
                 description: None,
                 style_prompt: None,
                 global_seed: Some(42),
@@ -452,13 +573,13 @@ mod tests {
 
     #[test]
     fn test_update_project_empty_name_fails() {
-        let (conn, app_data) = setup();
+        let (conn, ws) = setup();
         let project = create(
             &conn,
-            app_data.path(),
+            ws.path(),
             CreateProjectInput {
                 name: "Test".into(),
-                root_path: None,
+                subdir: None,
                 description: None,
                 style_prompt: None,
                 global_seed: None,
@@ -481,13 +602,13 @@ mod tests {
 
     #[test]
     fn test_delete_project() {
-        let (conn, app_data) = setup();
+        let (conn, ws) = setup();
         let project = create(
             &conn,
-            app_data.path(),
+            ws.path(),
             CreateProjectInput {
                 name: "To Delete".into(),
-                root_path: None,
+                subdir: None,
                 description: None,
                 style_prompt: None,
                 global_seed: None,
@@ -504,7 +625,7 @@ mod tests {
 
     #[test]
     fn test_delete_nonexistent_fails() {
-        let (conn, _app_data) = setup();
+        let (conn, _ws) = setup();
         let result = delete(&conn, "nonexistent");
         assert!(matches!(result, Err(CoreError::NotFound { .. })));
     }

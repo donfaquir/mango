@@ -1,5 +1,5 @@
 use std::io::{self, Write};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use clap::{Args, Subcommand};
 use comfy_table::{Table, presets::UTF8_FULL_CONDENSED};
@@ -20,10 +20,10 @@ enum ProjectAction {
     Create {
         #[arg(long)]
         name: String,
-        /// Project root directory. If omitted, the project is created under
-        /// `<app_data>/projects/{uuid}/`.
+        /// Subdirectory name under `<workspace>/projects/`. If omitted, a
+        /// slug derived from `--name` is used.
         #[arg(long)]
-        root_path: Option<PathBuf>,
+        subdir: Option<String>,
         #[arg(long, default_value = "")]
         description: String,
         #[arg(long, default_value = "")]
@@ -44,16 +44,16 @@ enum ProjectAction {
 
 pub fn execute(
     conn: &Connection,
-    app_data_dir: &Path,
+    workspace_root: &Path,
     args: ProjectArgs,
 ) -> anyhow::Result<()> {
     match args.action {
         ProjectAction::Create {
             name,
-            root_path,
+            subdir,
             description,
             style_prompt,
-        } => create(conn, app_data_dir, name, root_path, description, style_prompt),
+        } => create(conn, workspace_root, name, subdir, description, style_prompt),
         ProjectAction::List => list(conn),
         ProjectAction::Get { id } => get(conn, &id),
         ProjectAction::Delete { id, yes } => delete(conn, &id, yes),
@@ -62,18 +62,18 @@ pub fn execute(
 
 fn create(
     conn: &Connection,
-    app_data_dir: &Path,
+    workspace_root: &Path,
     name: String,
-    root_path: Option<PathBuf>,
+    subdir: Option<String>,
     description: String,
     style_prompt: String,
 ) -> anyhow::Result<()> {
     let project = project_queries::create(
         conn,
-        app_data_dir,
+        workspace_root,
         CreateProjectInput {
             name,
-            root_path: root_path.map(|p| p.to_string_lossy().into_owned()),
+            subdir,
             description: Some(description),
             style_prompt: Some(style_prompt),
             global_seed: None,

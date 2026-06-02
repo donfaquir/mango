@@ -77,15 +77,31 @@ pub fn list(conn: &Connection, opts: ListAssetsOptions) -> Result<Vec<Asset>> {
         sql.push_str(&format!(" AND source = ?{}", args.len()));
     }
     if let Some(kw) = opts.keyword.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
-        // SQLite LIKE is case-insensitive only for ASCII by default, which is
-        // fine for our filenames + labels. Wrap the user input in `%` and
-        // bind a single value reused for both columns.
+        // Search three fields:
+        //   - `original_name` — short display title (often a prompt prefix)
+        //   - `label` — user-applied classification tag
+        //   - `metadata_json -> '$.prompt'` — the FULL generation prompt
+        //
+        // The last one is the key: titles get truncated to ~12 chars for
+        // display, so the only way "find that image with `夕阳`" works for
+        // a 100-character prompt is to scan the persisted full text. SQLite
+        // ships JSON1 by default in rusqlite's bundled feature; `json_extract`
+        // returns NULL on rows without the field, and `NULL LIKE x` is NULL
+        // (treated as false in WHERE) — so non-generated rows are silently
+        // ignored, which is the behaviour we want.
         let pattern = format!("%{kw}%");
         args.push(Box::new(pattern));
         let n = args.len();
         sql.push_str(&format!(
-            " AND (original_name LIKE ?{n} OR label LIKE ?{n})"
+            " AND (original_name LIKE ?{n} \
+              OR label LIKE ?{n} \
+              OR json_extract(metadata_json, '$.prompt') LIKE ?{n})"
         ));
+    }
+    if let Some(label) = opts.label {
+        // Exact match — Some("") deliberately selects the "no label" rows.
+        args.push(Box::new(label));
+        sql.push_str(&format!(" AND label = ?{}", args.len()));
     }
 
     args.push(Box::new(limit));
@@ -103,9 +119,47 @@ pub fn list(conn: &Connection, opts: ListAssetsOptions) -> Result<Vec<Asset>> {
         .map_err(CoreError::from)
 }
 
+/// Return the distinct non-empty `label` values used across a project's
+/// assets, sorted alphabetically. Powers the asset library's label filter
+/// dropdown — callers add their own "any" / "unlabeled" options on top.
+pub fn list_labels(conn: &Connection, project_id: &str) -> Result<Vec<String>> {
+    let mut stmt = conn.prepare(
+        "SELECT DISTINCT label FROM asset \
+         WHERE project_id = ?1 AND label != '' \
+         ORDER BY label COLLATE NOCASE",
+    )?;
+    let rows = stmt.query_map(params![project_id], |row| row.get::<_, String>(0))?;
+    rows.collect::<std::result::Result<Vec<_>, _>>()
+        .map_err(CoreError::from)
+}
+
+/// Update the display name of an asset. The name is rejected when empty
+/// after trim — callers should send a non-empty string or skip the call.
+/// Bumps `updated_at` so library listings re-sort accordingly.
+pub fn update_original_name(conn: &Connection, id: &str, original_name: &str) -> Result<Asset> {
+    let trimmed = original_name.trim();
+    if trimmed.is_empty() {
+        return Err(CoreError::Validation(
+            "asset name cannot be empty".into(),
+        ));
+    }
+    let n = conn.execute(
+        "UPDATE asset SET original_name = ?1, updated_at = datetime('now') WHERE id = ?2",
+        params![trimmed, id],
+    )?;
+    if n == 0 {
+        return Err(CoreError::NotFound {
+            entity: "asset",
+            id: id.to_string(),
+        });
+    }
+    get_by_id(conn, id)
+}
+
 /// Update the free-form `label` of an asset. Bumps `updated_at` so library
-/// listings re-sort accordingly.
-pub fn update_label(conn: &Connection, id: &str, label: &str) -> Result<()> {
+/// listings re-sort accordingly. Returns the post-update row so the caller
+/// (and frontend cache) sees the canonical state in a single roundtrip.
+pub fn update_label(conn: &Connection, id: &str, label: &str) -> Result<Asset> {
     let n = conn.execute(
         "UPDATE asset SET label = ?1, updated_at = datetime('now') WHERE id = ?2",
         params![label, id],
@@ -116,7 +170,30 @@ pub fn update_label(conn: &Connection, id: &str, label: &str) -> Result<()> {
             id: id.to_string(),
         });
     }
-    Ok(())
+    get_by_id(conn, id)
+}
+
+/// Bind (or unbind) an asset to a shot. `Some(shot_id)` overwrites any existing
+/// `asset.shot_id`; `None` clears it. The previous value is intentionally not
+/// returned here — callers that need overwrite confirmation should `get_by_id`
+/// first and compare. Returns the post-update row so the caller (and frontend
+/// cache) sees the canonical state in a single roundtrip.
+pub fn assign_to_shot(
+    conn: &Connection,
+    id: &str,
+    shot_id: Option<&str>,
+) -> Result<Asset> {
+    let n = conn.execute(
+        "UPDATE asset SET shot_id = ?1, updated_at = datetime('now') WHERE id = ?2",
+        params![shot_id, id],
+    )?;
+    if n == 0 {
+        return Err(CoreError::NotFound {
+            entity: "asset",
+            id: id.to_string(),
+        });
+    }
+    get_by_id(conn, id)
 }
 
 pub fn delete(conn: &Connection, id: &str) -> Result<()> {
@@ -197,7 +274,7 @@ mod tests {
             app_data.path(),
             CreateProjectInput {
                 name: "P".into(),
-                root_path: None,
+                subdir: None,
                 description: None,
                 style_prompt: None,
                 global_seed: None,
@@ -236,7 +313,7 @@ mod tests {
             td.path(),
             CreateProjectInput {
                 name: "B".into(),
-                root_path: None,
+                subdir: None,
                 description: None,
                 style_prompt: None,
                 global_seed: None,
@@ -257,6 +334,7 @@ mod tests {
                 asset_type: None,
                 source: None,
                 keyword: None,
+                label: None,
                 limit: None,
                 offset: None,
             },
@@ -271,6 +349,7 @@ mod tests {
                 asset_type: Some(AssetType::Image),
                 source: None,
                 keyword: None,
+                label: None,
                 limit: None,
                 offset: None,
             },
@@ -344,7 +423,7 @@ mod tests {
             td.path(),
             CreateProjectInput {
                 name: "B".into(),
-                root_path: None,
+                subdir: None,
                 description: None,
                 style_prompt: None,
                 global_seed: None,
@@ -375,7 +454,7 @@ mod tests {
             td.path(),
             CreateProjectInput {
                 name: "B".into(),
-                root_path: None,
+                subdir: None,
                 description: None,
                 style_prompt: None,
                 global_seed: None,
@@ -414,6 +493,28 @@ mod tests {
         id
     }
 
+    /// Like `insert_full` but also writes a `metadata_json.prompt` value,
+    /// so the keyword-search test can assert that prompts are scanned even
+    /// when the term isn't present in `original_name` or `label`.
+    fn insert_with_prompt(
+        conn: &Connection,
+        project_id: &str,
+        original_name: &str,
+        prompt: &str,
+    ) -> String {
+        let id = uuid::Uuid::new_v4().to_string();
+        let metadata = serde_json::json!({ "prompt": prompt }).to_string();
+        conn.execute(
+            "INSERT INTO asset \
+                (id, project_id, asset_type, original_name, file_path, file_size, \
+                 source, label, metadata_json) \
+             VALUES (?1, ?2, 'image', ?3, 'assets/x', 0, 'generated', '', ?4)",
+            params![id, project_id, original_name, metadata],
+        )
+        .unwrap();
+        id
+    }
+
     #[test]
     fn list_filters_by_source() {
         let (conn, _td, pid) = setup();
@@ -428,6 +529,7 @@ mod tests {
                 asset_type: None,
                 source: Some(AssetSource::Imported),
                 keyword: None,
+                label: None,
                 limit: None,
                 offset: None,
             },
@@ -443,6 +545,7 @@ mod tests {
                 asset_type: None,
                 source: Some(AssetSource::Generated),
                 keyword: None,
+                label: None,
                 limit: None,
                 offset: None,
             },
@@ -465,6 +568,7 @@ mod tests {
                 asset_type: None,
                 source: None,
                 keyword: Some("sun".into()),
+                label: None,
                 limit: None,
                 offset: None,
             },
@@ -480,6 +584,7 @@ mod tests {
                 asset_type: None,
                 source: None,
                 keyword: Some("hero".into()),
+                label: None,
                 limit: None,
                 offset: None,
             },
@@ -487,6 +592,32 @@ mod tests {
         .unwrap();
         assert_eq!(by_label.len(), 1);
         assert_eq!(by_label[0].label, "hero");
+
+        // Keyword must also scan `metadata_json.prompt` — that's how a
+        // truncated display name (e.g. "赛博朋克少女站..png") can still be
+        // found by a word that only lives in the full prompt.
+        insert_with_prompt(
+            &conn,
+            &pid,
+            "赛博朋克少女站...png",
+            "赛博朋克少女站在霓虹街头, 夕阳下侧脸, anime",
+        );
+        let by_prompt_only = list(
+            &conn,
+            ListAssetsOptions {
+                project_id: pid.clone(),
+                asset_type: None,
+                source: None,
+                // `夕阳` is not in original_name or label, only in metadata.
+                keyword: Some("夕阳".into()),
+                label: None,
+                limit: None,
+                offset: None,
+            },
+        )
+        .unwrap();
+        assert_eq!(by_prompt_only.len(), 1);
+        assert!(by_prompt_only[0].original_name.starts_with("赛博朋克少女"));
 
         // Whitespace-only keyword is treated as no filter.
         let no_filter = list(
@@ -496,12 +627,93 @@ mod tests {
                 asset_type: None,
                 source: None,
                 keyword: Some("   ".into()),
+                label: None,
                 limit: None,
                 offset: None,
             },
         )
         .unwrap();
-        assert_eq!(no_filter.len(), 3);
+        // 3 from `insert_full` + 1 from `insert_with_prompt` above.
+        assert_eq!(no_filter.len(), 4);
+    }
+
+    #[test]
+    fn list_filters_by_label_exact_and_unlabeled() {
+        let (conn, _td, pid) = setup();
+        insert_full(&conn, &pid, "image", "a.png", "imported", "hero");
+        insert_full(&conn, &pid, "image", "b.png", "imported", "hero");
+        insert_full(&conn, &pid, "image", "c.png", "imported", "villain");
+        insert_full(&conn, &pid, "image", "d.png", "imported", "");
+
+        let heroes = list(
+            &conn,
+            ListAssetsOptions {
+                project_id: pid.clone(),
+                asset_type: None,
+                source: None,
+                keyword: None,
+                label: Some("hero".into()),
+                limit: None,
+                offset: None,
+            },
+        )
+        .unwrap();
+        assert_eq!(heroes.len(), 2);
+        assert!(heroes.iter().all(|a| a.label == "hero"));
+
+        let unlabeled = list(
+            &conn,
+            ListAssetsOptions {
+                project_id: pid,
+                asset_type: None,
+                source: None,
+                keyword: None,
+                label: Some(String::new()),
+                limit: None,
+                offset: None,
+            },
+        )
+        .unwrap();
+        assert_eq!(unlabeled.len(), 1);
+        assert_eq!(unlabeled[0].label, "");
+    }
+
+    #[test]
+    fn list_labels_returns_distinct_non_empty_sorted() {
+        let (conn, _td, pid_a) = setup();
+        insert_full(&conn, &pid_a, "image", "a.png", "imported", "hero");
+        insert_full(&conn, &pid_a, "image", "b.png", "imported", "hero");
+        insert_full(&conn, &pid_a, "image", "c.png", "imported", "Villain");
+        insert_full(&conn, &pid_a, "image", "d.png", "imported", "");
+        insert_full(&conn, &pid_a, "image", "e.png", "imported", "alpha");
+
+        let labels = list_labels(&conn, &pid_a).unwrap();
+        // NOCASE collation puts "alpha" first, then "hero", then "Villain".
+        assert_eq!(labels, vec!["alpha", "hero", "Villain"]);
+    }
+
+    #[test]
+    fn list_labels_is_scoped_to_project() {
+        let (conn, td, pid_a) = setup();
+        let pid_b = project_queries::create(
+            &conn,
+            td.path(),
+            CreateProjectInput {
+                name: "B".into(),
+                subdir: None,
+                description: None,
+                style_prompt: None,
+                global_seed: None,
+            },
+        )
+        .unwrap()
+        .id;
+
+        insert_full(&conn, &pid_a, "image", "a.png", "imported", "owned-by-a");
+        insert_full(&conn, &pid_b, "image", "b.png", "imported", "owned-by-b");
+
+        let labels_a = list_labels(&conn, &pid_a).unwrap();
+        assert_eq!(labels_a, vec!["owned-by-a"]);
     }
 
     #[test]
@@ -509,7 +721,8 @@ mod tests {
         let (conn, _td, pid) = setup();
         let id = insert_full(&conn, &pid, "image", "a.png", "imported", "");
 
-        update_label(&conn, &id, "hero").unwrap();
+        let updated = update_label(&conn, &id, "hero").unwrap();
+        assert_eq!(updated.label, "hero");
         let row = get_by_id(&conn, &id).unwrap();
         assert_eq!(row.label, "hero");
     }
@@ -519,6 +732,109 @@ mod tests {
         let (conn, _td, _pid) = setup();
         assert!(matches!(
             update_label(&conn, "no-such", "x"),
+            Err(CoreError::NotFound { .. })
+        ));
+    }
+
+    #[test]
+    fn update_original_name_persists_value() {
+        let (conn, _td, pid) = setup();
+        let id = insert_full(&conn, &pid, "image", "old.png", "imported", "");
+
+        let updated = update_original_name(&conn, &id, "新的名字.png").unwrap();
+        assert_eq!(updated.original_name, "新的名字.png");
+        let row = get_by_id(&conn, &id).unwrap();
+        assert_eq!(row.original_name, "新的名字.png");
+    }
+
+    #[test]
+    fn update_original_name_trims_whitespace() {
+        let (conn, _td, pid) = setup();
+        let id = insert_full(&conn, &pid, "image", "old.png", "imported", "");
+        let updated = update_original_name(&conn, &id, "  spaced.png  ").unwrap();
+        assert_eq!(updated.original_name, "spaced.png");
+    }
+
+    #[test]
+    fn update_original_name_rejects_empty() {
+        let (conn, _td, pid) = setup();
+        let id = insert_full(&conn, &pid, "image", "old.png", "imported", "");
+        assert!(matches!(
+            update_original_name(&conn, &id, "   "),
+            Err(CoreError::Validation(_))
+        ));
+    }
+
+    #[test]
+    fn update_original_name_missing_returns_not_found() {
+        let (conn, _td, _pid) = setup();
+        assert!(matches!(
+            update_original_name(&conn, "no-such", "x"),
+            Err(CoreError::NotFound { .. })
+        ));
+    }
+
+    fn insert_episode(conn: &Connection, project_id: &str) -> String {
+        let id = uuid::Uuid::new_v4().to_string();
+        conn.execute(
+            "INSERT INTO episode (id, project_id, title) VALUES (?1, ?2, 'ep')",
+            params![id, project_id],
+        )
+        .unwrap();
+        id
+    }
+
+    fn insert_shot(conn: &Connection, episode_id: &str) -> String {
+        let id = uuid::Uuid::new_v4().to_string();
+        conn.execute(
+            "INSERT INTO shot (id, episode_id) VALUES (?1, ?2)",
+            params![id, episode_id],
+        )
+        .unwrap();
+        id
+    }
+
+    #[test]
+    fn assign_to_shot_binds_when_empty() {
+        let (conn, _td, pid) = setup();
+        let asset = insert_raw(&conn, &pid, Some("h"), "image");
+        let eid = insert_episode(&conn, &pid);
+        let sid = insert_shot(&conn, &eid);
+
+        let updated = assign_to_shot(&conn, &asset, Some(&sid)).unwrap();
+        assert_eq!(updated.shot_id.as_deref(), Some(sid.as_str()));
+    }
+
+    #[test]
+    fn assign_to_shot_overwrites_existing_binding() {
+        let (conn, _td, pid) = setup();
+        let asset = insert_raw(&conn, &pid, Some("h"), "image");
+        let eid = insert_episode(&conn, &pid);
+        let sid_a = insert_shot(&conn, &eid);
+        let sid_b = insert_shot(&conn, &eid);
+
+        assign_to_shot(&conn, &asset, Some(&sid_a)).unwrap();
+        let updated = assign_to_shot(&conn, &asset, Some(&sid_b)).unwrap();
+        assert_eq!(updated.shot_id.as_deref(), Some(sid_b.as_str()));
+    }
+
+    #[test]
+    fn assign_to_shot_unbinds_with_none() {
+        let (conn, _td, pid) = setup();
+        let asset = insert_raw(&conn, &pid, Some("h"), "image");
+        let eid = insert_episode(&conn, &pid);
+        let sid = insert_shot(&conn, &eid);
+
+        assign_to_shot(&conn, &asset, Some(&sid)).unwrap();
+        let updated = assign_to_shot(&conn, &asset, None).unwrap();
+        assert!(updated.shot_id.is_none());
+    }
+
+    #[test]
+    fn assign_to_shot_returns_not_found_for_missing_asset() {
+        let (conn, _td, _pid) = setup();
+        assert!(matches!(
+            assign_to_shot(&conn, "no-such", None),
             Err(CoreError::NotFound { .. })
         ));
     }

@@ -17,6 +17,14 @@ export const commands = {
 	 */
 	verifyApiAccountStorage: (id: string) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("verify_api_account_storage", { id })),
 	/**
+	 *  Bind (or unbind) an asset to a shot. `Some(shot_id)` overwrites the prior
+	 *  binding silently — UI surfaces (e.g. canvas drag-to-shot) are expected to
+	 *  confirm overwrites themselves before calling. `None` clears the binding.
+	 *  Returns the post-update row so the caller's cache can refresh in a single
+	 *  roundtrip.
+	 */
+	assignAssetToShot: (id: string, shotId: string | null) => typedError<Asset, IpcError_Serialize>(__TAURI_INVOKE("assign_asset_to_shot", { id, shotId })),
+	/**
 	 *  Delete an asset row. Files on disk are intentionally not removed; a future
 	 *  GC sweep (V2) reconciles orphaned files. See spec-12 §"错误场景".
 	 */
@@ -58,18 +66,36 @@ export const commands = {
 	 *  work. See spec-12 §"导入流水线（三段式）" for the design rationale.
 	 */
 	importAsset: (input: ImportAssetInput) => typedError<Asset, IpcError_Serialize>(__TAURI_INVOKE("import_asset", { input })),
+	/**
+	 *  Return the distinct non-empty `label` values currently used across the
+	 *  project's assets. The frontend asset library uses this to populate the
+	 *  label filter dropdown; "all" and "unlabeled" options are added by the UI.
+	 */
+	listAssetLabels: (projectId: string) => typedError<string[], IpcError_Serialize>(__TAURI_INVOKE("list_asset_labels", { projectId })),
 	listAssets: (opts: ListAssetsOptions) => typedError<Asset[], IpcError_Serialize>(__TAURI_INVOKE("list_assets", { opts })),
 	/**
-	 *  Allow the asset protocol to read files under `project_root`. The webview
-	 *  needs this before `convertFileSrc(<absolute path>)` URLs can resolve.
-	 *  Safe to call repeatedly; `allow_directory` is idempotent.
-	 */
-	registerProjectAssetScope: (projectId: string) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("register_project_asset_scope", { projectId })),
-	/**
 	 *  Update the free-form `label` of an asset (e.g. user-applied tag in the
-	 *  asset library). An empty string clears the tag.
+	 *  asset library). An empty string clears the tag. Returns the post-update
+	 *  row so the caller's cache can refresh in a single roundtrip.
 	 */
-	updateAssetLabel: (id: string, label: string) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("update_asset_label", { id, label })),
+	updateAssetLabel: (id: string, label: string) => typedError<Asset, IpcError_Serialize>(__TAURI_INVOKE("update_asset_label", { id, label })),
+	/**
+	 *  Update an asset's display name (`original_name`). Empty/whitespace-only
+	 *  strings are rejected (`VALIDATION_ERROR`) — the UI should disable the
+	 *  save button until the field has content. Returns the post-update row so
+	 *  the caller's cache can refresh in a single roundtrip.
+	 */
+	updateAssetOriginalName: (id: string, originalName: string) => typedError<Asset, IpcError_Serialize>(__TAURI_INVOKE("update_asset_original_name", { id, originalName })),
+	deleteCanvasLayout: (episodeId: string) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("delete_canvas_layout", { episodeId })),
+	getCanvasLayout: (episodeId: string) => typedError<{
+	id: string,
+	episode_id: string,
+	nodes_json: string,
+	edges_json: string,
+	viewport_json: string,
+	updated_at: string,
+} | null, IpcError_Serialize>(__TAURI_INVOKE("get_canvas_layout", { episodeId })),
+	upsertCanvasLayout: (input: UpsertCanvasLayoutInput) => typedError<CanvasLayout, IpcError_Serialize>(__TAURI_INVOKE("upsert_canvas_layout", { input })),
 	createCharacter: (input: CreateCharacterInput) => typedError<Character, IpcError_Serialize>(__TAURI_INVOKE("create_character", { input })),
 	/**
 	 *  Delete a character. Schema `ON DELETE CASCADE` removes its costumes;
@@ -97,12 +123,19 @@ export const commands = {
 	 *  the tokio executor thread is not parked while the user is choosing.
 	 */
 	pickProjectDirectory: () => typedError<string | null, IpcError_Serialize>(__TAURI_INVOKE("pick_project_directory")),
+	createEpisode: (input: CreateEpisodeInput) => typedError<Episode, IpcError_Serialize>(__TAURI_INVOKE("create_episode", { input })),
+	deleteEpisode: (id: string) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("delete_episode", { id })),
+	getEpisode: (id: string) => typedError<Episode, IpcError_Serialize>(__TAURI_INVOKE("get_episode", { id })),
+	listEpisodes: (opts: ListEpisodesOptions) => typedError<Episode[], IpcError_Serialize>(__TAURI_INVOKE("list_episodes", { opts })),
+	reorderEpisodes: (projectId: string, orderedIds: string[]) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("reorder_episodes", { projectId, orderedIds })),
+	updateEpisode: (id: string, input: UpdateEpisodeInput_Deserialize) => typedError<Episode, IpcError_Serialize>(__TAURI_INVOKE("update_episode", { id, input })),
 	/**
-	 *  Suggest a default project root for a given (display) name. The returned
-	 *  path is `<app_data>/projects/<slug>` where slug is name-derived for human
-	 *  readability; the actual persisted root is whatever the user submits.
+	 *  Persist a placeholder checkpoint for the given episode. Reads the current
+	 *  `canvas_layout` row on the DB worker and snapshots its three JSON columns
+	 *  into a new `episode_checkpoint` row. Full version-management (list,
+	 *  restore, retention) lands in MS4.
 	 */
-	suggestProjectRoot: (projectName: string) => typedError<string, IpcError_Serialize>(__TAURI_INVOKE("suggest_project_root", { projectName })),
+	createEpisodeCheckpoint: (input: CreateCheckpointInput) => typedError<EpisodeCheckpoint, IpcError_Serialize>(__TAURI_INVOKE("create_episode_checkpoint", { input })),
 	createProject: (input: CreateProjectInput) => typedError<Project, IpcError_Serialize>(__TAURI_INVOKE("create_project", { input })),
 	/**
 	 *  Delete project metadata only. The on-disk root_path directory and its
@@ -127,11 +160,67 @@ export const commands = {
 	getScene: (id: string) => typedError<Scene, IpcError_Serialize>(__TAURI_INVOKE("get_scene", { id })),
 	listScenes: (opts: ListScenesOptions) => typedError<Scene[], IpcError_Serialize>(__TAURI_INVOKE("list_scenes", { opts })),
 	updateScene: (id: string, input: UpdateSceneInput_Deserialize) => typedError<Scene, IpcError_Serialize>(__TAURI_INVOKE("update_scene", { id, input })),
+	createShot: (input: CreateShotInput) => typedError<Shot, IpcError_Serialize>(__TAURI_INVOKE("create_shot", { input })),
+	deleteShot: (id: string) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("delete_shot", { id })),
+	getShot: (id: string) => typedError<Shot, IpcError_Serialize>(__TAURI_INVOKE("get_shot", { id })),
+	linkShotSubject: (shotId: string, subjectId: string, subjectKind: SubjectKind) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("link_shot_subject", { shotId, subjectId, subjectKind })),
+	listShotLinks: (shotId: string) => typedError<ShotLinks, IpcError_Serialize>(__TAURI_INVOKE("list_shot_links", { shotId })),
+	listShots: (opts: ListShotsOptions) => typedError<Shot[], IpcError_Serialize>(__TAURI_INVOKE("list_shots", { opts })),
+	reorderShots: (episodeId: string, orderedIds: string[]) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("reorder_shots", { episodeId, orderedIds })),
+	unlinkShotSubject: (shotId: string, subjectId: string, subjectKind: SubjectKind) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("unlink_shot_subject", { shotId, subjectId, subjectKind })),
+	updateShot: (id: string, input: UpdateShotInput_Deserialize) => typedError<Shot, IpcError_Serialize>(__TAURI_INVOKE("update_shot", { id, input })),
 	cancelTask: (taskId: string) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("cancel_task", { taskId })),
 	getTask: (taskId: string) => typedError<GenerationTask, IpcError_Serialize>(__TAURI_INVOKE("get_task", { taskId })),
 	listTaskEvents: (taskId: string) => typedError<GenerationTaskEvent[], IpcError_Serialize>(__TAURI_INVOKE("list_task_events", { taskId })),
 	listTasks: (projectId: string | null, status: "pending" | "running" | "success" | "failed" | "cancelled" | null, limit: number | null) => typedError<GenerationTask[], IpcError_Serialize>(__TAURI_INVOKE("list_tasks", { projectId, status, limit })),
 	submitTask: (input: CreateGenerationTaskInput) => typedError<string, IpcError_Serialize>(__TAURI_INVOKE("submit_task", { input })),
+	/**
+	 *  Current workspace mount state. Drives the frontend's onboarding vs
+	 *  main-app routing decision.
+	 */
+	getWorkspaceStatus: () => typedError<WorkspaceStatus, IpcError_Serialize>(__TAURI_INVOKE("get_workspace_status")),
+	/**
+	 *  Hot-mount a workspace at `path`: write the pointer config, open the DB,
+	 *  register the asset-protocol scope, spawn the task engine, and install
+	 *  `MountedState` into the OnceLock. After this returns the frontend can
+	 *  `invalidate(['workspace', 'status'])` and the app slides into the main
+	 *  UI — no process restart involved.
+	 * 
+	 *  Refuses if a workspace is already mounted (the OnceLock would reject
+	 *  the `.set` anyway, but we want a clean error code for the frontend).
+	 */
+	mountWorkspace: (path: string) => typedError<WorkspaceStatus, IpcError_Serialize>(__TAURI_INVOKE("mount_workspace", { path })),
+	/**
+	 *  Probe a candidate workspace directory. Pure inspection — no writes, no
+	 *  state mutation. The frontend calls this before showing a confirmation
+	 *  dialog so the user sees the right message for what they're about to do.
+	 */
+	probeWorkspace: (path: string) => typedError<WorkspaceProbe, IpcError_Serialize>(__TAURI_INVOKE("probe_workspace", { path })),
+	/**
+	 *  Switch the workspace pointer and schedule a clean exit so the user
+	 *  relaunches into the new workspace. Used when a workspace is already
+	 *  mounted — hot-swap isn't feasible because the frontend's React Query
+	 *  cache + router state would still reference projects under the old
+	 *  workspace.
+	 * 
+	 *  Steps:
+	 *  1. Probe + validate the target.
+	 *  2. Materialise the new workspace on disk (`prepare_workspace` mkdir +
+	 *     open + migrations) so `setup()` finds a ready `mango.db` on the
+	 *     next boot. **This is the bit that was missing in the first cut and
+	 *     caused the relaunch to fall back to onboarding** when the user
+	 *     picked an empty directory.
+	 *  3. Write the pointer config.
+	 *  4. Schedule `app.exit(0)` 200 ms out so the IPC response delivers and
+	 *     the frontend can render a "please relaunch" toast.
+	 * 
+	 *  We use `app.exit(0)` rather than `app.restart()` because under
+	 *  `tauri dev` restart re-execs the cargo target binary and disconnects
+	 *  from the cargo-tauri parent that owns the vite watcher (observed as
+	 *  "click does nothing"). Exiting cleanly is reliable in both dev and
+	 *  production.
+	 */
+	setWorkspaceAndRelaunch: (path: string) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("set_workspace_and_relaunch", { path })),
 };
 
 /** Events */
@@ -224,6 +313,21 @@ export type AssetSource = "imported" | "generated";
 
 export type AssetType = "image" | "video" | "audio" | "script";
 
+/**
+ *  Canvas layout for a single episode. `nodes_json` / `edges_json` /
+ *  `viewport_json` are opaque JSON blobs owned by the frontend's React Flow
+ *  state — core never parses their inner structure, only that they are
+ *  well-formed JSON. See spec-21 for rationale.
+ */
+export type CanvasLayout = {
+	id: string,
+	episode_id: string,
+	nodes_json: string,
+	edges_json: string,
+	viewport_json: string,
+	updated_at: string,
+};
+
 export type Character = {
 	id: string,
 	project_id: string,
@@ -288,6 +392,12 @@ export type CreateCharacterInput = {
 	reference_image_path?: string | null,
 };
 
+export type CreateCheckpointInput = {
+	episode_id: string,
+	/**  Optional user-supplied label. Empty / missing maps to NULL in DB. */
+	label: string | null,
+};
+
 export type CreateCostumeInput = {
 	project_id: string,
 	/**
@@ -298,6 +408,12 @@ export type CreateCostumeInput = {
 	name: string,
 	description?: string | null,
 	reference_image_path?: string | null,
+};
+
+export type CreateEpisodeInput = {
+	project_id: string,
+	title: string,
+	script_text?: string | null,
 };
 
 export type CreateGenerationTaskInput = {
@@ -317,10 +433,11 @@ export type CreateGenerationTaskInput = {
 export type CreateProjectInput = {
 	name: string,
 	/**
-	 *  None → fall back to `<app_data>/projects/{uuid}/` (convention path).
-	 *  Some(path) → must be absolute and empty/non-existent (validated).
+	 *  User-chosen subdirectory name under `<workspace>/projects/`. None
+	 *  falls back to a slug derived from `name`. Must be a single path
+	 *  segment — no separators, no `..`, no control chars.
 	 */
-	root_path?: string | null,
+	subdir?: string | null,
 	description?: string | null,
 	style_prompt?: string | null,
 	global_seed?: number | null,
@@ -339,6 +456,39 @@ export type CreateSceneInput = {
 	description?: string | null,
 	environment_prompt?: string | null,
 	reference_image_path?: string | null,
+};
+
+export type CreateShotInput = {
+	episode_id: string,
+	summary?: string | null,
+};
+
+export type Episode = {
+	id: string,
+	project_id: string,
+	title: string,
+	order_index: number,
+	script_text: string,
+	created_at: string,
+	updated_at: string,
+};
+
+/**
+ *  A point-in-time snapshot of a single episode's canvas layout. The schema
+ *  reserves space for additional MS4 fields (`script_text`, `shots_json`,
+ *  `change_summary`) that this MS3 placeholder does not surface yet — the
+ *  minimal command writes the schema defaults for those columns.
+ */
+export type EpisodeCheckpoint = {
+	id: string,
+	episode_id: string,
+	version_number: number,
+	label: string | null,
+	trigger_type: string,
+	canvas_nodes_json: string,
+	canvas_edges_json: string,
+	canvas_viewport_json: string,
+	created_at: string,
 };
 
 export type EventPhase = "submit_upload" | "submit_call" | "poll" | "download" | "persist" | "cleanup";
@@ -449,6 +599,12 @@ export type ListAssetsOptions = {
 	 *  or `label`. Empty / whitespace-only strings are treated as `None`.
 	 */
 	keyword?: string | null,
+	/**
+	 *  Optional exact-match filter on the `label` column. `Some("")` selects
+	 *  rows with no label set (the canonical "unlabeled" state); `Some("x")`
+	 *  selects rows whose label equals `"x"` exactly; `None` means "any".
+	 */
+	label?: string | null,
 	limit?: number | null,
 	offset?: number | null,
 };
@@ -466,6 +622,10 @@ export type ListCostumesOptions = {
 	offset?: number | null,
 };
 
+export type ListEpisodesOptions = {
+	project_id: string,
+};
+
 export type ListProjectsOptions = {
 	limit?: number | null,
 	offset?: number | null,
@@ -481,6 +641,10 @@ export type ListScenesOptions = {
 	project_id: string,
 	limit?: number | null,
 	offset?: number | null,
+};
+
+export type ListShotsOptions = {
+	episode_id: string,
 };
 
 export type Model = {
@@ -559,9 +723,11 @@ export type Project = {
 	description: string,
 	style_prompt: string,
 	/**
-	 *  Absolute filesystem path to the project root directory. Guaranteed
-	 *  non-empty by `startup::backfill_project_roots` for legacy rows and by
-	 *  `queries::project::create` for all new rows.
+	 *  Workspace-relative POSIX path to the project root (e.g.
+	 *  `projects/ep4-the-rain`). Resolved to an absolute filesystem path at
+	 *  the IPC boundary by `paths::resolve_project_root(workspace, ...)`, so
+	 *  frontend consumers see an absolute path. The relative form keeps the
+	 *  whole workspace portable across machines.
 	 */
 	root_path: string,
 	global_seed: number | null,
@@ -615,6 +781,38 @@ export type Scene = {
 	created_at: string,
 	updated_at: string,
 };
+
+export type Shot = {
+	id: string,
+	episode_id: string,
+	order_index: number,
+	summary: string,
+	duration_sec: number | null,
+	camera_angle: string,
+	shot_type: string,
+	mood: string,
+	dialogue: string,
+	video_prompt: string,
+	image_prompt: string,
+	status: ShotStatus,
+	created_at: string,
+	updated_at: string,
+};
+
+export type ShotLinks = {
+	character_ids: string[],
+	scene_ids: string[],
+	prop_ids: string[],
+};
+
+export type ShotStatus = "draft" | "ready" | "generating" | "done";
+
+/**
+ *  Which side-table a subject points to. Used by `link_shot_subject` /
+ *  `unlink_shot_subject` to dispatch to the right join table without
+ *  exploding the IPC surface into three near-identical commands.
+ */
+export type SubjectKind = "character" | "scene" | "prop";
 
 /**
  *  A new diagnostic event has been persisted for `task_id`. Carries the full
@@ -706,6 +904,18 @@ export type UpdateCostumeInput_Serialize = {
 	reference_image_path?: string | null,
 };
 
+export type UpdateEpisodeInput = UpdateEpisodeInput_Serialize | UpdateEpisodeInput_Deserialize;
+
+export type UpdateEpisodeInput_Deserialize = {
+	title?: string | null,
+	script_text?: string | null,
+};
+
+export type UpdateEpisodeInput_Serialize = {
+	title?: string | null,
+	script_text?: string | null,
+};
+
 export type UpdateProjectInput = UpdateProjectInput_Serialize | UpdateProjectInput_Deserialize;
 
 export type UpdateProjectInput_Deserialize = {
@@ -756,6 +966,75 @@ export type UpdateSceneInput_Serialize = {
 	environment_prompt?: string | null,
 	/**  None = don't modify, Some(None) = clear to NULL, Some(Some(v)) = set to v */
 	reference_image_path?: string | null,
+};
+
+export type UpdateShotInput = UpdateShotInput_Serialize | UpdateShotInput_Deserialize;
+
+export type UpdateShotInput_Deserialize = {
+	summary?: string | null,
+	/**  None = don't modify, Some(None) = clear, Some(Some(v)) = set */
+	duration_sec?: number | null,
+	camera_angle?: string | null,
+	shot_type?: string | null,
+	mood?: string | null,
+	dialogue?: string | null,
+	video_prompt?: string | null,
+	image_prompt?: string | null,
+	status?: ShotStatus | null,
+};
+
+export type UpdateShotInput_Serialize = {
+	summary?: string | null,
+	/**  None = don't modify, Some(None) = clear, Some(Some(v)) = set */
+	duration_sec?: number | null,
+	camera_angle?: string | null,
+	shot_type?: string | null,
+	mood?: string | null,
+	dialogue?: string | null,
+	video_prompt?: string | null,
+	image_prompt?: string | null,
+	status?: ShotStatus | null,
+};
+
+export type UpsertCanvasLayoutInput = {
+	episode_id: string,
+	nodes_json: string,
+	edges_json: string,
+	viewport_json: string,
+};
+
+/**
+ *  Classification of a candidate workspace directory. Each variant drives a
+ *  different confirmation flow in the frontend onboarding / switch UI.
+ */
+export type WorkspaceProbe = 
+/**  Path does not exist OR is an empty directory. Safe to initialise. */
+{ kind: "empty" } | 
+/**
+ *  Path contains `mango.db`. Reports the number of projects found so the
+ *  UI can show "detected N projects, mount here?". Project count is
+ *  best-effort — a corrupt DB still classifies as ExistingMangoData
+ *  with `project_count = 0` rather than failing.
+ */
+{ kind: "existing_mango_data"; project_count: number } | 
+/**
+ *  Path exists, is non-empty, but no `mango.db` was found. The UI should
+ *  warn before initialising on top of unrelated files.
+ */
+{ kind: "non_empty_foreign" } | 
+/**
+ *  Path is unreadable, not a directory, or otherwise unusable. The string
+ *  is a human-readable reason for the UI to surface.
+ */
+{ kind: "invalid"; reason: string };
+
+/**  Snapshot of workspace mount state for the frontend router. */
+export type WorkspaceStatus = {
+	/**
+	 *  Absolute path of the mounted workspace, or `None` if onboarding is
+	 *  required.
+	 */
+	workspace_root: string | null,
 };
 
 /* Tauri Specta runtime */

@@ -289,18 +289,23 @@ pub fn list_pending_ids(conn: &Connection) -> rusqlite::Result<Vec<String>> {
     Ok(ids)
 }
 
-/// Reset all rows whose `status='running'` to `pending` on startup. The previous
-/// app process owned a runner coroutine that no longer exists, so the row is
-/// orphaned. Marker text is appended to `error_message` and `retry_count`
-/// is incremented for audit. `external_task_id` is preserved so the user can
-/// see what was running and decide whether to resubmit.
+/// Reset all rows whose `status='running'` to `pending` on startup. The
+/// previous app process owned a runner coroutine that no longer exists, so
+/// the row is orphaned and `recover_pending` will re-spawn a runner for it.
+///
+/// `external_task_id` is preserved on purpose: if it's `Some`, the runner's
+/// resume path (in `task_engine::runner::run`) skips re-submission and
+/// jumps straight into the poll loop with the existing id, so neither the
+/// cloud nor the user's quota are double-charged. If it's `None` (orphan
+/// happened before the provider submit ever returned), the runner does
+/// submit afresh — that's the normal "retry the un-submitted" path.
+///
+/// We don't bump `retry_count` or pollute `error_message` here: this is
+/// the routine recovery flow on every restart, not a failure. Failures
+/// still drive both fields via `transition_status` from the runner.
 pub fn reset_orphan_running(conn: &Connection) -> Result<usize> {
     let n = conn.execute(
-        "UPDATE generation_task \
-         SET status = 'pending', \
-             error_message = COALESCE(error_message, '') || '[orphan reset on startup]', \
-             retry_count = retry_count + 1 \
-         WHERE status = 'running'",
+        "UPDATE generation_task SET status = 'pending' WHERE status = 'running'",
         [],
     )?;
     Ok(n)
@@ -500,13 +505,13 @@ mod tests {
         assert_eq!(pending_after.status, GenerationTaskStatus::Pending);
         assert_eq!(pending_after.retry_count, 0);
 
+        // Recovery is routine — running rows just get nudged back to
+        // pending without bumping retry_count or polluting error_message.
+        // The runner's resume path then re-attaches to the cloud-side
+        // job via the preserved external_task_id (if any).
         assert_eq!(running_after.status, GenerationTaskStatus::Pending);
-        assert_eq!(running_after.retry_count, 1);
-        assert!(running_after
-            .error_message
-            .as_deref()
-            .unwrap_or("")
-            .contains("orphan reset on startup"));
+        assert_eq!(running_after.retry_count, 0);
+        assert!(running_after.error_message.is_none());
 
         assert_eq!(success_after.status, GenerationTaskStatus::Success);
     }

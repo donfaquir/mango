@@ -2,6 +2,7 @@
 //! and persists it as a local [`Asset`], then cleans up any temporary OSS
 //! objects that were uploaded as reference images.
 
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -19,11 +20,22 @@ use crate::task_engine::materializer::{CleanupOutcome, MaterializeOutcome, Resul
 pub struct BailianResultMaterializer {
     db: tokio_rusqlite::Connection,
     keyring: Arc<dyn KeyringStore>,
+    /// Absolute workspace path used to materialise downloaded results under
+    /// `<workspace>/<project.root_path>/assets/`.
+    workspace_root: PathBuf,
 }
 
 impl BailianResultMaterializer {
-    pub fn new(db: tokio_rusqlite::Connection, keyring: Arc<dyn KeyringStore>) -> Self {
-        Self { db, keyring }
+    pub fn new(
+        db: tokio_rusqlite::Connection,
+        keyring: Arc<dyn KeyringStore>,
+        workspace_root: PathBuf,
+    ) -> Self {
+        Self {
+            db,
+            keyring,
+            workspace_root,
+        }
     }
 }
 
@@ -49,12 +61,23 @@ impl ResultMaterializer for BailianResultMaterializer {
             }
         };
 
+        // Best-effort prompt extraction from params_json. When present, the
+        // download path uses it as the asset's display name + persists it
+        // into metadata so the preview dialog can show the full prompt.
+        // Malformed params_json or missing prompt → None (graceful: asset
+        // still lands with the legacy "generated.<ext>" placeholder).
+        let prompt: Option<String> = serde_json::from_str::<serde_json::Value>(&task.params_json)
+            .ok()
+            .and_then(|v| v.get("prompt").and_then(|p| p.as_str()).map(str::to_string));
+
         let outcome = download_to_asset(
             &self.db,
+            &self.workspace_root,
             &project_id,
             task.shot_id.as_deref(),
             result_url,
             asset_type,
+            prompt.as_deref(),
         )
         .await?;
 

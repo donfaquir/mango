@@ -60,7 +60,7 @@ fn run() -> anyhow::Result<()> {
     }
 
     let conn = mango_core::db::open_sync(&db_path)?;
-    mango_core::startup::initialize(&conn, &app_data_dir)?;
+    mango_core::startup::initialize(&conn)?;
 
     match cli.command {
         Commands::Project(args) => commands::project::execute(&conn, &app_data_dir, args)?,

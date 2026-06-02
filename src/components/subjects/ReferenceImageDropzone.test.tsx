@@ -16,10 +16,6 @@ vi.mock("@/hooks/useResolvedAssetUrl", () => ({
   useResolvedAssetUrl: () => null,
 }));
 
-vi.mock("@/hooks/useGlobalDropTarget", () => ({
-  useGlobalDropTarget: vi.fn(),
-}));
-
 import { ReferenceImageDropzone } from "./ReferenceImageDropzone";
 
 function renderDropzone(currentPath: string | null = null) {
@@ -43,7 +39,7 @@ function renderDropzone(currentPath: string | null = null) {
 describe("ReferenceImageDropzone", () => {
   it("shows placeholder hint when no image", () => {
     renderDropzone(null);
-    expect(screen.getByText(/拖入图片到窗口/)).toBeInTheDocument();
+    expect(screen.getByText(/点击下方按钮选择图片/)).toBeInTheDocument();
   });
 
   it("invokes onChange after picking and importing a file", async () => {

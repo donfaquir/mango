@@ -68,6 +68,7 @@ export function AssetCard({ asset, projectRoot, onPreview, onDelete }: AssetCard
               className="h-full w-full object-cover"
               muted
               preload="metadata"
+              draggable={false}
             />
           ) : (
             <img
@@ -75,6 +76,7 @@ export function AssetCard({ asset, projectRoot, onPreview, onDelete }: AssetCard
               alt={asset.original_name}
               className="h-full w-full object-cover"
               onError={() => setImgError(true)}
+              draggable={false}
             />
           )
         ) : (
@@ -118,7 +120,9 @@ export function AssetCard({ asset, projectRoot, onPreview, onDelete }: AssetCard
         </div>
       </div>
 
-      {/* Footer with filename */}
+      {/* Footer with filename. `title` makes the full string visible on hover
+          even after CSS truncation — important now that `original_name` is
+          the generation prompt full text, often ≫ card width. */}
       <div className="px-2 py-1.5">
         <p className="truncate text-xs text-foreground" title={asset.original_name}>
           {asset.original_name}

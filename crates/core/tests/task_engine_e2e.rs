@@ -116,6 +116,7 @@ async fn submit_drives_to_success_and_persists() {
         providers,
         keyring,
         Arc::new(NoopMaterializer),
+        std::path::PathBuf::new(),
         4,
         Duration::from_millis(50),
     );

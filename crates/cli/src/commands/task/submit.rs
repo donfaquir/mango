@@ -94,7 +94,7 @@ pub struct SubmitArgs {
 
 pub async fn run(
     conn: &AsyncConnection,
-    _app_data_dir: &Path,
+    workspace_root: &Path,
     args: SubmitArgs,
 ) -> anyhow::Result<i32> {
     // 1. Resolve prompt
@@ -110,7 +110,7 @@ pub async fn run(
     keyring::use_native_store(false)
         .map_err(|e| anyhow::anyhow!("failed to register native keyring store: {e}"))?;
 
-    let (engine, events_rx) = setup_engine(conn.clone()).await?;
+    let (engine, events_rx) = setup_engine(conn.clone(), workspace_root.to_path_buf()).await?;
 
     // 5. Submit via engine (creates task row + spawns runner)
     let input = CreateGenerationTaskInput {
@@ -281,17 +281,19 @@ fn build_params(args: &SubmitArgs, prompt: &str) -> anyhow::Result<(TaskKind, St
 
 async fn setup_engine(
     db: AsyncConnection,
+    workspace_root: std::path::PathBuf,
 ) -> anyhow::Result<(TaskEngineHandle, UnboundedReceiver<TaskEvent>)> {
     let keyring: Arc<dyn KeyringStore> =
         Arc::new(CachedKeyringStore::new(Box::new(SystemKeyring)));
     let providers = ProviderRegistry::builder()
         .register("bailian", Arc::new(BailianProvider::new()))
         .build();
-    let materializer: Arc<dyn mango_core::task_engine::ResultMaterializer> =
-        Arc::new(BailianResultMaterializer::new(db.clone(), keyring.clone()));
+    let materializer: Arc<dyn mango_core::task_engine::ResultMaterializer> = Arc::new(
+        BailianResultMaterializer::new(db.clone(), keyring.clone(), workspace_root.clone()),
+    );
 
     let (engine, events_rx) =
-        TaskEngineHandle::spawn(db, providers, keyring, materializer, 4);
+        TaskEngineHandle::spawn(db, providers, keyring, materializer, workspace_root, 4);
 
     Ok((engine, events_rx))
 }
