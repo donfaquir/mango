@@ -4,7 +4,8 @@ use crate::error::{CoreError, Result};
 use crate::models::provider::{Model, Provider};
 
 const PROVIDER_COLUMNS: &str = "id, name, base_url, auth_type, docs_url";
-const MODEL_COLUMNS: &str = "id, provider_id, name, model_type";
+const MODEL_COLUMNS: &str =
+    "id, provider_id, name, model_type, capabilities_json, default_params_json";
 
 fn map_provider(row: &rusqlite::Row) -> rusqlite::Result<Provider> {
     Ok(Provider {
@@ -22,6 +23,8 @@ fn map_model(row: &rusqlite::Row) -> rusqlite::Result<Model> {
         provider_id: row.get(1)?,
         name: row.get(2)?,
         model_type: row.get(3)?,
+        capabilities_json: row.get(4)?,
+        default_params_json: row.get(5)?,
     })
 }
 

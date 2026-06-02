@@ -6,9 +6,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { useProviderList } from "@/hooks/useProviders";
+import { useModelList, useProviderList } from "@/hooks/useProviders";
 import { useAccountList } from "@/hooks/useAccounts";
-import type { ApiAccount, TaskKind } from "@/lib/bindings/commands";
+import type { ApiAccount, TaskKind, Model } from "@/lib/bindings/commands";
 
 export interface ModelChoice {
   providerId: string;
@@ -22,29 +22,9 @@ interface ModelPickerProps {
   onChange: (next: ModelChoice | null) => void;
 }
 
-// MS2: provider-model mapping hardcoded. Unified model registry arrives in MS3.
-const MODEL_CATALOG: Array<{
-  providerId: string;
-  modelId: string;
-  label: string;
-  taskType: TaskKind;
-}> = [
-  {
-    providerId: "bailian",
-    modelId: "wan2.7-image-pro",
-    label: "通义万相 2.7 Pro（文生图）",
-    taskType: "image",
-  },
-  {
-    providerId: "bailian",
-    modelId: "happyhorse-1.0-r2v",
-    label: "快乐马 1.0（参考图生视频）",
-    taskType: "video",
-  },
-];
-
 export function ModelPicker({ value, onChange }: ModelPickerProps) {
   const providers = useProviderList();
+  const models = useModelList();
   const accounts = useAccountList();
 
   const accountsByProvider = useMemo(() => {
@@ -59,9 +39,17 @@ export function ModelPicker({ value, onChange }: ModelPickerProps) {
   }, [accounts.data]);
 
   const available = useMemo(() => {
-    if (!providers.data || !accounts.data) return [];
-    return MODEL_CATALOG.filter((m) => accountsByProvider.has(m.providerId));
-  }, [providers.data, accounts.data, accountsByProvider]);
+    if (!providers.data || !accounts.data || !models.data) return [];
+    return models.data
+      .filter(isTaskModel)
+      .filter((m) => accountsByProvider.has(m.provider_id))
+      .map((m) => ({
+        providerId: m.provider_id,
+        modelId: m.id,
+        label: modelLabelWithCapability(m),
+        taskType: m.model_type,
+      }));
+  }, [providers.data, accounts.data, models.data, accountsByProvider]);
 
   const selectedModel = value
     ? available.find(
@@ -172,4 +160,36 @@ export function ModelPicker({ value, onChange }: ModelPickerProps) {
 function formatAccountOption(a: ApiAccount): string {
   const last4 = a.key_last4 ? ` · ····${a.key_last4}` : "";
   return `${a.label}${last4}`;
+}
+
+function isTaskKind(v: string): v is TaskKind {
+  return v === "text" || v === "image" || v === "video" || v === "audio";
+}
+
+function isTaskModel(model: Model): model is Model & { model_type: TaskKind } {
+  return isTaskKind(model.model_type);
+}
+
+function modelLabelWithCapability(model: Model): string {
+  const base = model.name;
+  const cap = tryParseCapabilities(model.capabilities_json);
+  if (!cap) return base;
+  const tags: string[] = [];
+  if (cap.requires_reference_media === true) {
+    tags.push("需参考图");
+  }
+  if (Array.isArray(cap.task_types) && cap.task_types.length > 0) {
+    tags.push(cap.task_types.join("/"));
+  }
+  return tags.length > 0 ? `${base}（${tags.join(" · ")}）` : base;
+}
+
+function tryParseCapabilities(raw: string | null): Record<string, unknown> | null {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    return typeof parsed === "object" && parsed ? parsed : null;
+  } catch {
+    return null;
+  }
 }

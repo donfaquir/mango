@@ -656,6 +656,10 @@ export type Model = {
 	 *  constraint in `001_initial.sql`.
 	 */
 	model_type: string,
+	/**  JSON metadata for model capability filtering. */
+	capabilities_json: string | null,
+	/**  JSON defaults used to prefill provider params. */
+	default_params_json: string | null,
 };
 
 export type OssConfigInput = {
