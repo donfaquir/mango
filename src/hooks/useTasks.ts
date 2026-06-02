@@ -55,6 +55,17 @@ export function useSubmitTask() {
   });
 }
 
+export function useSubmitTasksBatch() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (inputs: CreateGenerationTaskInput[]) =>
+      unwrap(commands.submitTasksBatch(inputs)),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: taskKeys.all() });
+    },
+  });
+}
+
 export function useCancelTask() {
   const qc = useQueryClient();
   return useMutation({

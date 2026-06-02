@@ -10,6 +10,9 @@ use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 use tokio::sync::Semaphore;
 use tokio_rusqlite::Connection as AsyncConnection;
 
+use serde::Serialize;
+use specta::Type;
+
 use crate::account::keyring::KeyringStore;
 use crate::db::queries::generation_task as q;
 use crate::db::queries::generation_task_event as event_q;
@@ -19,6 +22,17 @@ use crate::models::generation_task::{
 };
 use crate::models::generation_task_event::GenerationTaskEvent;
 use crate::provider::registry::ProviderRegistry;
+
+#[derive(Debug, Clone, Serialize, Type)]
+pub struct SubmitBatchOutcome {
+    /// UUID v4 shared by every task row created by this submission. Echoes
+    /// the `generation_task.batch_id` column for downstream filtering.
+    pub batch_id: String,
+    /// Task IDs in the caller-supplied input order.
+    pub task_ids: Vec<String>,
+    #[specta(type = specta_typescript::Number)]
+    pub created_count: usize,
+}
 
 use super::events::TaskEvent;
 use super::materializer::ResultMaterializer;
@@ -111,6 +125,35 @@ impl TaskEngineHandle {
         let id = task.id.clone();
         tokio::spawn(runner::run(self.clone(), id.clone()));
         Ok(id)
+    }
+
+    /// Transactional batch submission: every (shot, model) row in `inputs`
+    /// is inserted under a single shared `batch_id`. If any row fails
+    /// validation or insertion, the whole transaction rolls back and no
+    /// runner is spawned. On success, runners are spawned one-per-row in
+    /// the caller-supplied order.
+    ///
+    /// The caller (frontend `BatchSubmitDialog`) is responsible for skipping
+    /// shots with empty prompts and resolving character→asset references
+    /// before calling this — core does not synthesize defaults here.
+    pub async fn submit_batch(
+        &self,
+        inputs: Vec<CreateGenerationTaskInput>,
+    ) -> Result<SubmitBatchOutcome> {
+        let (batch_id, task_ids) = self
+            .db
+            .call(move |conn| Ok(q::create_batch(conn, &inputs)))
+            .await
+            .map_err(map_async_err)??;
+        for id in &task_ids {
+            tokio::spawn(runner::run(self.clone(), id.clone()));
+        }
+        let created_count = task_ids.len();
+        Ok(SubmitBatchOutcome {
+            batch_id,
+            task_ids,
+            created_count,
+        })
     }
 
     /// Re-spawn runner coroutines for all tasks that are still `pending` in the DB.

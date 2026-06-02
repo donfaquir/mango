@@ -1,5 +1,5 @@
 import { toast } from "sonner";
-import { GripVertical, Trash2 } from "lucide-react";
+import { CheckIcon, GripVertical, Trash2 } from "lucide-react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { Button } from "@/components/ui/button";
@@ -25,9 +25,17 @@ interface Props {
   episodeId: string;
   shot: Shot;
   displayIndex: number;
+  selected?: boolean;
+  onToggleSelect?: (next: boolean) => void;
 }
 
-export function ShotCard({ episodeId, shot, displayIndex }: Props) {
+export function ShotCard({
+  episodeId,
+  shot,
+  displayIndex,
+  selected = false,
+  onToggleSelect,
+}: Props) {
   const deleteShot = useDeleteShot(episodeId);
   const {
     attributes,
@@ -61,8 +69,27 @@ export function ShotCard({ episodeId, shot, displayIndex }: Props) {
       className={cn(
         "flex items-start gap-3 rounded-lg border bg-background p-3",
         isDragging && "z-10 opacity-50 shadow-lg",
+        selected && "border-primary bg-primary/5",
       )}
     >
+      {onToggleSelect && (
+        <button
+          type="button"
+          role="checkbox"
+          aria-checked={selected}
+          aria-label={`选择分镜 #${displayIndex + 1}`}
+          onClick={() => onToggleSelect(!selected)}
+          className={cn(
+            "mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-sm border",
+            "transition hover:border-primary",
+            selected
+              ? "border-primary bg-primary text-primary-foreground"
+              : "border-input",
+          )}
+        >
+          {selected && <CheckIcon className="h-3 w-3" />}
+        </button>
+      )}
       <button
         ref={setActivatorNodeRef}
         type="button"

@@ -84,6 +84,7 @@ fn make_builder() -> Builder<tauri::Wry> {
             commands::task::list_task_events,
             commands::task::list_tasks,
             commands::task::submit_task,
+            commands::task::submit_tasks_batch,
             commands::workspace::get_workspace_status,
             commands::workspace::mount_workspace,
             commands::workspace::probe_workspace,

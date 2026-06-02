@@ -1,7 +1,9 @@
 import { useMemo, useState } from "react";
-import { Wand2 } from "lucide-react";
+import { useSearchParams } from "react-router-dom";
+import { Wand2, X } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { useTaskList } from "@/hooks/useTasks";
 import { TaskCard } from "./TaskCard";
 import { EmptyState } from "@/components/common/EmptyState";
@@ -17,25 +19,34 @@ interface TaskListPanelProps {
 export function TaskListPanel({ projectId }: TaskListPanelProps) {
   const [filter, setFilter] = useState<Filter>("all");
   const tasks = useTaskList(projectId);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const batchFilter = searchParams.get("batch");
 
   const filtered = useMemo(() => {
     if (!tasks.data) return [];
-    let list: GenerationTask[];
+    let list: GenerationTask[] = tasks.data;
+    if (batchFilter) {
+      list = list.filter((t) => t.batch_id === batchFilter);
+    }
     if (filter === "running") {
-      list = tasks.data.filter(
+      list = list.filter(
         (t) => t.status === "pending" || t.status === "running",
       );
     } else if (filter === "failed") {
-      list = tasks.data.filter((t) => t.status === "failed");
-    } else {
-      list = tasks.data;
+      list = list.filter((t) => t.status === "failed");
     }
     return [...list].sort(
       (a, b) =>
         parseDbDate(b.created_at).getTime() -
         parseDbDate(a.created_at).getTime(),
     );
-  }, [tasks.data, filter]);
+  }, [tasks.data, filter, batchFilter]);
+
+  const clearBatchFilter = () => {
+    const next = new URLSearchParams(searchParams);
+    next.delete("batch");
+    setSearchParams(next, { replace: true });
+  };
 
   return (
     <Card className="flex h-full flex-col">
@@ -44,8 +55,25 @@ export function TaskListPanel({ projectId }: TaskListPanelProps) {
         onValueChange={(v) => setFilter(v as Filter)}
         className="flex h-full flex-col"
       >
-        <header className="flex items-center justify-between border-b px-4 py-3">
-          <h2 className="text-lg font-semibold">任务列表</h2>
+        <header className="flex items-center justify-between gap-3 border-b px-4 py-3">
+          <div className="flex items-center gap-2">
+            <h2 className="text-lg font-semibold">任务列表</h2>
+            {batchFilter && (
+              <span className="flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-xs text-primary">
+                批次 {batchFilter.slice(0, 8)}
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="ml-0.5 h-4 w-4"
+                  onClick={clearBatchFilter}
+                  aria-label="清除批次筛选"
+                >
+                  <X className="h-3 w-3" />
+                </Button>
+              </span>
+            )}
+          </div>
           <TabsList>
             <TabsTrigger value="all">全部</TabsTrigger>
             <TabsTrigger value="running">进行中</TabsTrigger>

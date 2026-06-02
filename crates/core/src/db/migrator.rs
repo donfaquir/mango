@@ -56,6 +56,11 @@ const MIGRATIONS: &[Migration] = &[
         name: "asset_source_label",
         sql: include_str!("migrations/008_asset_source_label.sql"),
     },
+    Migration {
+        version: 9,
+        name: "add_generation_task_batch_id",
+        sql: include_str!("migrations/009_generation_task_batch_id.sql"),
+    },
 ];
 
 /// Execute all pending migrations. Each migration runs in its own transaction.

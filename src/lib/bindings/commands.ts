@@ -174,6 +174,7 @@ export const commands = {
 	listTaskEvents: (taskId: string) => typedError<GenerationTaskEvent[], IpcError_Serialize>(__TAURI_INVOKE("list_task_events", { taskId })),
 	listTasks: (projectId: string | null, status: "pending" | "running" | "success" | "failed" | "cancelled" | null, limit: number | null) => typedError<GenerationTask[], IpcError_Serialize>(__TAURI_INVOKE("list_tasks", { projectId, status, limit })),
 	submitTask: (input: CreateGenerationTaskInput) => typedError<string, IpcError_Serialize>(__TAURI_INVOKE("submit_task", { input })),
+	submitTasksBatch: (inputs: CreateGenerationTaskInput[]) => typedError<SubmitBatchOutcome, IpcError_Serialize>(__TAURI_INVOKE("submit_tasks_batch", { inputs })),
 	/**
 	 *  Current workspace mount state. Drives the frontend's onboarding vs
 	 *  main-app routing decision.
@@ -512,6 +513,12 @@ export type GenerationTask = {
 	error_message: string | null,
 	retry_count: number,
 	created_at: string,
+	/**
+	 *  Groups multiple tasks created from a single batch submission. NULL for
+	 *  single-task submits (the MS2 path). Set by [`task_engine::submit_batch`]
+	 *  to a UUID v4 shared by every row in the batch.
+	 */
+	batch_id: string | null,
 };
 
 export type GenerationTaskEvent = {
@@ -817,6 +824,17 @@ export type ShotStatus = "draft" | "ready" | "generating" | "done";
  *  exploding the IPC surface into three near-identical commands.
  */
 export type SubjectKind = "character" | "scene" | "prop";
+
+export type SubmitBatchOutcome = {
+	/**
+	 *  UUID v4 shared by every task row created by this submission. Echoes
+	 *  the `generation_task.batch_id` column for downstream filtering.
+	 */
+	batch_id: string,
+	/**  Task IDs in the caller-supplied input order. */
+	task_ids: string[],
+	created_count: number,
+};
 
 /**
  *  A new diagnostic event has been persisted for `task_id`. Carries the full

@@ -89,6 +89,10 @@ pub struct GenerationTask {
     #[specta(type = specta_typescript::Number)]
     pub retry_count: i64,
     pub created_at: String,
+    /// Groups multiple tasks created from a single batch submission. NULL for
+    /// single-task submits (the MS2 path). Set by [`task_engine::submit_batch`]
+    /// to a UUID v4 shared by every row in the batch.
+    pub batch_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Type)]

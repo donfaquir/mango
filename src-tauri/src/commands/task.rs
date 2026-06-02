@@ -5,7 +5,7 @@ use mango_core::models::generation_task::{
     CreateGenerationTaskInput, GenerationTask, GenerationTaskStatus,
 };
 use mango_core::models::generation_task_event::GenerationTaskEvent;
-use mango_core::task_engine::ListFilter;
+use mango_core::task_engine::{ListFilter, SubmitBatchOutcome};
 use tauri::State;
 
 #[tauri::command]
@@ -16,6 +16,16 @@ pub async fn submit_task(
 ) -> Result<String, IpcError> {
     let engine = require_mount(&state)?.task_engine.clone();
     engine.submit(input).await.map_err(IpcError::from)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn submit_tasks_batch(
+    state: State<'_, AppState>,
+    inputs: Vec<CreateGenerationTaskInput>,
+) -> Result<SubmitBatchOutcome, IpcError> {
+    let engine = require_mount(&state)?.task_engine.clone();
+    engine.submit_batch(inputs).await.map_err(IpcError::from)
 }
 
 #[tauri::command]

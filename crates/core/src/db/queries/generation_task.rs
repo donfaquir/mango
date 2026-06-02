@@ -8,7 +8,7 @@ use crate::models::generation_task::{
 
 const SELECT_COLUMNS: &str = "id, project_id, shot_id, provider_id, model_id, account_id, task_type, \
                               params_json, status, result_asset_id, external_task_id, \
-                              started_at, finished_at, error_message, retry_count, created_at";
+                              started_at, finished_at, error_message, retry_count, created_at, batch_id";
 
 fn map_row(row: &rusqlite::Row) -> rusqlite::Result<GenerationTask> {
     let task_type_str: String = row.get(6)?;
@@ -42,6 +42,7 @@ fn map_row(row: &rusqlite::Row) -> rusqlite::Result<GenerationTask> {
         error_message: row.get(13)?,
         retry_count: row.get(14)?,
         created_at: row.get(15)?,
+        batch_id: row.get(16)?,
     })
 }
 
@@ -57,6 +58,42 @@ impl std::fmt::Display for InvalidEnumValue {
 impl std::error::Error for InvalidEnumValue {}
 
 pub fn create(conn: &Connection, input: CreateGenerationTaskInput) -> Result<GenerationTask> {
+    let id = insert_one(conn, &input, None)?;
+    get_by_id(conn, &id)
+}
+
+/// Insert N rows under a single shared `batch_id` inside a transaction. If any
+/// row fails validation or insertion, the whole transaction rolls back and no
+/// task is created. Returns the generated batch_id plus the task ids in the
+/// caller-supplied order.
+///
+/// Empty input is rejected — submit_batch with no shots/models is a UI bug,
+/// not a no-op.
+pub fn create_batch(
+    conn: &mut Connection,
+    inputs: &[CreateGenerationTaskInput],
+) -> Result<(String, Vec<String>)> {
+    if inputs.is_empty() {
+        return Err(CoreError::Validation(
+            "submit_batch requires at least one task".into(),
+        ));
+    }
+    let batch_id = Uuid::new_v4().to_string();
+    let tx = conn.transaction()?;
+    let mut task_ids = Vec::with_capacity(inputs.len());
+    for input in inputs {
+        let id = insert_one(&tx, input, Some(&batch_id))?;
+        task_ids.push(id);
+    }
+    tx.commit()?;
+    Ok((batch_id, task_ids))
+}
+
+fn insert_one(
+    conn: &Connection,
+    input: &CreateGenerationTaskInput,
+    batch_id: Option<&str>,
+) -> Result<String> {
     let params_json = match input.params_json.as_deref() {
         None | Some("") => "{}".to_string(),
         Some(raw) => {
@@ -69,8 +106,8 @@ pub fn create(conn: &Connection, input: CreateGenerationTaskInput) -> Result<Gen
     let id = Uuid::new_v4().to_string();
     conn.execute(
         "INSERT INTO generation_task \
-            (id, project_id, shot_id, provider_id, model_id, account_id, task_type, params_json, status) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'pending')",
+            (id, project_id, shot_id, provider_id, model_id, account_id, task_type, params_json, status, batch_id) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'pending', ?9)",
         params![
             id,
             input.project_id,
@@ -80,9 +117,10 @@ pub fn create(conn: &Connection, input: CreateGenerationTaskInput) -> Result<Gen
             input.account_id,
             input.task_type.as_str(),
             params_json,
+            batch_id,
         ],
     )?;
-    get_by_id(conn, &id)
+    Ok(id)
 }
 
 pub fn get_by_id(conn: &Connection, id: &str) -> Result<GenerationTask> {
@@ -531,6 +569,58 @@ mod tests {
 
         let limited = list(&conn, None, None, Some(2)).unwrap();
         assert_eq!(limited.len(), 2);
+    }
+
+    #[test]
+    fn create_batch_assigns_shared_batch_id() {
+        let mut conn = open_sync(Path::new(":memory:")).unwrap();
+        let (p, m, a) = seed_provider_chain(&conn);
+        let inputs = vec![
+            make_input(&p, &m, &a),
+            make_input(&p, &m, &a),
+            make_input(&p, &m, &a),
+        ];
+        let (batch_id, ids) = create_batch(&mut conn, &inputs).unwrap();
+        assert_eq!(ids.len(), 3);
+        for id in &ids {
+            let row = get_by_id(&conn, id).unwrap();
+            assert_eq!(row.batch_id.as_deref(), Some(batch_id.as_str()));
+            assert_eq!(row.status, GenerationTaskStatus::Pending);
+        }
+    }
+
+    #[test]
+    fn create_batch_rejects_empty() {
+        let mut conn = open_sync(Path::new(":memory:")).unwrap();
+        let r = create_batch(&mut conn, &[]);
+        assert!(matches!(r, Err(CoreError::Validation(_))));
+    }
+
+    #[test]
+    fn create_batch_rolls_back_on_invalid_params() {
+        let mut conn = open_sync(Path::new(":memory:")).unwrap();
+        let (p, m, a) = seed_provider_chain(&conn);
+        let good = make_input(&p, &m, &a);
+        let mut bad = make_input(&p, &m, &a);
+        bad.params_json = Some("not json".into());
+        // Pre-count rows so we can assert nothing leaks through.
+        let before: i64 = conn
+            .query_row("SELECT COUNT(*) FROM generation_task", [], |r| r.get(0))
+            .unwrap();
+        let r = create_batch(&mut conn, &[good, bad]);
+        assert!(matches!(r, Err(CoreError::Validation(_))));
+        let after: i64 = conn
+            .query_row("SELECT COUNT(*) FROM generation_task", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(before, after, "transaction must roll back the good row");
+    }
+
+    #[test]
+    fn create_single_leaves_batch_id_null() {
+        let conn = open_sync(Path::new(":memory:")).unwrap();
+        let (p, m, a) = seed_provider_chain(&conn);
+        let task = create(&conn, make_input(&p, &m, &a)).unwrap();
+        assert!(task.batch_id.is_none());
     }
 
     #[test]
