@@ -1,11 +1,13 @@
+import { useState } from "react";
 import { toast } from "sonner";
-import { CheckIcon, GripVertical, Trash2 } from "lucide-react";
+import { CheckIcon, GripVertical, Pencil, Trash2 } from "lucide-react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { Shot, ShotStatus } from "@/lib/bindings/commands";
 import { useDeleteShot } from "@/hooks/useShots";
+import { EditShotDialog } from "./EditShotDialog";
 
 const STATUS_LABELS: Record<ShotStatus, string> = {
   draft: "草稿",
@@ -36,6 +38,7 @@ export function ShotCard({
   selected = false,
   onToggleSelect,
 }: Props) {
+  const [editOpen, setEditOpen] = useState(false);
   const deleteShot = useDeleteShot(episodeId);
   const {
     attributes,
@@ -107,7 +110,12 @@ export function ShotCard({
       <div className="shrink-0 rounded-md bg-muted px-2 py-1 text-xs font-mono">
         #{displayIndex + 1}
       </div>
-      <div className="min-w-0 flex-1 space-y-1">
+      <button
+        type="button"
+        onClick={() => setEditOpen(true)}
+        className="min-w-0 flex-1 space-y-1 rounded text-left transition hover:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        aria-label={`编辑分镜 #${displayIndex + 1}`}
+      >
         <div className="flex items-center gap-2">
           <span
             className={cn(
@@ -133,7 +141,22 @@ export function ShotCard({
             「{shot.dialogue}」
           </p>
         )}
-      </div>
+        {(shot.image_prompt || shot.video_prompt) && (
+          <p className="text-xs text-muted-foreground line-clamp-1">
+            {shot.video_prompt ? "🎬 " : "🖼 "}
+            {shot.video_prompt || shot.image_prompt}
+          </p>
+        )}
+      </button>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        onClick={() => setEditOpen(true)}
+        aria-label="编辑分镜"
+      >
+        <Pencil className="h-4 w-4" />
+      </Button>
       <Button
         type="button"
         variant="ghost"
@@ -144,6 +167,12 @@ export function ShotCard({
       >
         <Trash2 className="h-4 w-4" />
       </Button>
+      <EditShotDialog
+        episodeId={episodeId}
+        shot={shot}
+        open={editOpen}
+        onOpenChange={setEditOpen}
+      />
     </div>
   );
 }
