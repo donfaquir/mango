@@ -77,14 +77,26 @@ pub fn is_retryable(self) -> bool {
 
 | 场景 | retry_count | 行为 |
 |---|---|---|
-| 启动 orphan reset | +1 | 变 pending，用户可见，**不自动 runner**（spec-15） |
-| 自动重试 | +1 | 变 pending，**立即重新 acquire 并 runner** |
+| 启动 orphan reset | 不变 | 变 pending，由 `recover_pending()` 自动重新 spawn runner；resume 路径沿用 `external_task_id` 直接进 poll_loop（spec-15 ab07699 决议：常规恢复不算失败） |
+| 自动重试 | +1 | 变 pending，sleep(backoff) 后 spawn runner；同样可走 resume 路径（poll 阶段失败时） |
 
-需在 `error_message` 追加 `[auto-retry n/3]` 标记便于诊断。
+P2：可在 `error_message` 追加 `[auto-retry n/3]` 标记便于诊断。当前实现重试时清空 `error_message`，最终失败时只写 `detail.to_string()`，看不出是否经过重试 —— 仅 `retry_count` 字段能区分。
 
 ### 3.3 状态查询
 
 `list_tasks` / 任务卡片展示 `retry_count > 0` 时 badge「已重试 n 次」。
+
+### 3.4 行为变更（⚠️ 与 MS2 不同）
+
+**poll 阶段 transient 错误的语义变了**：
+
+| 阶段 | MS2 行为 | spec-27 行为 |
+|---|---|---|
+| poll 调用本身报错（CoreError） | 记 warn event + `continue` 永久轮询 | 进 `fail_with_detail` → 走重试预算 |
+
+也就是说 **3 次累计 retryable 失败后任务 final failed**。长时跑的视频任务（如 10 分钟生成）若期间出现 ≥3 次零星抖动会被误杀。
+
+后续若实际跑量证明误杀频繁，可加「滑窗 + 临近 N 次失败才退」逻辑（P2）。
 
 ---
 
@@ -99,18 +111,21 @@ pub fn is_retryable(self) -> bool {
 
 ## 5. 测试
 
-| 用例 | 方式 |
-|---|---|
-| stub provider 前 2 次 poll 返回 Network，第 3 次 Success | retry_count == 2 |
-| Auth 错误 | retry_count 不变，直接 failed |
-| semaphore=1，同时 submit 3 任务 | 仅 1 行 running |
+| 用例 | 方式 | 状态 |
+|---|---|---|
+| stub provider 前 2 次 poll 返回 Network，第 3 次 Success | retry_count == 2 | ✅ `retries_network_errors_until_success` |
+| Auth 错误 | retry_count 不变，直接 failed | ✅ `auth_errors_do_not_retry` |
+| semaphore=1，同时 submit 3 任务 | 仅 1 行 running | ✅ `semaphore_caps_concurrent_runners_at_one` |
+| Unknown + http_status=503 | 走重试路径 | ⛔ 待补 |
+| 重试耗尽（3 次都失败） | 最终 failed，retry_count == 3 | ⛔ 待补 |
+| set_max_concurrency 实时切换 | 1→3 后新任务可同时跑 3 个 | ⛔ 待补 |
 
 ---
 
 ## 6. 验收清单
 
-- [ ] 同时 running 数 ≤ 配置值（默认 3）
-- [ ] 设置页可修改并发，新任务受新限制约束
-- [ ] 网络/限流类错误自动重试，间隔 1s→2s→4s
-- [ ] 认证/配额类错误不重试
-- [ ] 超过 3 次后标记 failed，`retry_count` 正确
+- [x] 同时 running 数 ≤ 配置值（默认 3）
+- [x] 设置页可修改并发，新任务受新限制约束（**实时生效**，无需重启）
+- [x] 网络/限流类错误自动重试，间隔 1s→2s→4s
+- [x] 认证/配额类错误不重试
+- [x] 超过 3 次后标记 failed，`retry_count` 正确
