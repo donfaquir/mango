@@ -349,3 +349,224 @@ async fn semaphore_caps_concurrent_runners_at_one() {
     // tidy up the tokio runtime by giving in-flight tasks a chance to finish.
     gate.store(false, std::sync::atomic::Ordering::SeqCst);
 }
+
+/// Fails the first `failures_until_success` poll calls with an Unknown error
+/// paired with HTTP 503, then returns Success. Used to verify the
+/// "Unknown + 5xx → retryable" special case in `pick_retry_delay`.
+struct ServerErrorFlakyProvider {
+    failures_until_success: u8,
+    poll_calls: AtomicU8,
+}
+
+#[async_trait]
+impl ModelProvider for ServerErrorFlakyProvider {
+    async fn submit(&self, _params: GenerationParams) -> Result<SubmitOutcome> {
+        Ok(SubmitOutcome::new("ext-503"))
+    }
+    async fn poll(&self, _ext: &str) -> Result<PollOutcome> {
+        let n = self.poll_calls.fetch_add(1, Ordering::SeqCst);
+        if n < self.failures_until_success {
+            Err(CoreError::Provider(
+                ProviderErrorDetail::new(ProviderErrorKind::Unknown, "internal server error")
+                    .with_http_status(503),
+            ))
+        } else {
+            Ok(PollOutcome::bare(ProviderTaskStatus::Success {
+                result_url: "stub://done".into(),
+            }))
+        }
+    }
+    async fn cancel(&self, _ext: &str) -> Result<()> {
+        Ok(())
+    }
+    async fn download(&self, _ext: &str, dest: &Path) -> Result<PathBuf> {
+        std::fs::write(dest, b"x")?;
+        Ok(dest.to_path_buf())
+    }
+}
+
+#[tokio::test]
+async fn unknown_5xx_errors_are_retried() {
+    let dir = tempdir().unwrap();
+    let db = open_async(&dir.path().join("5xx.db")).await.unwrap();
+    seed_provider_chain(&db).await;
+
+    let keyring: Arc<dyn KeyringStore> = Arc::new(LocalKeyring::default());
+    keyring.store("a1", "secret").unwrap();
+
+    let providers = ProviderRegistry::builder()
+        .register(
+            "p1",
+            Arc::new(ServerErrorFlakyProvider {
+                failures_until_success: 2,
+                poll_calls: AtomicU8::new(0),
+            }),
+        )
+        .build();
+
+    let (engine, mut rx) = TaskEngineHandle::spawn_full(
+        db.clone(),
+        providers,
+        keyring,
+        Arc::new(NoopMaterializer),
+        std::path::PathBuf::new(),
+        4,
+        Duration::from_millis(20),
+        vec![
+            Duration::from_millis(10),
+            Duration::from_millis(10),
+            Duration::from_millis(10),
+        ],
+    );
+
+    let task_id = engine
+        .submit(make_input("p1", "m1", "a1"))
+        .await
+        .unwrap();
+
+    timeout(Duration::from_secs(5), async {
+        while let Some(ev) = rx.recv().await {
+            if let TaskEvent::StatusChanged {
+                task_id: tid,
+                status,
+                ..
+            } = ev
+                && tid == task_id
+                && status == GenerationTaskStatus::Success
+            {
+                return;
+            }
+        }
+        panic!("event stream closed before Success");
+    })
+    .await
+    .expect("timeout waiting for Success after 5xx retries");
+
+    let final_task = engine.get(&task_id).await.unwrap();
+    assert_eq!(final_task.status, GenerationTaskStatus::Success);
+    assert_eq!(final_task.retry_count, 2);
+}
+
+#[tokio::test]
+async fn retry_exhaustion_caps_at_max_then_fails() {
+    let dir = tempdir().unwrap();
+    let db = open_async(&dir.path().join("exhaust.db")).await.unwrap();
+    seed_provider_chain(&db).await;
+
+    let keyring: Arc<dyn KeyringStore> = Arc::new(LocalKeyring::default());
+    keyring.store("a1", "secret").unwrap();
+
+    let providers = ProviderRegistry::builder()
+        .register(
+            "p1",
+            Arc::new(FlakyProvider {
+                failures_until_success: 100,
+                poll_calls: AtomicU8::new(0),
+            }),
+        )
+        .build();
+
+    let (engine, mut rx) = TaskEngineHandle::spawn_full(
+        db.clone(),
+        providers,
+        keyring,
+        Arc::new(NoopMaterializer),
+        std::path::PathBuf::new(),
+        4,
+        Duration::from_millis(20),
+        vec![
+            Duration::from_millis(10),
+            Duration::from_millis(10),
+            Duration::from_millis(10),
+        ],
+    );
+
+    let task_id = engine
+        .submit(make_input("p1", "m1", "a1"))
+        .await
+        .unwrap();
+
+    timeout(Duration::from_secs(5), async {
+        while let Some(ev) = rx.recv().await {
+            if let TaskEvent::StatusChanged {
+                task_id: tid,
+                status,
+                ..
+            } = ev
+                && tid == task_id
+                && status == GenerationTaskStatus::Failed
+            {
+                return;
+            }
+        }
+        panic!("event stream closed before Failed");
+    })
+    .await
+    .expect("timeout waiting for terminal Failed after retries exhausted");
+
+    let final_task = engine.get(&task_id).await.unwrap();
+    assert_eq!(final_task.status, GenerationTaskStatus::Failed);
+    assert_eq!(final_task.retry_count, 3);
+}
+
+#[tokio::test]
+async fn set_max_concurrency_allows_new_tasks_at_higher_cap() {
+    let dir = tempdir().unwrap();
+    let db = open_async(&dir.path().join("resize.db")).await.unwrap();
+    seed_provider_chain(&db).await;
+
+    let keyring: Arc<dyn KeyringStore> = Arc::new(LocalKeyring::default());
+    keyring.store("a1", "secret").unwrap();
+
+    let gate = Arc::new(std::sync::atomic::AtomicBool::new(true));
+    let providers = ProviderRegistry::builder()
+        .register(
+            "p1",
+            Arc::new(GatedProvider {
+                pending_until_release: gate.clone(),
+            }),
+        )
+        .build();
+
+    let (engine, _rx) = TaskEngineHandle::spawn_with(
+        db.clone(),
+        providers,
+        keyring,
+        Arc::new(NoopMaterializer),
+        std::path::PathBuf::new(),
+        1,
+        Duration::from_millis(20),
+    );
+
+    // Submit task A under cap=1 — it acquires the sole permit and runs.
+    let id_a = engine.submit(make_input("p1", "m1", "a1")).await.unwrap();
+    tokio::time::sleep(Duration::from_millis(200)).await;
+
+    let a = engine.get(&id_a).await.unwrap();
+    assert_eq!(
+        a.status,
+        GenerationTaskStatus::Running,
+        "task A should be running under cap=1"
+    );
+
+    // Raise cap to 3. New submissions see the fresh semaphore.
+    engine.set_max_concurrency(3);
+
+    let id_b = engine.submit(make_input("p1", "m1", "a1")).await.unwrap();
+    let id_c = engine.submit(make_input("p1", "m1", "a1")).await.unwrap();
+    let id_d = engine.submit(make_input("p1", "m1", "a1")).await.unwrap();
+    tokio::time::sleep(Duration::from_millis(200)).await;
+
+    let mut new_running = 0usize;
+    for id in [&id_b, &id_c, &id_d] {
+        if engine.get(id).await.unwrap().status == GenerationTaskStatus::Running {
+            new_running += 1;
+        }
+    }
+    assert_eq!(
+        new_running, 3,
+        "all 3 new tasks should run after raising cap to 3"
+    );
+
+    gate.store(false, std::sync::atomic::Ordering::SeqCst);
+}

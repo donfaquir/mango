@@ -116,9 +116,9 @@ P2：可在 `error_message` 追加 `[auto-retry n/3]` 标记便于诊断。当�
 | stub provider 前 2 次 poll 返回 Network，第 3 次 Success | retry_count == 2 | ✅ `retries_network_errors_until_success` |
 | Auth 错误 | retry_count 不变，直接 failed | ✅ `auth_errors_do_not_retry` |
 | semaphore=1，同时 submit 3 任务 | 仅 1 行 running | ✅ `semaphore_caps_concurrent_runners_at_one` |
-| Unknown + http_status=503 | 走重试路径 | ⛔ 待补 |
-| 重试耗尽（3 次都失败） | 最终 failed，retry_count == 3 | ⛔ 待补 |
-| set_max_concurrency 实时切换 | 1→3 后新任务可同时跑 3 个 | ⛔ 待补 |
+| Unknown + http_status=503 | 走重试路径 | ✅ `unknown_5xx_errors_are_retried` |
+| 重试耗尽（3 次都失败） | 最终 failed，retry_count == 3 | ✅ `retry_exhaustion_caps_at_max_then_fails` |
+| set_max_concurrency 实时切换 | 1→3 后新任务可同时跑 3 个 | ✅ `set_max_concurrency_allows_new_tasks_at_higher_cap` |
 
 ---
 
