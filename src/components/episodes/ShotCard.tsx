@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { toast } from "sonner";
-import { CheckIcon, GripVertical, ImageIcon, Pencil, Trash2 } from "lucide-react";
+import { CheckIcon, GripVertical, Images, Pencil, Trash2 } from "lucide-react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { Button } from "@/components/ui/button";
@@ -123,20 +123,21 @@ export function ShotCard({
       <div className="shrink-0 rounded-md bg-muted px-2 py-1 text-xs font-mono">
         #{displayIndex + 1}
       </div>
-      {shot.adopted_asset_id && (
-        <button
-          type="button"
-          className="h-14 w-14 shrink-0 overflow-hidden rounded-md bg-muted"
-          onClick={() => setCompareOpen(true)}
-          aria-label="对比生成结果"
-        >
-          {adoptedThumbUrl ? (
-            <img src={adoptedThumbUrl} alt="" className="h-full w-full object-cover" />
-          ) : (
-            <ImageIcon className="m-auto h-5 w-5 text-muted-foreground" />
-          )}
-        </button>
-      )}
+      <button
+        type="button"
+        className={cn(
+          "h-14 w-14 shrink-0 overflow-hidden rounded-md",
+          shot.adopted_asset_id ? "bg-muted" : "border border-dashed border-muted-foreground/30 bg-muted/30",
+        )}
+        onClick={() => setCompareOpen(true)}
+        aria-label="对比生成结果"
+      >
+        {adoptedThumbUrl ? (
+          <img src={adoptedThumbUrl} alt="" className="h-full w-full object-cover" />
+        ) : (
+          <Images className="m-auto h-5 w-5 text-muted-foreground/50" />
+        )}
+      </button>
       <button
         type="button"
         onClick={() => setEditOpen(true)}
