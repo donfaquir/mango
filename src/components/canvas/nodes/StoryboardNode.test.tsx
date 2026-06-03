@@ -33,6 +33,7 @@ function makeShot(overrides: Partial<{ status: "draft" | "ready" | "generating" 
     video_prompt: "",
     image_prompt: "",
     status: overrides.status ?? "draft",
+    adopted_asset_id: null,
     created_at: "",
     updated_at: "",
   };

@@ -8,7 +8,7 @@ use crate::models::shot::{
 
 const SELECT_COLUMNS: &str = "id, episode_id, order_index, summary, duration_sec, \
                               camera_angle, shot_type, mood, dialogue, video_prompt, \
-                              image_prompt, status, created_at, updated_at";
+                              image_prompt, status, adopted_asset_id, created_at, updated_at";
 
 fn map_row(row: &rusqlite::Row) -> rusqlite::Result<Shot> {
     let status_str: String = row.get(11)?;
@@ -35,8 +35,9 @@ fn map_row(row: &rusqlite::Row) -> rusqlite::Result<Shot> {
         video_prompt: row.get(9)?,
         image_prompt: row.get(10)?,
         status,
-        created_at: row.get(12)?,
-        updated_at: row.get(13)?,
+        adopted_asset_id: row.get(12)?,
+        created_at: row.get(13)?,
+        updated_at: row.get(14)?,
     })
 }
 
@@ -250,6 +251,41 @@ pub fn unlink_subject(
     };
     conn.execute(sql, params![shot_id, subject_id])?;
     Ok(())
+}
+
+pub fn adopt_task_result(conn: &Connection, shot_id: &str, task_id: &str) -> Result<Shot> {
+    let _ = get_by_id(conn, shot_id)?;
+
+    let task = super::generation_task::get_by_id(conn, task_id)?;
+
+    if task.status != crate::models::generation_task::GenerationTaskStatus::Success {
+        return Err(CoreError::Validation(
+            "only successful tasks can be adopted".into(),
+        ));
+    }
+    if task.shot_id.as_deref() != Some(shot_id) {
+        return Err(CoreError::Validation(
+            "task does not belong to this shot".into(),
+        ));
+    }
+    let asset_id = task.result_asset_id.ok_or_else(|| {
+        CoreError::Validation("task has no result asset".into())
+    })?;
+
+    conn.execute(
+        "UPDATE shot SET adopted_asset_id = ?1, updated_at = datetime('now') WHERE id = ?2",
+        params![asset_id, shot_id],
+    )?;
+    get_by_id(conn, shot_id)
+}
+
+pub fn unadopt(conn: &Connection, shot_id: &str) -> Result<Shot> {
+    let _ = get_by_id(conn, shot_id)?;
+    conn.execute(
+        "UPDATE shot SET adopted_asset_id = NULL, updated_at = datetime('now') WHERE id = ?1",
+        params![shot_id],
+    )?;
+    get_by_id(conn, shot_id)
 }
 
 #[cfg(test)]
@@ -512,5 +548,128 @@ mod tests {
         link_subject(&conn, &s.id, &c.id, SubjectKind::Character).unwrap();
         unlink_subject(&conn, &s.id, &c.id, SubjectKind::Character).unwrap();
         assert!(list_links(&conn, &s.id).unwrap().character_ids.is_empty());
+    }
+
+    fn seed_provider_chain(conn: &Connection) {
+        conn.execute_batch(
+            "INSERT INTO provider (id, name) VALUES ('p1', 'P'); \
+             INSERT INTO model (id, provider_id, name, model_type) \
+                 VALUES ('m1', 'p1', 'M', 'image'); \
+             INSERT INTO api_account (id, provider_id, label, api_key_ref, key_last4) \
+                 VALUES ('a1', 'p1', 'L', 'ref', '0000');",
+        )
+        .unwrap();
+    }
+
+    fn make_success_task(conn: &Connection, project_id: &str, shot_id: &str) -> String {
+        use crate::db::queries::generation_task as task_q;
+        use crate::models::generation_task::{CreateGenerationTaskInput, GenerationTaskStatus, TaskKind};
+
+        let task = task_q::create(
+            conn,
+            CreateGenerationTaskInput {
+                project_id: Some(project_id.into()),
+                shot_id: Some(shot_id.into()),
+                provider_id: "p1".into(),
+                model_id: "m1".into(),
+                account_id: "a1".into(),
+                task_type: TaskKind::Image,
+                params_json: Some(r#"{"prompt":"hi"}"#.into()),
+            },
+        )
+        .unwrap();
+
+        task_q::transition_status(conn, &task.id, GenerationTaskStatus::Running, None).unwrap();
+        task_q::transition_status(conn, &task.id, GenerationTaskStatus::Success, None).unwrap();
+
+        let asset_id = uuid::Uuid::new_v4().to_string();
+        conn.execute(
+            "INSERT INTO asset (id, project_id, asset_type, original_name, file_path) \
+             VALUES (?1, ?2, 'image', 'result.png', 'assets/result.png')",
+            params![asset_id, project_id],
+        )
+        .unwrap();
+        task_q::set_result_asset_id(conn, &task.id, &asset_id).unwrap();
+
+        task.id
+    }
+
+    #[test]
+    fn adopt_task_result_sets_adopted_asset_id() {
+        let (conn, _td, pid, eid) = setup_with_episode();
+        seed_provider_chain(&conn);
+        let shot = create(&conn, CreateShotInput { episode_id: eid, summary: None }).unwrap();
+        let task_id = make_success_task(&conn, &pid, &shot.id);
+
+        let updated = adopt_task_result(&conn, &shot.id, &task_id).unwrap();
+        assert!(updated.adopted_asset_id.is_some());
+
+        let task = crate::db::queries::generation_task::get_by_id(&conn, &task_id).unwrap();
+        assert_eq!(updated.adopted_asset_id.as_deref(), task.result_asset_id.as_deref());
+    }
+
+    #[test]
+    fn adopt_rejects_non_success_task() {
+        use crate::db::queries::generation_task as task_q;
+        use crate::models::generation_task::{CreateGenerationTaskInput, TaskKind};
+
+        let (conn, _td, pid, eid) = setup_with_episode();
+        seed_provider_chain(&conn);
+        let shot = create(&conn, CreateShotInput { episode_id: eid, summary: None }).unwrap();
+        let task = task_q::create(
+            &conn,
+            CreateGenerationTaskInput {
+                project_id: Some(pid),
+                shot_id: Some(shot.id.clone()),
+                provider_id: "p1".into(),
+                model_id: "m1".into(),
+                account_id: "a1".into(),
+                task_type: TaskKind::Image,
+                params_json: None,
+            },
+        )
+        .unwrap();
+
+        let err = adopt_task_result(&conn, &shot.id, &task.id).unwrap_err();
+        assert!(matches!(err, CoreError::Validation(_)));
+    }
+
+    #[test]
+    fn adopt_rejects_mismatched_shot_id() {
+        let (conn, _td, pid, eid) = setup_with_episode();
+        seed_provider_chain(&conn);
+        let shot_a = create(&conn, CreateShotInput { episode_id: eid.clone(), summary: None }).unwrap();
+        let shot_b = create(&conn, CreateShotInput { episode_id: eid, summary: None }).unwrap();
+        let task_id = make_success_task(&conn, &pid, &shot_a.id);
+
+        let err = adopt_task_result(&conn, &shot_b.id, &task_id).unwrap_err();
+        assert!(matches!(err, CoreError::Validation(_)));
+    }
+
+    #[test]
+    fn adopt_switch_overwrites_previous() {
+        let (conn, _td, pid, eid) = setup_with_episode();
+        seed_provider_chain(&conn);
+        let shot = create(&conn, CreateShotInput { episode_id: eid, summary: None }).unwrap();
+        let task_a = make_success_task(&conn, &pid, &shot.id);
+        let task_b = make_success_task(&conn, &pid, &shot.id);
+
+        adopt_task_result(&conn, &shot.id, &task_a).unwrap();
+        let updated = adopt_task_result(&conn, &shot.id, &task_b).unwrap();
+
+        let task_b_row = crate::db::queries::generation_task::get_by_id(&conn, &task_b).unwrap();
+        assert_eq!(updated.adopted_asset_id.as_deref(), task_b_row.result_asset_id.as_deref());
+    }
+
+    #[test]
+    fn unadopt_clears_adopted_asset_id() {
+        let (conn, _td, pid, eid) = setup_with_episode();
+        seed_provider_chain(&conn);
+        let shot = create(&conn, CreateShotInput { episode_id: eid, summary: None }).unwrap();
+        let task_id = make_success_task(&conn, &pid, &shot.id);
+
+        adopt_task_result(&conn, &shot.id, &task_id).unwrap();
+        let cleared = unadopt(&conn, &shot.id).unwrap();
+        assert!(cleared.adopted_asset_id.is_none());
     }
 }

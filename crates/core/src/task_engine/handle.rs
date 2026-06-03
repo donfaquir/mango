@@ -57,6 +57,7 @@ pub const DEFAULT_RETRY_BACKOFFS: &[Duration] = &[
 pub struct ListFilter {
     pub project_id: Option<String>,
     pub status: Option<GenerationTaskStatus>,
+    pub shot_id: Option<String>,
     pub limit: Option<u32>,
 }
 
@@ -292,10 +293,11 @@ impl TaskEngineHandle {
         let ListFilter {
             project_id,
             status,
+            shot_id,
             limit,
         } = filter;
         self.db
-            .call(move |conn| Ok(q::list(conn, project_id.as_deref(), status, limit)))
+            .call(move |conn| Ok(q::list(conn, project_id.as_deref(), status, shot_id.as_deref(), limit)))
             .await
             .map_err(map_async_err)?
     }

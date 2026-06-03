@@ -41,6 +41,7 @@ function makeShot(id: string, orderIndex: number, summary: string): Shot {
     video_prompt: "",
     image_prompt: "",
     status: "draft",
+    adopted_asset_id: null,
     created_at: "",
     updated_at: "",
   };

@@ -13,8 +13,8 @@ import { toast } from "sonner";
 
 export const taskKeys = {
   all: () => ["tasks"] as const,
-  list: (projectId?: string, status?: GenerationTaskStatus) =>
-    ["tasks", "list", projectId ?? null, status ?? null] as const,
+  list: (projectId?: string, status?: GenerationTaskStatus, shotId?: string) =>
+    ["tasks", "list", projectId ?? null, status ?? null, shotId ?? null] as const,
   detail: (id: string) => ["task", id] as const,
 };
 
@@ -26,12 +26,18 @@ export function useTaskList(
   projectId?: string,
   status?: GenerationTaskStatus,
   limit?: number,
+  shotId?: string,
 ) {
   return useQuery<GenerationTask[]>({
-    queryKey: taskKeys.list(projectId, status),
+    queryKey: taskKeys.list(projectId, status, shotId),
     queryFn: () =>
       unwrap(
-        commands.listTasks(projectId ?? null, status ?? null, limit ?? null),
+        commands.listTasks(
+          projectId ?? null,
+          status ?? null,
+          shotId ?? null,
+          limit ?? null,
+        ),
       ),
   });
 }

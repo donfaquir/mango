@@ -61,6 +61,7 @@ pub async fn list_tasks(
     state: State<'_, AppState>,
     project_id: Option<String>,
     status: Option<GenerationTaskStatus>,
+    shot_id: Option<String>,
     limit: Option<u32>,
 ) -> Result<Vec<GenerationTask>, IpcError> {
     let engine = require_mount(&state)?.task_engine.clone();
@@ -68,6 +69,7 @@ pub async fn list_tasks(
         .list(ListFilter {
             project_id,
             status,
+            shot_id,
             limit,
         })
         .await

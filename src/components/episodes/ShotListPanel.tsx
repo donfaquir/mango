@@ -197,6 +197,7 @@ export function ShotListPanel({ episodeId, projectId }: Props) {
                 <ShotCard
                   key={shot.id}
                   episodeId={episodeId}
+                  projectId={projectId}
                   shot={shot}
                   displayIndex={index}
                   selected={selectedIds.has(shot.id)}

@@ -106,6 +106,29 @@ export function useLinkShotSubject() {
   });
 }
 
+export function useAdoptTaskResult(episodeId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ shotId, taskId }: { shotId: string; taskId: string }) =>
+      unwrap(commands.adoptTaskResult(shotId, taskId)),
+    onSuccess: (shot) => {
+      qc.invalidateQueries({ queryKey: shotKeys.all(episodeId) });
+      qc.invalidateQueries({ queryKey: shotKeys.detail(shot.id) });
+    },
+  });
+}
+
+export function useUnadoptShot(episodeId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (shotId: string) => unwrap(commands.unadoptShot(shotId)),
+    onSuccess: (shot) => {
+      qc.invalidateQueries({ queryKey: shotKeys.all(episodeId) });
+      qc.invalidateQueries({ queryKey: shotKeys.detail(shot.id) });
+    },
+  });
+}
+
 export function useUnlinkShotSubject() {
   const qc = useQueryClient();
   return useMutation({

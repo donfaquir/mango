@@ -40,7 +40,7 @@
 | migration | 内容 | 引入 spec |
 |---|---|---|
 | `009_generation_task_batch_id.sql` | `generation_task.batch_id TEXT` + 索引 | spec-26 |
-| `010_shot_result_asset_id.sql` | `shot.result_asset_id TEXT REFERENCES asset(id)` | spec-28 |
+| `010_shot_adopted_asset_id.sql` | `shot.adopted_asset_id TEXT REFERENCES asset(id)` | spec-28 |
 | `011_app_preference.sql` | `app_preference(key TEXT PRIMARY KEY, value_json TEXT NOT NULL)`，首行 `task.max_concurrency = 3` | spec-27 |
 
 `episode_checkpoint` 表 **不改 schema**（MS0 `001_initial.sql` + MS3 spec-24 占位已对齐）。
@@ -52,8 +52,8 @@
 | command | 引入 spec | 用途 |
 |---|---|---|
 | `submit_tasks_batch` | spec-26 | 批量创建 N×M 任务，返回 `batch_id` + task id 列表 |
-| `list_tasks_by_shot` | spec-28 | 某分镜下成功任务（抽卡对比数据源） |
-| `adopt_task_result` | spec-28 | 写 `shot.result_asset_id` + 更新 shot.status |
+| `adopt_task_result` | spec-28 | 写 `shot.adopted_asset_id`（不改 status） |
+| `unadopt_shot` | spec-28 | 清空 `shot.adopted_asset_id` |
 | `list_episode_checkpoints` | spec-29 | 版本列表 |
 | `restore_episode_checkpoint` | spec-29 | 恢复（恢复前自动 auto-checkpoint） |
 | `delete_episode_checkpoint` | spec-29 | 删除单条 |

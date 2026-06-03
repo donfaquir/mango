@@ -1,13 +1,17 @@
 import { useState } from "react";
 import { toast } from "sonner";
-import { CheckIcon, GripVertical, Pencil, Trash2 } from "lucide-react";
+import { CheckIcon, GripVertical, ImageIcon, Pencil, Trash2 } from "lucide-react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { Shot, ShotStatus } from "@/lib/bindings/commands";
 import { useDeleteShot } from "@/hooks/useShots";
+import { useAsset } from "@/hooks/useAssets";
+import { useResolvedAssetUrl } from "@/hooks/useResolvedAssetUrl";
+import { useProject } from "@/hooks/useProjects";
 import { EditShotDialog } from "./EditShotDialog";
+import { GachaCompareDialog } from "@/components/generation/GachaCompareDialog";
 
 const STATUS_LABELS: Record<ShotStatus, string> = {
   draft: "草稿",
@@ -25,6 +29,7 @@ const STATUS_CLASSES: Record<ShotStatus, string> = {
 
 interface Props {
   episodeId: string;
+  projectId: string;
   shot: Shot;
   displayIndex: number;
   selected?: boolean;
@@ -33,13 +38,21 @@ interface Props {
 
 export function ShotCard({
   episodeId,
+  projectId,
   shot,
   displayIndex,
   selected = false,
   onToggleSelect,
 }: Props) {
   const [editOpen, setEditOpen] = useState(false);
+  const [compareOpen, setCompareOpen] = useState(false);
   const deleteShot = useDeleteShot(episodeId);
+  const { data: adoptedAsset } = useAsset(shot.adopted_asset_id);
+  const { data: project } = useProject(projectId);
+  const adoptedThumbUrl = useResolvedAssetUrl(
+    project?.root_path,
+    adoptedAsset?.thumbnail_path ?? adoptedAsset?.file_path ?? null,
+  );
   const {
     attributes,
     listeners,
@@ -110,6 +123,20 @@ export function ShotCard({
       <div className="shrink-0 rounded-md bg-muted px-2 py-1 text-xs font-mono">
         #{displayIndex + 1}
       </div>
+      {shot.adopted_asset_id && (
+        <button
+          type="button"
+          className="h-14 w-14 shrink-0 overflow-hidden rounded-md bg-muted"
+          onClick={() => setCompareOpen(true)}
+          aria-label="对比生成结果"
+        >
+          {adoptedThumbUrl ? (
+            <img src={adoptedThumbUrl} alt="" className="h-full w-full object-cover" />
+          ) : (
+            <ImageIcon className="m-auto h-5 w-5 text-muted-foreground" />
+          )}
+        </button>
+      )}
       <button
         type="button"
         onClick={() => setEditOpen(true)}
@@ -172,6 +199,14 @@ export function ShotCard({
         shot={shot}
         open={editOpen}
         onOpenChange={setEditOpen}
+      />
+      <GachaCompareDialog
+        shotId={shot.id}
+        episodeId={episodeId}
+        projectId={projectId}
+        adoptedAssetId={shot.adopted_asset_id}
+        open={compareOpen}
+        onOpenChange={setCompareOpen}
       />
     </div>
   );

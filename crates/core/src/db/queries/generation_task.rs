@@ -142,58 +142,46 @@ pub fn list(
     conn: &Connection,
     project_id: Option<&str>,
     status: Option<GenerationTaskStatus>,
+    shot_id: Option<&str>,
     limit: Option<u32>,
 ) -> Result<Vec<GenerationTask>> {
     let limit = limit.unwrap_or(100).clamp(1, 500);
 
-    // Filter directly by project_id column; no JOIN needed.
-    let (sql, has_project, has_status) = match (project_id.is_some(), status.is_some()) {
-        (true, true) => (
-            format!(
-                "SELECT {SELECT_COLUMNS} FROM generation_task \
-                 WHERE project_id = ?1 AND status = ?2 \
-                 ORDER BY created_at DESC LIMIT ?3"
-            ),
-            true,
-            true,
-        ),
-        (true, false) => (
-            format!(
-                "SELECT {SELECT_COLUMNS} FROM generation_task \
-                 WHERE project_id = ?1 \
-                 ORDER BY created_at DESC LIMIT ?2"
-            ),
-            true,
-            false,
-        ),
-        (false, true) => (
-            format!(
-                "SELECT {SELECT_COLUMNS} FROM generation_task \
-                 WHERE status = ?1 ORDER BY created_at DESC LIMIT ?2"
-            ),
-            false,
-            true,
-        ),
-        (false, false) => (
-            format!(
-                "SELECT {SELECT_COLUMNS} FROM generation_task \
-                 ORDER BY created_at DESC LIMIT ?1"
-            ),
-            false,
-            false,
-        ),
+    let mut wheres: Vec<String> = Vec::new();
+    let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+    let mut idx = 1u32;
+
+    if let Some(v) = project_id {
+        wheres.push(format!("project_id = ?{idx}"));
+        params.push(Box::new(v.to_string()));
+        idx += 1;
+    }
+    if let Some(v) = status {
+        wheres.push(format!("status = ?{idx}"));
+        params.push(Box::new(v.as_str().to_string()));
+        idx += 1;
+    }
+    if let Some(v) = shot_id {
+        wheres.push(format!("shot_id = ?{idx}"));
+        params.push(Box::new(v.to_string()));
+        idx += 1;
+    }
+
+    let where_clause = if wheres.is_empty() {
+        String::new()
+    } else {
+        format!(" WHERE {}", wheres.join(" AND "))
     };
 
+    let sql = format!(
+        "SELECT {SELECT_COLUMNS} FROM generation_task{where_clause} \
+         ORDER BY created_at DESC LIMIT ?{idx}"
+    );
+    params.push(Box::new(limit));
+    let refs: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p.as_ref()).collect();
+
     let mut stmt = conn.prepare(&sql)?;
-    let rows = match (has_project, has_status) {
-        (true, true) => stmt.query_map(
-            params![project_id.unwrap(), status.unwrap().as_str(), limit],
-            map_row,
-        )?,
-        (true, false) => stmt.query_map(params![project_id.unwrap(), limit], map_row)?,
-        (false, true) => stmt.query_map(params![status.unwrap().as_str(), limit], map_row)?,
-        (false, false) => stmt.query_map(params![limit], map_row)?,
-    };
+    let rows = stmt.query_map(refs.as_slice(), map_row)?;
     rows.collect::<std::result::Result<Vec<_>, _>>()
         .map_err(CoreError::from)
 }
@@ -607,13 +595,13 @@ mod tests {
         for _ in 0..3 {
             create(&conn, make_input(&p, &m, &a)).unwrap();
         }
-        let all = list(&conn, None, None, None).unwrap();
+        let all = list(&conn, None, None, None, None).unwrap();
         assert_eq!(all.len(), 3);
 
-        let only_pending = list(&conn, None, Some(GenerationTaskStatus::Pending), None).unwrap();
+        let only_pending = list(&conn, None, Some(GenerationTaskStatus::Pending), None, None).unwrap();
         assert_eq!(only_pending.len(), 3);
 
-        let limited = list(&conn, None, None, Some(2)).unwrap();
+        let limited = list(&conn, None, None, None, Some(2)).unwrap();
         assert_eq!(limited.len(), 2);
     }
 
@@ -744,9 +732,9 @@ mod tests {
         create(&conn, input_b).unwrap();
         create(&conn, make_input(&p, &m, &a)).unwrap();
 
-        let in_a = list(&conn, Some("proj-a"), None, None).unwrap();
+        let in_a = list(&conn, Some("proj-a"), None, None, None).unwrap();
         assert_eq!(in_a.len(), 2);
-        let in_b = list(&conn, Some("proj-b"), None, None).unwrap();
+        let in_b = list(&conn, Some("proj-b"), None, None, None).unwrap();
         assert_eq!(in_b.len(), 1);
     }
 }

@@ -99,3 +99,25 @@ pub async fn unlink_shot_subject(
     })
     .await
 }
+
+#[tauri::command]
+#[specta::specta]
+pub async fn adopt_task_result(
+    state: State<'_, AppState>,
+    shot_id: String,
+    task_id: String,
+) -> Result<Shot, IpcError> {
+    with_db(&state, move |conn| {
+        shot_queries::adopt_task_result(conn, &shot_id, &task_id)
+    })
+    .await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn unadopt_shot(
+    state: State<'_, AppState>,
+    shot_id: String,
+) -> Result<Shot, IpcError> {
+    with_db(&state, move |conn| shot_queries::unadopt(conn, &shot_id)).await
+}

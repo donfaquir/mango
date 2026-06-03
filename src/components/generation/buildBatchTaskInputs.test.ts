@@ -27,6 +27,7 @@ function makeShot(overrides: Partial<Shot> = {}): Shot {
     video_prompt: "",
     image_prompt: "",
     status: "draft",
+    adopted_asset_id: null,
     created_at: "",
     updated_at: "",
     ...overrides,
