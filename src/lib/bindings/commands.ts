@@ -129,13 +129,10 @@ export const commands = {
 	listEpisodes: (opts: ListEpisodesOptions) => typedError<Episode[], IpcError_Serialize>(__TAURI_INVOKE("list_episodes", { opts })),
 	reorderEpisodes: (projectId: string, orderedIds: string[]) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("reorder_episodes", { projectId, orderedIds })),
 	updateEpisode: (id: string, input: UpdateEpisodeInput_Deserialize) => typedError<Episode, IpcError_Serialize>(__TAURI_INVOKE("update_episode", { id, input })),
-	/**
-	 *  Persist a placeholder checkpoint for the given episode. Reads the current
-	 *  `canvas_layout` row on the DB worker and snapshots its three JSON columns
-	 *  into a new `episode_checkpoint` row. Full version-management (list,
-	 *  restore, retention) lands in MS4.
-	 */
 	createEpisodeCheckpoint: (input: CreateCheckpointInput) => typedError<EpisodeCheckpoint, IpcError_Serialize>(__TAURI_INVOKE("create_episode_checkpoint", { input })),
+	deleteEpisodeCheckpoint: (id: string) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("delete_episode_checkpoint", { id })),
+	listEpisodeCheckpoints: (episodeId: string) => typedError<EpisodeCheckpointListItem[], IpcError_Serialize>(__TAURI_INVOKE("list_episode_checkpoints", { episodeId })),
+	restoreEpisodeCheckpoint: (checkpointId: string) => typedError<Episode, IpcError_Serialize>(__TAURI_INVOKE("restore_episode_checkpoint", { checkpointId })),
 	createProject: (input: CreateProjectInput) => typedError<Project, IpcError_Serialize>(__TAURI_INVOKE("create_project", { input })),
 	/**
 	 *  Delete project metadata only. The on-disk root_path directory and its
@@ -230,6 +227,7 @@ export const commands = {
 
 /** Events */
 export const events = {
+	episodeDataRestored: makeEvent<EpisodeDataRestored>("episode-data-restored"),
 	taskEventLogged: makeEvent<TaskEventLogged>("task-event-logged"),
 	taskProgressTick: makeEvent<TaskProgressTick>("task-progress-tick"),
 	taskStatusChanged: makeEvent<TaskStatusChanged>("task-status-changed"),
@@ -399,8 +397,8 @@ export type CreateCharacterInput = {
 
 export type CreateCheckpointInput = {
 	episode_id: string,
-	/**  Optional user-supplied label. Empty / missing maps to NULL in DB. */
 	label: string | null,
+	trigger_type?: string | null,
 };
 
 export type CreateCostumeInput = {
@@ -478,22 +476,37 @@ export type Episode = {
 	updated_at: string,
 };
 
-/**
- *  A point-in-time snapshot of a single episode's canvas layout. The schema
- *  reserves space for additional MS4 fields (`script_text`, `shots_json`,
- *  `change_summary`) that this MS3 placeholder does not surface yet — the
- *  minimal command writes the schema defaults for those columns.
- */
 export type EpisodeCheckpoint = {
 	id: string,
 	episode_id: string,
 	version_number: number,
 	label: string | null,
 	trigger_type: string,
+	script_text: string,
+	shots_json: string,
 	canvas_nodes_json: string,
 	canvas_edges_json: string,
 	canvas_viewport_json: string,
+	change_summary: string | null,
 	created_at: string,
+};
+
+export type EpisodeCheckpointListItem = {
+	id: string,
+	episode_id: string,
+	version_number: number,
+	trigger_type: string,
+	label: string | null,
+	change_summary: string | null,
+	created_at: string,
+};
+
+/**
+ *  Emitted after a checkpoint restore completes. The frontend invalidates all
+ *  episode-scoped queries (shots, canvas, script) on this event.
+ */
+export type EpisodeDataRestored = {
+	episode_id: string,
 };
 
 export type EventPhase = "submit_upload" | "submit_call" | "poll" | "download" | "persist" | "cleanup";

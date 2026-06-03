@@ -53,6 +53,9 @@ fn make_builder() -> Builder<tauri::Wry> {
             commands::episode::reorder_episodes,
             commands::episode::update_episode,
             commands::episode_checkpoint::create_episode_checkpoint,
+            commands::episode_checkpoint::delete_episode_checkpoint,
+            commands::episode_checkpoint::list_episode_checkpoints,
+            commands::episode_checkpoint::restore_episode_checkpoint,
             commands::project::create_project,
             commands::project::delete_project,
             commands::project::get_project,
@@ -95,6 +98,7 @@ fn make_builder() -> Builder<tauri::Wry> {
             commands::workspace::set_workspace_and_relaunch,
         ])
         .events(collect_events![
+            events::EpisodeDataRestored,
             events::TaskStatusChanged,
             events::TaskEventLogged,
             events::TaskProgressTick,

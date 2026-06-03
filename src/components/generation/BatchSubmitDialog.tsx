@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
+import { commands } from "@/lib/bindings/commands";
+import { unwrap } from "@/lib/ipc";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -97,6 +99,19 @@ export function BatchSubmitDialog({
 
   const handleSubmit = async () => {
     if (!accountId || selectedModels.length === 0) return;
+
+    try {
+      await unwrap(
+        commands.createEpisodeCheckpoint({
+          episode_id: episodeId,
+          label: null,
+          trigger_type: "auto",
+        }),
+      );
+    } catch {
+      // Auto-checkpoint failure is non-critical — proceed with batch
+    }
+
     const { inputs, skipped } = await buildBatchTaskInputs({
       projectId,
       accountId,

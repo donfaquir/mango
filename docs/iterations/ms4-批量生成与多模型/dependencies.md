@@ -54,12 +54,12 @@
 | `submit_tasks_batch` | spec-26 | 批量创建 N×M 任务，返回 `batch_id` + task id 列表 |
 | `adopt_task_result` | spec-28 | 写 `shot.adopted_asset_id`（不改 status） |
 | `unadopt_shot` | spec-28 | 清空 `shot.adopted_asset_id` |
-| `list_episode_checkpoints` | spec-29 | 版本列表 |
+| `list_episode_checkpoints` | spec-29 | 版本列表（轻量 ListItem，不含大 JSON） |
 | `restore_episode_checkpoint` | spec-29 | 恢复（恢复前自动 auto-checkpoint） |
 | `delete_episode_checkpoint` | spec-29 | 删除单条 |
 | `update_episode_checkpoint_label` | spec-30 | 重命名标签 |
 
-`create_episode_checkpoint` 由 spec-24 引入，spec-29 **扩展实现**（写入 `script_text` / `shots_json` / `change_summary`），不新增 command 名。
+`create_episode_checkpoint` 由 spec-24 引入，spec-29 **扩展实现**（写入 `script_text` / `shots_json` / `change_summary`；`trigger_type` 可选，默认 manual）。合并了原计划的 `create_auto_checkpoint`，不新增 command。
 
 ---
 

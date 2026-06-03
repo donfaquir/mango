@@ -9,6 +9,12 @@ vi.mock("@/lib/bindings/commands", () => ({
   commands: {
     createEpisodeCheckpoint: (...args: unknown[]) =>
       createEpisodeCheckpoint(...args),
+    listEpisodeCheckpoints: vi.fn(),
+    restoreEpisodeCheckpoint: vi.fn(),
+    deleteEpisodeCheckpoint: vi.fn(),
+  },
+  events: {
+    episodeDataRestored: { listen: vi.fn(() => Promise.resolve(() => {})) },
   },
 }));
 
@@ -37,9 +43,12 @@ describe("useCreateCheckpoint", () => {
         version_number: 1,
         label: null,
         trigger_type: "manual",
+        script_text: "",
+        shots_json: "[]",
         canvas_nodes_json: "[]",
         canvas_edges_json: "[]",
         canvas_viewport_json: '{"x":0,"y":0,"zoom":1}',
+        change_summary: null,
         created_at: "2026-05-29T00:00:00Z",
       },
     });
