@@ -44,6 +44,9 @@ pub enum CoreError {
     // http_status uniformly.
     #[error("upload error: {0}")]
     Upload(ProviderErrorDetail),
+
+    #[error("ffmpeg error: {0}")]
+    Ffmpeg(String),
 }
 
 pub type Result<T> = std::result::Result<T, CoreError>;

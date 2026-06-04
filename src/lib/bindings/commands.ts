@@ -132,6 +132,8 @@ export const commands = {
 	listEpisodes: (opts: ListEpisodesOptions) => typedError<Episode[], IpcError_Serialize>(__TAURI_INVOKE("list_episodes", { opts })),
 	reorderEpisodes: (projectId: string, orderedIds: string[]) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("reorder_episodes", { projectId, orderedIds })),
 	updateEpisode: (id: string, input: UpdateEpisodeInput_Deserialize) => typedError<Episode, IpcError_Serialize>(__TAURI_INVOKE("update_episode", { id, input })),
+	checkFfmpeg: () => typedError<FfmpegStatus, IpcError_Serialize>(__TAURI_INVOKE("check_ffmpeg")),
+	probeVideo: (path: string) => typedError<VideoMetadata, IpcError_Serialize>(__TAURI_INVOKE("probe_video", { path })),
 	createEpisodeCheckpoint: (input: CreateCheckpointInput) => typedError<EpisodeCheckpoint, IpcError_Serialize>(__TAURI_INVOKE("create_episode_checkpoint", { input })),
 	deleteEpisodeCheckpoint: (id: string) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("delete_episode_checkpoint", { id })),
 	listEpisodeCheckpoints: (episodeId: string) => typedError<EpisodeCheckpointListItem[], IpcError_Serialize>(__TAURI_INVOKE("list_episode_checkpoints", { episodeId })),
@@ -521,6 +523,12 @@ export type EpisodeDataRestored = {
 export type EventPhase = "submit_upload" | "submit_call" | "poll" | "download" | "persist" | "cleanup";
 
 export type EventSeverity = "info" | "warn" | "error";
+
+export type FfmpegStatus = {
+	available: boolean,
+	version: string | null,
+	path: string | null,
+};
 
 export type GenerationTask = {
 	id: string,
@@ -1050,6 +1058,17 @@ export type UpsertCanvasLayoutInput = {
 	nodes_json: string,
 	edges_json: string,
 	viewport_json: string,
+};
+
+export type VideoMetadata = {
+	duration_ms: number,
+	width: number,
+	height: number,
+	video_codec: string,
+	audio_codec: string | null,
+	fps: number | null,
+	bitrate_kbps: number | null,
+	file_size_bytes: number,
 };
 
 /**

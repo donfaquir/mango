@@ -55,6 +55,8 @@ fn make_builder() -> Builder<tauri::Wry> {
             commands::episode::list_episodes,
             commands::episode::reorder_episodes,
             commands::episode::update_episode,
+            commands::ffmpeg::check_ffmpeg,
+            commands::ffmpeg::probe_video,
             commands::episode_checkpoint::create_episode_checkpoint,
             commands::episode_checkpoint::delete_episode_checkpoint,
             commands::episode_checkpoint::list_episode_checkpoints,

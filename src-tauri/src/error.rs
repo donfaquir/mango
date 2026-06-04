@@ -99,6 +99,13 @@ impl From<CoreError> for IpcError {
                 kind: None,
             },
             CoreError::Upload(detail) => IpcError::from_detail("UPLOAD_ERROR", detail),
+            CoreError::Ffmpeg(msg) => IpcError {
+                message: msg.clone(),
+                code: "FFMPEG_ERROR".into(),
+                request_id: None,
+                http_status: None,
+                kind: None,
+            },
         }
     }
 }
