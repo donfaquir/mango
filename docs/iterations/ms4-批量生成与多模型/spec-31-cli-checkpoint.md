@@ -5,45 +5,58 @@
 依赖：spec-29
 
 非目标：
-- `mango checkpoint delete` — V2（GUI 已有则可顺手加，非本 spec 必须）
 - 自动 GC 触发 — 由应用 startup 负责，CLI 不单独暴露
 
 ---
 
 ## 1. CLI 结构
 
-`crates/cli/src/commands/checkpoint/mod.rs`：
+`crates/cli/src/commands/checkpoint.rs`（单文件，与 `project.rs` / `character.rs` 同模式）：
 
 ```rust
 #[derive(clap::Subcommand)]
-pub enum CheckpointArgs {
+pub enum CheckpointAction {
     List(ListArgs),
     Create(CreateArgs),
     Restore(RestoreArgs),
+    Delete(DeleteArgs),
 }
 ```
 
-`main.rs` `Commands` 枚举增加 `Checkpoint(CheckpointArgs)`。
+`main.rs`：
+- `Commands` 枚举增加 `Checkpoint(CheckpointArgs)`
+- `let conn` 改为 `let mut conn`（`restore` 需要 `&mut Connection` 用于事务）
 
 ---
 
 ## 2. 子命令
 
-### `mango checkpoint list --episode <UUID> [--json]`
+### `mango checkpoint list --episode <UUID>`
 
-表格列：id, version_number, trigger_type, label, change_summary, created_at。
-
-`--json` 输出与 GUI 列表同结构的 JSON 数组。
+`comfy_table` 表格（与 `project list` 同风格），列：id（短）, version, type, label, summary, created_at。
 
 ### `mango checkpoint create --episode <UUID> [--label "分镜定稿"]`
 
-调 core `create_episode_checkpoint` full 实现；stdout 打印新 `id` + `version_number`。
+调 core `insert_full`；输出缩进键值对（与 `project create` 同风格）：
+
+```
+  ID:       <short_id>
+  Version:  <version_number>
+  Label:    <label 或 —>
+  Summary:  <change_summary>
+```
 
 ### `mango checkpoint restore <checkpoint_id> [--yes]`
 
-- 无 `--yes`：stdin 提示 `输入 yes 确认`
-- 调 `restore_episode_checkpoint`（含恢复前 auto 快照）
-- 成功打印 `restored episode_id=...`
+- 无 `--yes`：stdin 提示确认（与 `project delete` 同模式）
+- 调 `checkpoint_ops::restore(&mut conn, ...)`（含恢复前 auto 快照）
+- 输出 `Restored episode <short_id> to version <n>`
+
+### `mango checkpoint delete <checkpoint_id> [--yes]`
+
+- 无 `--yes`：stdin 提示确认
+- 调 core `delete`
+- 输出 `Deleted checkpoint <short_id>`
 
 ---
 
@@ -59,14 +72,19 @@ CLI 与 GUI 共用 `com.mango.app/mango.db`（与 spec-19 一致）。
 
 | 用例 | 说明 |
 |---|---|
-| integration | create → list 含新行 |
-| integration | restore --yes → shots 行数与快照一致 |
+| create → list | create 后 list 含新行 |
+| create 无效 episode | 报错 episode not found |
+| restore --yes | 恢复后 shots 行数与快照一致 |
+| restore 无效 id | 报错 checkpoint not found |
+| restore 无 --yes | stdin 非 yes 时拒绝 |
+| delete --yes | 删除后 list 不含该行 |
 
 ---
 
 ## 5. 验收清单
 
-- [ ] `checkpoint list` 显示完整字段
-- [ ] `checkpoint create` 的行在 GUI 版本面板可见
+- [ ] `checkpoint list` 表格显示完整字段
+- [ ] `checkpoint create` 的行在 GUI 版本历史面板可见
 - [ ] `checkpoint restore` 无 `--yes` 时拒绝；有 `--yes` 成功恢复
+- [ ] `checkpoint delete` 删除后 GUI 列表同步消失
 - [ ] 与 spec-29 GC / auto 逻辑不冲突

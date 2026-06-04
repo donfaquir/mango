@@ -23,6 +23,8 @@ enum Commands {
     Project(commands::project::ProjectArgs),
     /// Character management
     Character(commands::character::CharacterArgs),
+    /// Episode checkpoint management (create / list / restore / delete)
+    Checkpoint(commands::checkpoint::CheckpointArgs),
     /// API account management (keyring-backed)
     Account(commands::account::AccountArgs),
     /// AI generation tasks (submit / status / list / cancel)
@@ -59,12 +61,13 @@ fn run() -> anyhow::Result<()> {
         std::fs::create_dir_all(parent)?;
     }
 
-    let conn = mango_core::db::open_sync(&db_path)?;
+    let mut conn = mango_core::db::open_sync(&db_path)?;
     mango_core::startup::initialize(&conn)?;
 
     match cli.command {
         Commands::Project(args) => commands::project::execute(&conn, &app_data_dir, args)?,
         Commands::Character(args) => commands::character::execute(&conn, args)?,
+        Commands::Checkpoint(args) => commands::checkpoint::execute(&mut conn, args)?,
         Commands::Account(args) => commands::account::execute(&conn, args)?,
         Commands::Task(args) => commands::task::execute(&conn, &app_data_dir, args)?,
     }
