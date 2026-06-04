@@ -2,7 +2,7 @@ use std::path::Path;
 
 use mango_core::ffmpeg::{
     check_ffmpeg, concat_videos, extract_thumbnail, probe_video, split_video, trim_video,
-    FfmpegConfig, TrimMode,
+    FfmpegConfig, FfmpegProgress, TrimMode,
 };
 
 // ---------------------------------------------------------------------------
@@ -97,7 +97,7 @@ fn trim_copy_real() {
     generate_test_video(&config, &src, 5, 320, 240);
 
     let out = tmp.join("trim_copy_out.mp4");
-    trim_video(&config, &src, 1000, 4000, &out, &TrimMode::Copy).unwrap();
+    trim_video(&config, &src, 1000, 4000, &out, &TrimMode::Copy, None).unwrap();
 
     assert!(out.exists());
     let meta = probe_video(&config, &out).unwrap();
@@ -116,7 +116,7 @@ fn trim_reencode_real() {
     generate_test_video(&config, &src, 5, 320, 240);
 
     let out = tmp.join("trim_reencode_out.mp4");
-    trim_video(&config, &src, 1000, 4000, &out, &TrimMode::Reencode).unwrap();
+    trim_video(&config, &src, 1000, 4000, &out, &TrimMode::Reencode, None).unwrap();
 
     assert!(out.exists());
     let meta = probe_video(&config, &out).unwrap();
@@ -135,7 +135,7 @@ fn trim_reencode_no_audio() {
     generate_video_only(&config, &src, 3);
 
     let out = tmp.join("trim_noaudio_out.mp4");
-    trim_video(&config, &src, 500, 2500, &out, &TrimMode::Reencode).unwrap();
+    trim_video(&config, &src, 500, 2500, &out, &TrimMode::Reencode, None).unwrap();
 
     assert!(out.exists());
     let meta = probe_video(&config, &out).unwrap();
@@ -160,7 +160,7 @@ fn split_two_points_real() {
     let out_dir = tmp.join("split_out");
     std::fs::create_dir_all(&out_dir).unwrap();
 
-    let parts = split_video(&config, &src, &[2000, 4000], &out_dir, &TrimMode::Copy).unwrap();
+    let parts = split_video(&config, &src, &[2000, 4000], &out_dir, &TrimMode::Copy, None).unwrap();
     println!("Split produced {} parts", parts.len());
     assert_eq!(parts.len(), 3);
     for p in &parts {
@@ -188,7 +188,7 @@ fn concat_same_params_real() {
     generate_test_video(&config, &b, 3, 320, 240);
 
     let out = tmp.join("concat_out.mp4");
-    concat_videos(&config, &[a, b], &out).unwrap();
+    concat_videos(&config, &[a, b], &out, None).unwrap();
 
     assert!(out.exists());
     let meta = probe_video(&config, &out).unwrap();
@@ -210,7 +210,7 @@ fn concat_diff_params_error() {
     generate_test_video(&config, &b, 2, 640, 480);
 
     let out = tmp.join("concat_diff_out.mp4");
-    let err = concat_videos(&config, &[a, b], &out);
+    let err = concat_videos(&config, &[a, b], &out, None);
     assert!(err.is_err());
     let msg = err.unwrap_err().to_string();
     println!("Expected error: {msg}");
@@ -238,6 +238,53 @@ fn thumbnail_real() {
     let size = std::fs::metadata(&out).unwrap().len();
     println!("Thumbnail size: {} bytes", size);
     assert!(size > 100, "thumbnail should not be empty");
+
+    std::fs::remove_dir_all(&tmp).ok();
+}
+
+// ---------------------------------------------------------------------------
+// spec-34 tests: progress
+// ---------------------------------------------------------------------------
+
+#[test]
+#[ignore]
+fn trim_with_progress() {
+    let config = FfmpegConfig::from_env();
+    let tmp = test_dir("trim_progress");
+    let src = tmp.join("progress_src.mp4");
+    generate_test_video(&config, &src, 5, 320, 240);
+
+    let mut ticks: Vec<f64> = Vec::new();
+    let mut cb = |p: FfmpegProgress| {
+        println!("  progress: {:.1}% speed={:?}", p.progress_pct, p.speed);
+        ticks.push(p.progress_pct);
+    };
+
+    let out = tmp.join("progress_out.mp4");
+    trim_video(&config, &src, 0, 5000, &out, &TrimMode::Reencode, Some(&mut cb)).unwrap();
+
+    assert!(out.exists());
+    println!("Total progress ticks: {}", ticks.len());
+    assert!(!ticks.is_empty(), "should receive at least one progress tick");
+
+    for i in 1..ticks.len() {
+        assert!(ticks[i] >= ticks[i - 1], "progress should be monotonically increasing");
+    }
+
+    std::fs::remove_dir_all(&tmp).ok();
+}
+
+#[test]
+#[ignore]
+fn progress_none_still_works() {
+    let config = FfmpegConfig::from_env();
+    let tmp = test_dir("progress_none");
+    let src = tmp.join("none_src.mp4");
+    generate_test_video(&config, &src, 2, 320, 240);
+
+    let out = tmp.join("none_out.mp4");
+    trim_video(&config, &src, 0, 2000, &out, &TrimMode::Copy, None).unwrap();
+    assert!(out.exists());
 
     std::fs::remove_dir_all(&tmp).ok();
 }

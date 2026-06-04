@@ -1,7 +1,24 @@
 use std::path::{Path, PathBuf};
 
+use tauri::AppHandle;
+use tauri_specta::Event;
+
 use crate::error::IpcError;
+use crate::events::FfmpegProgressTick;
 use mango_core::ffmpeg;
+use mango_core::ffmpeg::FfmpegProgress;
+
+fn progress_emitter(app: &AppHandle) -> impl FnMut(FfmpegProgress) + '_ {
+    move |p: FfmpegProgress| {
+        let _ = FfmpegProgressTick {
+            progress_pct: p.progress_pct,
+            current_time_ms: p.current_time_ms,
+            total_duration_ms: p.total_duration_ms,
+            speed: p.speed,
+        }
+        .emit(app);
+    }
+}
 
 #[tauri::command]
 #[specta::specta]
@@ -20,57 +37,81 @@ pub async fn probe_video(path: String) -> Result<ffmpeg::VideoMetadata, IpcError
 #[tauri::command]
 #[specta::specta]
 pub async fn trim_video(
+    app: AppHandle,
     input: String,
     start_ms: i32,
     end_ms: i32,
     output: String,
     mode: ffmpeg::TrimMode,
 ) -> Result<String, IpcError> {
-    let config = ffmpeg::FfmpegConfig::from_env();
-    let result = ffmpeg::trim_video(
-        &config,
-        Path::new(&input),
-        start_ms as i64,
-        end_ms as i64,
-        Path::new(&output),
-        &mode,
-    )
-    .map_err(IpcError::from)?;
-    Ok(result.to_string_lossy().into_owned())
+    tokio::task::spawn_blocking(move || {
+        let config = ffmpeg::FfmpegConfig::from_env();
+        let mut cb = progress_emitter(&app);
+        let result = ffmpeg::trim_video(
+            &config,
+            Path::new(&input),
+            start_ms as i64,
+            end_ms as i64,
+            Path::new(&output),
+            &mode,
+            Some(&mut cb),
+        )
+        .map_err(IpcError::from)?;
+        Ok(result.to_string_lossy().into_owned())
+    })
+    .await
+    .map_err(|e| IpcError::internal(format!("task join error: {e}")))?
 }
 
 #[tauri::command]
 #[specta::specta]
 pub async fn split_video(
+    app: AppHandle,
     input: String,
     split_points_ms: Vec<i32>,
     output_dir: String,
     mode: ffmpeg::TrimMode,
 ) -> Result<Vec<String>, IpcError> {
-    let config = ffmpeg::FfmpegConfig::from_env();
-    let points: Vec<i64> = split_points_ms.iter().map(|&v| v as i64).collect();
-    let results = ffmpeg::split_video(
-        &config,
-        Path::new(&input),
-        &points,
-        Path::new(&output_dir),
-        &mode,
-    )
-    .map_err(IpcError::from)?;
-    Ok(results
-        .iter()
-        .map(|p| p.to_string_lossy().into_owned())
-        .collect())
+    tokio::task::spawn_blocking(move || {
+        let config = ffmpeg::FfmpegConfig::from_env();
+        let points: Vec<i64> = split_points_ms.iter().map(|&v| v as i64).collect();
+        let mut cb = progress_emitter(&app);
+        let results = ffmpeg::split_video(
+            &config,
+            Path::new(&input),
+            &points,
+            Path::new(&output_dir),
+            &mode,
+            Some(&mut cb),
+        )
+        .map_err(IpcError::from)?;
+        Ok(results
+            .iter()
+            .map(|p| p.to_string_lossy().into_owned())
+            .collect())
+    })
+    .await
+    .map_err(|e| IpcError::internal(format!("task join error: {e}")))?
 }
 
 #[tauri::command]
 #[specta::specta]
-pub async fn concat_videos(inputs: Vec<String>, output: String) -> Result<String, IpcError> {
-    let config = ffmpeg::FfmpegConfig::from_env();
-    let input_paths: Vec<PathBuf> = inputs.iter().map(PathBuf::from).collect();
-    let result =
-        ffmpeg::concat_videos(&config, &input_paths, Path::new(&output)).map_err(IpcError::from)?;
-    Ok(result.to_string_lossy().into_owned())
+pub async fn concat_videos(
+    app: AppHandle,
+    inputs: Vec<String>,
+    output: String,
+) -> Result<String, IpcError> {
+    tokio::task::spawn_blocking(move || {
+        let config = ffmpeg::FfmpegConfig::from_env();
+        let input_paths: Vec<PathBuf> = inputs.iter().map(PathBuf::from).collect();
+        let mut cb = progress_emitter(&app);
+        let result =
+            ffmpeg::concat_videos(&config, &input_paths, Path::new(&output), Some(&mut cb))
+                .map_err(IpcError::from)?;
+        Ok(result.to_string_lossy().into_owned())
+    })
+    .await
+    .map_err(|e| IpcError::internal(format!("task join error: {e}")))?
 }
 
 #[tauri::command]

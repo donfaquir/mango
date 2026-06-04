@@ -237,6 +237,7 @@ export const commands = {
 /** Events */
 export const events = {
 	episodeDataRestored: makeEvent<EpisodeDataRestored>("episode-data-restored"),
+	ffmpegProgressTick: makeEvent<FfmpegProgressTick>("ffmpeg-progress-tick"),
 	taskEventLogged: makeEvent<TaskEventLogged>("task-event-logged"),
 	taskProgressTick: makeEvent<TaskProgressTick>("task-progress-tick"),
 	taskStatusChanged: makeEvent<TaskStatusChanged>("task-status-changed"),
@@ -527,6 +528,14 @@ export type EpisodeDataRestored = {
 export type EventPhase = "submit_upload" | "submit_call" | "poll" | "download" | "persist" | "cleanup";
 
 export type EventSeverity = "info" | "warn" | "error";
+
+/**  Real-time FFmpeg operation progress. Emitted while trim/split/concat runs. */
+export type FfmpegProgressTick = {
+	progress_pct: number | null,
+	current_time_ms: number,
+	total_duration_ms: number,
+	speed: number | null,
+};
 
 export type FfmpegStatus = {
 	available: boolean,

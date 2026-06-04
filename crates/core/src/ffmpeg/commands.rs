@@ -8,6 +8,7 @@ use ts_rs::TS;
 use crate::error::{CoreError, Result};
 
 use super::probe::VideoMetadata;
+use super::progress::{run_ffmpeg_with_progress, FfmpegProgress};
 use super::sidecar::FfmpegConfig;
 
 // ---------------------------------------------------------------------------
@@ -57,7 +58,15 @@ pub fn has_encoder(config: &FfmpegConfig, encoder: &str) -> bool {
 // Trim
 // ---------------------------------------------------------------------------
 
-pub fn trim_video(config: &FfmpegConfig, input: &Path, start_ms: i64, end_ms: i64, output: &Path, mode: &TrimMode) -> Result<PathBuf> {
+pub fn trim_video(
+    config: &FfmpegConfig,
+    input: &Path,
+    start_ms: i64,
+    end_ms: i64,
+    output: &Path,
+    mode: &TrimMode,
+    on_progress: Option<&mut dyn FnMut(FfmpegProgress)>,
+) -> Result<PathBuf> {
     validate_trim_params(config, input, start_ms, end_ms, output)?;
 
     let start_t = ms_to_ffmpeg_time(start_ms);
@@ -92,7 +101,13 @@ pub fn trim_video(config: &FfmpegConfig, input: &Path, start_ms: i64, end_ms: i6
     }
 
     cmd.arg(output);
-    run_ffmpeg(&mut cmd)?;
+
+    let segment_duration = end_ms - start_ms;
+    match on_progress {
+        Some(cb) => run_ffmpeg_with_progress(&mut cmd, segment_duration, cb)?,
+        None => run_ffmpeg(&mut cmd)?,
+    }
+
     Ok(output.to_path_buf())
 }
 
@@ -126,7 +141,14 @@ fn validate_trim_params(config: &FfmpegConfig, input: &Path, start_ms: i64, end_
 // Split
 // ---------------------------------------------------------------------------
 
-pub fn split_video(config: &FfmpegConfig, input: &Path, split_points_ms: &[i64], output_dir: &Path, mode: &TrimMode) -> Result<Vec<PathBuf>> {
+pub fn split_video(
+    config: &FfmpegConfig,
+    input: &Path,
+    split_points_ms: &[i64],
+    output_dir: &Path,
+    mode: &TrimMode,
+    mut on_progress: Option<&mut dyn FnMut(FfmpegProgress)>,
+) -> Result<Vec<PathBuf>> {
     validate_split_params(config, input, split_points_ms, output_dir)?;
 
     let meta = super::probe::probe_video(config, input)?;
@@ -138,12 +160,28 @@ pub fn split_video(config: &FfmpegConfig, input: &Path, split_points_ms: &[i64],
     boundaries.extend_from_slice(split_points_ms);
     boundaries.push(meta.duration_ms);
 
+    let segment_count = boundaries.len() - 1;
     let mut outputs = Vec::new();
-    for i in 0..boundaries.len() - 1 {
+    for i in 0..segment_count {
         let start = boundaries[i];
         let end = boundaries[i + 1];
         let out_path = output_dir.join(format!("{stem}_part{}.{ext}", i + 1));
-        trim_video(config, input, start, end, &out_path, mode)?;
+
+        if let Some(ref mut cb) = on_progress {
+            let seg_idx = i;
+            let seg_count = segment_count;
+            let mut segment_cb = |p: FfmpegProgress| {
+                let overall_pct =
+                    (seg_idx as f64 + p.progress_pct / 100.0) / seg_count as f64 * 100.0;
+                cb(FfmpegProgress {
+                    progress_pct: overall_pct,
+                    ..p
+                });
+            };
+            trim_video(config, input, start, end, &out_path, mode, Some(&mut segment_cb))?;
+        } else {
+            trim_video(config, input, start, end, &out_path, mode, None)?;
+        }
         outputs.push(out_path);
     }
 
@@ -185,7 +223,12 @@ fn validate_split_params(config: &FfmpegConfig, input: &Path, split_points_ms: &
 // Concat
 // ---------------------------------------------------------------------------
 
-pub fn concat_videos(config: &FfmpegConfig, inputs: &[PathBuf], output: &Path) -> Result<PathBuf> {
+pub fn concat_videos(
+    config: &FfmpegConfig,
+    inputs: &[PathBuf],
+    output: &Path,
+    on_progress: Option<&mut dyn FnMut(FfmpegProgress)>,
+) -> Result<PathBuf> {
     if inputs.len() < 2 {
         return Err(CoreError::Validation("concat requires at least 2 input files".into()));
     }
@@ -201,7 +244,7 @@ pub fn concat_videos(config: &FfmpegConfig, inputs: &[PathBuf], output: &Path) -
         )));
     }
 
-    check_concat_compatibility(config, inputs)?;
+    let metas = check_concat_compatibility(config, inputs)?;
 
     let list_file = std::env::temp_dir().join(format!("mango_concat_{}.txt", std::process::id()));
     let list_content: String = inputs
@@ -217,14 +260,20 @@ pub fn concat_videos(config: &FfmpegConfig, inputs: &[PathBuf], output: &Path) -
         .args(["-c", "copy"])
         .arg(output);
 
-    let result = run_ffmpeg(&mut cmd);
+    let result = match on_progress {
+        Some(cb) => {
+            let total_ms: i64 = metas.iter().map(|m| m.duration_ms).sum();
+            run_ffmpeg_with_progress(&mut cmd, total_ms, cb)
+        }
+        None => run_ffmpeg(&mut cmd),
+    };
     let _ = std::fs::remove_file(&list_file);
     result?;
 
     Ok(output.to_path_buf())
 }
 
-fn check_concat_compatibility(config: &FfmpegConfig, inputs: &[PathBuf]) -> Result<()> {
+fn check_concat_compatibility(config: &FfmpegConfig, inputs: &[PathBuf]) -> Result<Vec<VideoMetadata>> {
     let metas: Vec<VideoMetadata> = inputs
         .iter()
         .map(|p| super::probe::probe_video(config, p))
@@ -262,7 +311,7 @@ fn check_concat_compatibility(config: &FfmpegConfig, inputs: &[PathBuf]) -> Resu
         }
     }
 
-    Ok(())
+    Ok(metas)
 }
 
 // ---------------------------------------------------------------------------
@@ -400,7 +449,7 @@ mod tests {
     #[test]
     fn concat_single_input() {
         let config = FfmpegConfig { ffmpeg_path: None, ffprobe_path: None };
-        let err = concat_videos(&config, &[PathBuf::from("/a.mp4")], Path::new("/out.mp4"));
+        let err = concat_videos(&config, &[PathBuf::from("/a.mp4")], Path::new("/out.mp4"), None);
         assert!(err.is_err());
         assert!(err.unwrap_err().to_string().contains("at least 2"));
     }
@@ -412,6 +461,7 @@ mod tests {
             &config,
             &[PathBuf::from("/nonexistent1.mp4"), PathBuf::from("/nonexistent2.mp4")],
             Path::new("/out.mp4"),
+            None,
         );
         assert!(err.is_err());
         assert!(err.unwrap_err().to_string().contains("does not exist"));

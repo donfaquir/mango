@@ -108,6 +108,7 @@ fn make_builder() -> Builder<tauri::Wry> {
         ])
         .events(collect_events![
             events::EpisodeDataRestored,
+            events::FfmpegProgressTick,
             events::TaskStatusChanged,
             events::TaskEventLogged,
             events::TaskProgressTick,
