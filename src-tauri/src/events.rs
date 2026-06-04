@@ -28,6 +28,13 @@ pub struct TaskEventLogged {
     pub event: GenerationTaskEvent,
 }
 
+/// Emitted after a checkpoint restore completes. The frontend invalidates all
+/// episode-scoped queries (shots, canvas, script) on this event.
+#[derive(Clone, Debug, Serialize, Deserialize, Type, Event)]
+pub struct EpisodeDataRestored {
+    pub episode_id: String,
+}
+
 /// Numeric progress hint emitted in real time during `Running`. Not persisted —
 /// purely a UI heartbeat. The front-end should display this only while the
 /// task is in `Running`; cleared on terminal status.

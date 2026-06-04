@@ -97,13 +97,33 @@ pub async fn init_workspace(
     let materializer: Arc<dyn mango_core::task_engine::ResultMaterializer> = Arc::new(
         BailianResultMaterializer::new(db.clone(), keyring.clone(), workspace_root.to_path_buf()),
     );
+
+    // spec-27: load the persisted task.max_concurrency on boot so the user's
+    // setting survives restart. The migrator seeds it to 3 on first install;
+    // missing rows fall back to the same default rather than crashing.
+    let max_concurrency = db
+        .call(|conn| {
+            Ok::<_, tokio_rusqlite::Error>(
+                mango_core::db::queries::app_preference::get_i64(
+                    conn,
+                    "task.max_concurrency",
+                )
+                .ok()
+                .flatten()
+                .map(|n| n.clamp(1, 8) as usize)
+                .unwrap_or(3),
+            )
+        })
+        .await
+        .map_err(|e| format!("failed to read task.max_concurrency: {e}"))?;
+
     let (engine, event_rx) = TaskEngineHandle::spawn(
         db.clone(),
         providers,
         keyring,
         materializer,
         workspace_root.to_path_buf(),
-        4,
+        max_concurrency,
     );
 
     // Re-spawn runner coroutines for any pending tasks left from a previous

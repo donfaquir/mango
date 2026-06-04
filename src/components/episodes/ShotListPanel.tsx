@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { Clapperboard, Plus } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { Clapperboard, Plus, Wand2 } from "lucide-react";
 import { toast } from "sonner";
 import {
   DndContext,
@@ -28,17 +29,53 @@ import { useReorderShots, useShotList } from "@/hooks/useShots";
 import type { Shot } from "@/lib/bindings/commands";
 import { ShotCard } from "./ShotCard";
 import { CreateShotDialog } from "./CreateShotDialog";
+import { BatchSubmitDialog } from "@/components/generation/BatchSubmitDialog";
 
 interface Props {
   episodeId: string;
+  projectId: string;
 }
 
-export function ShotListPanel({ episodeId }: Props) {
+export function ShotListPanel({ episodeId, projectId }: Props) {
   const [createOpen, setCreateOpen] = useState(false);
+  const [batchOpen, setBatchOpen] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const shots = useShotList(episodeId);
   const reorder = useReorderShots(episodeId);
+  const navigate = useNavigate();
 
   const [localOrder, setLocalOrder] = useState<string[] | null>(null);
+
+  // Drop selections that no longer correspond to existing shots — happens
+  // after a delete or after switching episodes.
+  useEffect(() => {
+    if (!shots.data) return;
+    const valid = new Set(shots.data.map((s) => s.id));
+    setSelectedIds((prev) => {
+      let changed = false;
+      const next = new Set<string>();
+      for (const id of prev) {
+        if (valid.has(id)) {
+          next.add(id);
+        } else {
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [shots.data]);
+
+  const toggleSelect = (shotId: string, next: boolean) => {
+    setSelectedIds((prev) => {
+      const out = new Set(prev);
+      if (next) {
+        out.add(shotId);
+      } else {
+        out.delete(shotId);
+      }
+      return out;
+    });
+  };
 
   useEffect(() => {
     setLocalOrder(null);
@@ -87,16 +124,43 @@ export function ShotListPanel({ episodeId }: Props) {
       <div className="flex items-center justify-between">
         <h2 className="text-sm font-medium text-muted-foreground">
           分镜列表 {shots.data && `· ${shots.data.length}`}
+          {selectedIds.size > 0 && (
+            <span className="ml-2 text-primary">
+              已选 {selectedIds.size}
+            </span>
+          )}
         </h2>
-        <Button
-          type="button"
-          size="sm"
-          variant="outline"
-          onClick={() => setCreateOpen(true)}
-        >
-          <Plus className="mr-1 h-4 w-4" />
-          新建分镜
-        </Button>
+        <div className="flex items-center gap-2">
+          {selectedIds.size > 0 && (
+            <>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                onClick={() => setSelectedIds(new Set())}
+              >
+                取消选择
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                onClick={() => setBatchOpen(true)}
+              >
+                <Wand2 className="mr-1 h-4 w-4" />
+                批量生成
+              </Button>
+            </>
+          )}
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={() => setCreateOpen(true)}
+          >
+            <Plus className="mr-1 h-4 w-4" />
+            新建分镜
+          </Button>
+        </div>
       </div>
       {shots.isLoading && (
         <div className="space-y-2">
@@ -133,8 +197,11 @@ export function ShotListPanel({ episodeId }: Props) {
                 <ShotCard
                   key={shot.id}
                   episodeId={episodeId}
+                  projectId={projectId}
                   shot={shot}
                   displayIndex={index}
+                  selected={selectedIds.has(shot.id)}
+                  onToggleSelect={(next) => toggleSelect(shot.id, next)}
                 />
               ))}
             </div>
@@ -145,6 +212,19 @@ export function ShotListPanel({ episodeId }: Props) {
         episodeId={episodeId}
         open={createOpen}
         onOpenChange={setCreateOpen}
+      />
+      <BatchSubmitDialog
+        projectId={projectId}
+        episodeId={episodeId}
+        selectedShotIds={Array.from(selectedIds)}
+        open={batchOpen}
+        onOpenChange={setBatchOpen}
+        onSubmitted={(batchId) => {
+          setSelectedIds(new Set());
+          navigate(
+            `/project/${projectId}/generation?batch=${encodeURIComponent(batchId)}`,
+          );
+        }}
       />
     </section>
   );

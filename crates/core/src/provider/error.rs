@@ -46,6 +46,14 @@ impl ProviderErrorKind {
             Self::Unknown => "unknown",
         }
     }
+
+    /// True when the failure looks transient enough that a backoff retry is
+    /// worth attempting. spec-27 §3.1. `Unknown` is NOT considered retryable
+    /// here — the runner separately upgrades `Unknown` with HTTP 5xx because
+    /// that information lives on the detail, not the kind.
+    pub fn is_retryable(self) -> bool {
+        matches!(self, Self::RateLimited | Self::Network | Self::Timeout)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -115,6 +123,20 @@ mod tests {
     fn display_omits_optional_fields() {
         let d = ProviderErrorDetail::new(ProviderErrorKind::Network, "连接失败");
         assert_eq!(d.to_string(), "连接失败");
+    }
+
+    #[test]
+    fn is_retryable_matches_expected_kinds() {
+        assert!(ProviderErrorKind::RateLimited.is_retryable());
+        assert!(ProviderErrorKind::Network.is_retryable());
+        assert!(ProviderErrorKind::Timeout.is_retryable());
+        // Non-retryable: authoritative client errors should not be retried.
+        assert!(!ProviderErrorKind::Auth.is_retryable());
+        assert!(!ProviderErrorKind::Quota.is_retryable());
+        assert!(!ProviderErrorKind::InvalidRequest.is_retryable());
+        assert!(!ProviderErrorKind::Malformed.is_retryable());
+        // Unknown is handled separately by the runner via http_status.
+        assert!(!ProviderErrorKind::Unknown.is_retryable());
     }
 
     #[test]

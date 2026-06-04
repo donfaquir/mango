@@ -8,7 +8,7 @@ use crate::models::generation_task::{
 
 const SELECT_COLUMNS: &str = "id, project_id, shot_id, provider_id, model_id, account_id, task_type, \
                               params_json, status, result_asset_id, external_task_id, \
-                              started_at, finished_at, error_message, retry_count, created_at";
+                              started_at, finished_at, error_message, retry_count, created_at, batch_id";
 
 fn map_row(row: &rusqlite::Row) -> rusqlite::Result<GenerationTask> {
     let task_type_str: String = row.get(6)?;
@@ -42,6 +42,7 @@ fn map_row(row: &rusqlite::Row) -> rusqlite::Result<GenerationTask> {
         error_message: row.get(13)?,
         retry_count: row.get(14)?,
         created_at: row.get(15)?,
+        batch_id: row.get(16)?,
     })
 }
 
@@ -57,6 +58,42 @@ impl std::fmt::Display for InvalidEnumValue {
 impl std::error::Error for InvalidEnumValue {}
 
 pub fn create(conn: &Connection, input: CreateGenerationTaskInput) -> Result<GenerationTask> {
+    let id = insert_one(conn, &input, None)?;
+    get_by_id(conn, &id)
+}
+
+/// Insert N rows under a single shared `batch_id` inside a transaction. If any
+/// row fails validation or insertion, the whole transaction rolls back and no
+/// task is created. Returns the generated batch_id plus the task ids in the
+/// caller-supplied order.
+///
+/// Empty input is rejected — submit_batch with no shots/models is a UI bug,
+/// not a no-op.
+pub fn create_batch(
+    conn: &mut Connection,
+    inputs: &[CreateGenerationTaskInput],
+) -> Result<(String, Vec<String>)> {
+    if inputs.is_empty() {
+        return Err(CoreError::Validation(
+            "submit_batch requires at least one task".into(),
+        ));
+    }
+    let batch_id = Uuid::new_v4().to_string();
+    let tx = conn.transaction()?;
+    let mut task_ids = Vec::with_capacity(inputs.len());
+    for input in inputs {
+        let id = insert_one(&tx, input, Some(&batch_id))?;
+        task_ids.push(id);
+    }
+    tx.commit()?;
+    Ok((batch_id, task_ids))
+}
+
+fn insert_one(
+    conn: &Connection,
+    input: &CreateGenerationTaskInput,
+    batch_id: Option<&str>,
+) -> Result<String> {
     let params_json = match input.params_json.as_deref() {
         None | Some("") => "{}".to_string(),
         Some(raw) => {
@@ -69,8 +106,8 @@ pub fn create(conn: &Connection, input: CreateGenerationTaskInput) -> Result<Gen
     let id = Uuid::new_v4().to_string();
     conn.execute(
         "INSERT INTO generation_task \
-            (id, project_id, shot_id, provider_id, model_id, account_id, task_type, params_json, status) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'pending')",
+            (id, project_id, shot_id, provider_id, model_id, account_id, task_type, params_json, status, batch_id) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'pending', ?9)",
         params![
             id,
             input.project_id,
@@ -80,9 +117,10 @@ pub fn create(conn: &Connection, input: CreateGenerationTaskInput) -> Result<Gen
             input.account_id,
             input.task_type.as_str(),
             params_json,
+            batch_id,
         ],
     )?;
-    get_by_id(conn, &id)
+    Ok(id)
 }
 
 pub fn get_by_id(conn: &Connection, id: &str) -> Result<GenerationTask> {
@@ -104,58 +142,46 @@ pub fn list(
     conn: &Connection,
     project_id: Option<&str>,
     status: Option<GenerationTaskStatus>,
+    shot_id: Option<&str>,
     limit: Option<u32>,
 ) -> Result<Vec<GenerationTask>> {
     let limit = limit.unwrap_or(100).clamp(1, 500);
 
-    // Filter directly by project_id column; no JOIN needed.
-    let (sql, has_project, has_status) = match (project_id.is_some(), status.is_some()) {
-        (true, true) => (
-            format!(
-                "SELECT {SELECT_COLUMNS} FROM generation_task \
-                 WHERE project_id = ?1 AND status = ?2 \
-                 ORDER BY created_at DESC LIMIT ?3"
-            ),
-            true,
-            true,
-        ),
-        (true, false) => (
-            format!(
-                "SELECT {SELECT_COLUMNS} FROM generation_task \
-                 WHERE project_id = ?1 \
-                 ORDER BY created_at DESC LIMIT ?2"
-            ),
-            true,
-            false,
-        ),
-        (false, true) => (
-            format!(
-                "SELECT {SELECT_COLUMNS} FROM generation_task \
-                 WHERE status = ?1 ORDER BY created_at DESC LIMIT ?2"
-            ),
-            false,
-            true,
-        ),
-        (false, false) => (
-            format!(
-                "SELECT {SELECT_COLUMNS} FROM generation_task \
-                 ORDER BY created_at DESC LIMIT ?1"
-            ),
-            false,
-            false,
-        ),
+    let mut wheres: Vec<String> = Vec::new();
+    let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+    let mut idx = 1u32;
+
+    if let Some(v) = project_id {
+        wheres.push(format!("project_id = ?{idx}"));
+        params.push(Box::new(v.to_string()));
+        idx += 1;
+    }
+    if let Some(v) = status {
+        wheres.push(format!("status = ?{idx}"));
+        params.push(Box::new(v.as_str().to_string()));
+        idx += 1;
+    }
+    if let Some(v) = shot_id {
+        wheres.push(format!("shot_id = ?{idx}"));
+        params.push(Box::new(v.to_string()));
+        idx += 1;
+    }
+
+    let where_clause = if wheres.is_empty() {
+        String::new()
+    } else {
+        format!(" WHERE {}", wheres.join(" AND "))
     };
 
+    let sql = format!(
+        "SELECT {SELECT_COLUMNS} FROM generation_task{where_clause} \
+         ORDER BY created_at DESC LIMIT ?{idx}"
+    );
+    params.push(Box::new(limit));
+    let refs: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p.as_ref()).collect();
+
     let mut stmt = conn.prepare(&sql)?;
-    let rows = match (has_project, has_status) {
-        (true, true) => stmt.query_map(
-            params![project_id.unwrap(), status.unwrap().as_str(), limit],
-            map_row,
-        )?,
-        (true, false) => stmt.query_map(params![project_id.unwrap(), limit], map_row)?,
-        (false, true) => stmt.query_map(params![status.unwrap().as_str(), limit], map_row)?,
-        (false, false) => stmt.query_map(params![limit], map_row)?,
-    };
+    let rows = stmt.query_map(refs.as_slice(), map_row)?;
     rows.collect::<std::result::Result<Vec<_>, _>>()
         .map_err(CoreError::from)
 }
@@ -287,6 +313,52 @@ pub fn list_pending_ids(conn: &Connection) -> rusqlite::Result<Vec<String>> {
         .query_map([], |row| row.get(0))?
         .collect::<rusqlite::Result<Vec<String>>>()?;
     Ok(ids)
+}
+
+/// Re-arm a failed task for automatic retry: bump `retry_count`, clear
+/// transient diagnostic fields, drop back to `pending`. Bypasses
+/// `transition_status` because auto-retry is a recovery flow, not a normal
+/// state-machine edge — the runner that calls this is about to re-acquire
+/// a permit and re-enter the normal flow from `pending`.
+///
+/// `clear_external_task_id`: pass true when the failure happened during
+/// submit (vendor never got our request or returned an unusable id); false
+/// when it happened during poll so the runner's resume path can re-attach
+/// to the still-valid cloud-side job.
+pub fn mark_for_retry(
+    conn: &Connection,
+    id: &str,
+    clear_external_task_id: bool,
+) -> Result<()> {
+    let n = if clear_external_task_id {
+        conn.execute(
+            "UPDATE generation_task SET status='pending', \
+                retry_count = retry_count + 1, \
+                external_task_id = NULL, \
+                error_message = NULL, \
+                started_at = NULL, \
+                finished_at = NULL \
+             WHERE id = ?1",
+            params![id],
+        )?
+    } else {
+        conn.execute(
+            "UPDATE generation_task SET status='pending', \
+                retry_count = retry_count + 1, \
+                error_message = NULL, \
+                started_at = NULL, \
+                finished_at = NULL \
+             WHERE id = ?1",
+            params![id],
+        )?
+    };
+    if n == 0 {
+        return Err(CoreError::NotFound {
+            entity: "generation_task",
+            id: id.to_string(),
+        });
+    }
+    Ok(())
 }
 
 /// Reset all rows whose `status='running'` to `pending` on startup. The
@@ -523,14 +595,113 @@ mod tests {
         for _ in 0..3 {
             create(&conn, make_input(&p, &m, &a)).unwrap();
         }
-        let all = list(&conn, None, None, None).unwrap();
+        let all = list(&conn, None, None, None, None).unwrap();
         assert_eq!(all.len(), 3);
 
-        let only_pending = list(&conn, None, Some(GenerationTaskStatus::Pending), None).unwrap();
+        let only_pending = list(&conn, None, Some(GenerationTaskStatus::Pending), None, None).unwrap();
         assert_eq!(only_pending.len(), 3);
 
-        let limited = list(&conn, None, None, Some(2)).unwrap();
+        let limited = list(&conn, None, None, None, Some(2)).unwrap();
         assert_eq!(limited.len(), 2);
+    }
+
+    #[test]
+    fn mark_for_retry_bumps_count_and_resets_to_pending() {
+        let conn = open_sync(Path::new(":memory:")).unwrap();
+        let (p, m, a) = seed_provider_chain(&conn);
+        let task = create(&conn, make_input(&p, &m, &a)).unwrap();
+        transition_status(&conn, &task.id, GenerationTaskStatus::Running, None).unwrap();
+        transition_status(
+            &conn,
+            &task.id,
+            GenerationTaskStatus::Failed,
+            Some("transient"),
+        )
+        .unwrap();
+        set_external_id(&conn, &task.id, "ext-42").unwrap();
+
+        mark_for_retry(&conn, &task.id, false).unwrap();
+        let after = get_by_id(&conn, &task.id).unwrap();
+        assert_eq!(after.status, GenerationTaskStatus::Pending);
+        assert_eq!(after.retry_count, 1);
+        assert!(after.error_message.is_none());
+        assert!(after.started_at.is_none());
+        assert!(after.finished_at.is_none());
+        // Poll-stage retry preserves external_task_id so the runner can
+        // resume polling instead of double-charging the vendor.
+        assert_eq!(after.external_task_id.as_deref(), Some("ext-42"));
+    }
+
+    #[test]
+    fn mark_for_retry_with_clear_drops_external_id() {
+        let conn = open_sync(Path::new(":memory:")).unwrap();
+        let (p, m, a) = seed_provider_chain(&conn);
+        let task = create(&conn, make_input(&p, &m, &a)).unwrap();
+        set_external_id(&conn, &task.id, "ext-x").unwrap();
+        transition_status(
+            &conn,
+            &task.id,
+            GenerationTaskStatus::Failed,
+            Some("submit timed out"),
+        )
+        .unwrap();
+
+        mark_for_retry(&conn, &task.id, true).unwrap();
+        let after = get_by_id(&conn, &task.id).unwrap();
+        assert!(after.external_task_id.is_none());
+        assert_eq!(after.retry_count, 1);
+    }
+
+    #[test]
+    fn create_batch_assigns_shared_batch_id() {
+        let mut conn = open_sync(Path::new(":memory:")).unwrap();
+        let (p, m, a) = seed_provider_chain(&conn);
+        let inputs = vec![
+            make_input(&p, &m, &a),
+            make_input(&p, &m, &a),
+            make_input(&p, &m, &a),
+        ];
+        let (batch_id, ids) = create_batch(&mut conn, &inputs).unwrap();
+        assert_eq!(ids.len(), 3);
+        for id in &ids {
+            let row = get_by_id(&conn, id).unwrap();
+            assert_eq!(row.batch_id.as_deref(), Some(batch_id.as_str()));
+            assert_eq!(row.status, GenerationTaskStatus::Pending);
+        }
+    }
+
+    #[test]
+    fn create_batch_rejects_empty() {
+        let mut conn = open_sync(Path::new(":memory:")).unwrap();
+        let r = create_batch(&mut conn, &[]);
+        assert!(matches!(r, Err(CoreError::Validation(_))));
+    }
+
+    #[test]
+    fn create_batch_rolls_back_on_invalid_params() {
+        let mut conn = open_sync(Path::new(":memory:")).unwrap();
+        let (p, m, a) = seed_provider_chain(&conn);
+        let good = make_input(&p, &m, &a);
+        let mut bad = make_input(&p, &m, &a);
+        bad.params_json = Some("not json".into());
+        // Pre-count rows so we can assert nothing leaks through.
+        let before: i64 = conn
+            .query_row("SELECT COUNT(*) FROM generation_task", [], |r| r.get(0))
+            .unwrap();
+        let r = create_batch(&mut conn, &[good, bad]);
+        assert!(matches!(r, Err(CoreError::Validation(_))));
+        let after: i64 = conn
+            .query_row("SELECT COUNT(*) FROM generation_task", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(before, after, "transaction must roll back the good row");
+    }
+
+    #[test]
+    fn create_single_leaves_batch_id_null() {
+        let conn = open_sync(Path::new(":memory:")).unwrap();
+        let (p, m, a) = seed_provider_chain(&conn);
+        let task = create(&conn, make_input(&p, &m, &a)).unwrap();
+        assert!(task.batch_id.is_none());
     }
 
     #[test]
@@ -561,9 +732,9 @@ mod tests {
         create(&conn, input_b).unwrap();
         create(&conn, make_input(&p, &m, &a)).unwrap();
 
-        let in_a = list(&conn, Some("proj-a"), None, None).unwrap();
+        let in_a = list(&conn, Some("proj-a"), None, None, None).unwrap();
         assert_eq!(in_a.len(), 2);
-        let in_b = list(&conn, Some("proj-b"), None, None).unwrap();
+        let in_b = list(&conn, Some("proj-b"), None, None, None).unwrap();
         assert_eq!(in_b.len(), 1);
     }
 }

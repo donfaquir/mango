@@ -18,6 +18,10 @@ struct ModelSeed {
     /// One of: 'image' | 'video' | 'text' | 'audio' (matches the CHECK on
     /// `model.model_type`).
     model_type: &'static str,
+    /// JSON metadata used by frontend filtering and submit-time validation.
+    capabilities_json: &'static str,
+    /// JSON defaults merged by UI when users don't specify optional params.
+    default_params_json: &'static str,
 }
 
 const PROVIDERS: &[ProviderSeed] = &[
@@ -34,11 +38,15 @@ const PROVIDERS: &[ProviderSeed] = &[
                 id: "wan2.7-image-pro",
                 name: "通义万相 2.7 Pro（文生图）",
                 model_type: "image",
+                capabilities_json: r#"{"task_types":["image"],"requires_reference_media":false,"sync_submit":true,"supported_sizes":["1K","2K"],"max_n":4}"#,
+                default_params_json: r#"{"size":"2K","n":1,"enable_sequential":false,"negative_prompt":null}"#,
             },
             ModelSeed {
                 id: "happyhorse-1.0-r2v",
                 name: "快乐马 1.0（参考图生视频）",
                 model_type: "video",
+                capabilities_json: r#"{"task_types":["video"],"requires_reference_media":true,"sync_submit":false,"supported_resolutions":["720P","1080P"],"supported_ratios":["16:9","9:16","1:1"],"duration_sec":[5,10]}"#,
+                default_params_json: r#"{"resolution":"720P","ratio":"16:9","duration":5}"#,
             },
         ],
     },
@@ -52,11 +60,15 @@ const PROVIDERS: &[ProviderSeed] = &[
                 id: "jimeng-image-v1",
                 name: "即梦图像 v1",
                 model_type: "image",
+                capabilities_json: r#"{"task_types":["image"],"requires_reference_media":false}"#,
+                default_params_json: r#"{}"#,
             },
             ModelSeed {
                 id: "jimeng-video-v1",
                 name: "即梦视频 v1",
                 model_type: "video",
+                capabilities_json: r#"{"task_types":["video"],"requires_reference_media":false}"#,
+                default_params_json: r#"{}"#,
             },
         ],
     },
@@ -68,7 +80,8 @@ const PROVIDERS: &[ProviderSeed] = &[
 const DEPRECATED_PROVIDERS: &[&str] = &["kling"];
 
 /// Apply provider/model seed data idempotently. System-owned columns
-/// (`name`, `base_url`, `auth_type`, `docs_url`, `model_type`) are FORCED to
+/// (`name`, `base_url`, `auth_type`, `docs_url`, `model_type`,
+/// `capabilities_json`, `default_params_json`) are FORCED to
 /// match the code on every startup via `DO UPDATE` — users must not hand-edit
 /// these rows. User-owned data (`api_account` rows referencing `provider_id`)
 /// is untouched.
@@ -98,12 +111,21 @@ pub fn apply(conn: &Connection) -> Result<()> {
         )?;
         for m in p.models {
             conn.execute(
-                "INSERT INTO model (id, provider_id, name, model_type) \
-                 VALUES (?1, ?2, ?3, ?4) \
+                "INSERT INTO model (id, provider_id, name, model_type, capabilities_json, default_params_json) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6) \
                  ON CONFLICT(id) DO UPDATE SET \
                     name = excluded.name, \
-                    model_type = excluded.model_type",
-                params![m.id, p.id, m.name, m.model_type],
+                    model_type = excluded.model_type, \
+                    capabilities_json = excluded.capabilities_json, \
+                    default_params_json = excluded.default_params_json",
+                params![
+                    m.id,
+                    p.id,
+                    m.name,
+                    m.model_type,
+                    m.capabilities_json,
+                    m.default_params_json
+                ],
             )?;
         }
     }
@@ -244,5 +266,21 @@ mod tests {
             )
             .unwrap();
         assert_eq!(n, 2);
+    }
+
+    #[test]
+    fn apply_writes_model_capabilities_and_defaults() {
+        let conn = open_sync(Path::new(":memory:")).unwrap();
+        apply(&conn).unwrap();
+        let (caps, defaults): (Option<String>, Option<String>) = conn
+            .query_row(
+                "SELECT capabilities_json, default_params_json \
+                 FROM model WHERE id = 'wan2.7-image-pro'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert!(caps.is_some());
+        assert!(defaults.is_some());
     }
 }

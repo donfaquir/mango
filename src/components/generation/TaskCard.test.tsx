@@ -61,6 +61,7 @@ function makeTask(overrides: Partial<GenerationTask> = {}): GenerationTask {
     error_message: null,
     retry_count: 0,
     created_at: new Date().toISOString().replace("T", " ").slice(0, 19),
+    batch_id: null,
     ...overrides,
   };
 }

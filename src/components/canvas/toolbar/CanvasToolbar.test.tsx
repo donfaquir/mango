@@ -1,18 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent } from "@testing-library/react";
 import { ReactFlowProvider } from "@xyflow/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
 const undo = vi.fn();
 const redo = vi.fn();
-const createCheckpoint = vi.fn();
-const toastSuccess = vi.fn();
-const toastError = vi.fn();
 
 let pastLen = 0;
 let futureLen = 0;
-let isPending = false;
 
 vi.mock("@/stores/canvasStore", () => ({
   useCanvasStore: {
@@ -29,17 +25,14 @@ vi.mock("@/stores/canvasStore", () => ({
 }));
 
 vi.mock("sonner", () => ({
-  toast: {
-    success: (msg: string) => toastSuccess(msg),
-    error: (msg: string) => toastError(msg),
-  },
+  toast: { success: vi.fn(), error: vi.fn() },
 }));
 
 vi.mock("@/hooks/useCheckpoint", () => ({
-  useCreateCheckpoint: () => ({
-    mutateAsync: createCheckpoint,
-    isPending,
-  }),
+  useCreateCheckpoint: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useCheckpointList: () => ({ data: [], isLoading: false }),
+  useDeleteCheckpoint: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useRestoreCheckpoint: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }));
 
 import { CanvasToolbar } from "./CanvasToolbar";
@@ -63,12 +56,8 @@ describe("CanvasToolbar", () => {
   beforeEach(() => {
     undo.mockReset();
     redo.mockReset();
-    createCheckpoint.mockReset();
-    toastSuccess.mockReset();
-    toastError.mockReset();
     pastLen = 0;
     futureLen = 0;
-    isPending = false;
   });
 
   it("disables undo when there is no past, enables when there is", () => {
@@ -105,40 +94,16 @@ describe("CanvasToolbar", () => {
     expect(redo).toHaveBeenCalledTimes(1);
   });
 
-  it("save-version flushes autoSave then mutates and toasts success", async () => {
-    const order: string[] = [];
-    const onBeforeSaveVersion = vi.fn(() => {
-      order.push("flush");
-    });
-    createCheckpoint.mockImplementation(async () => {
-      order.push("mutate");
-      return { id: "cp1" };
-    });
-
-    renderToolbar({ onBeforeSaveVersion });
-    fireEvent.click(screen.getByRole("button", { name: /保存版本/ }));
-
-    await waitFor(() => expect(toastSuccess).toHaveBeenCalledWith("已保存版本"));
-    expect(onBeforeSaveVersion).toHaveBeenCalledTimes(1);
-    expect(createCheckpoint).toHaveBeenCalledWith({
-      episode_id: "ep1",
-      label: null,
-    });
-    expect(order).toEqual(["flush", "mutate"]);
-  });
-
-  it("save-version surfaces a toast error when the mutation rejects", async () => {
-    createCheckpoint.mockRejectedValueOnce(new Error("boom"));
+  it("save-version button opens the SaveVersionDialog", () => {
     renderToolbar();
     fireEvent.click(screen.getByRole("button", { name: /保存版本/ }));
-    await waitFor(() => expect(toastError).toHaveBeenCalled());
-    expect(toastSuccess).not.toHaveBeenCalled();
+    expect(screen.getByRole("heading", { name: "保存版本" })).toBeInTheDocument();
   });
 
-  it("disables the save-version button while the mutation is pending", () => {
-    isPending = true;
+  it("version-history button opens the VersionHistoryDialog", () => {
     renderToolbar();
-    expect(screen.getByRole("button", { name: /保存版本/ })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: /版本历史/ }));
+    expect(screen.getByRole("heading", { name: "版本历史" })).toBeInTheDocument();
   });
 
   it("toggles canvas interactivity between lock and unlock", () => {

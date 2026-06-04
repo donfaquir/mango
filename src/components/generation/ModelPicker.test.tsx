@@ -1,10 +1,13 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import type { ApiAccount, Provider } from "@/lib/bindings/commands";
+import type { ApiAccount, Model, Provider } from "@/lib/bindings/commands";
 
 const listProvidersMock = vi.fn<
   () => Promise<{ status: "ok"; data: Provider[] }>
+>();
+const listModelsMock = vi.fn<
+  (providerId: string | null) => Promise<{ status: "ok"; data: Model[] }>
 >();
 const listAccountsMock = vi.fn<
   (providerId: string | null) => Promise<{ status: "ok"; data: ApiAccount[] }>
@@ -13,6 +16,7 @@ const listAccountsMock = vi.fn<
 vi.mock("@/lib/bindings/commands", () => ({
   commands: {
     listProviders: () => listProvidersMock(),
+    listModels: (providerId: string | null) => listModelsMock(providerId),
     listApiAccounts: (providerId: string | null) =>
       listAccountsMock(providerId),
   },
@@ -28,6 +32,29 @@ function makeProvider(): Provider {
     auth_type: "bearer",
     docs_url: "",
   };
+}
+
+function makeBailianModels(): Model[] {
+  return [
+    {
+      id: "wan2.7-image-pro",
+      provider_id: "bailian",
+      name: "通义万相 2.7 Pro（文生图）",
+      model_type: "image",
+      capabilities_json:
+        '{"task_types":["image"],"requires_reference_media":false}',
+      default_params_json: null,
+    },
+    {
+      id: "happyhorse-1.0-r2v",
+      provider_id: "bailian",
+      name: "快乐马 1.0（参考图生视频）",
+      model_type: "video",
+      capabilities_json:
+        '{"task_types":["video"],"requires_reference_media":true}',
+      default_params_json: null,
+    },
+  ];
 }
 
 function makeAccount(id: string, label: string, last4 = "1234"): ApiAccount {
@@ -53,6 +80,7 @@ function renderPicker(props: {
     status: "ok",
     data: [makeProvider()],
   });
+  listModelsMock.mockResolvedValue({ status: "ok", data: makeBailianModels() });
   listAccountsMock.mockResolvedValue({ status: "ok", data: props.accounts });
   const qc = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -69,6 +97,7 @@ function renderPicker(props: {
 describe("ModelPicker", () => {
   beforeEach(() => {
     listProvidersMock.mockReset();
+    listModelsMock.mockReset();
     listAccountsMock.mockReset();
   });
 

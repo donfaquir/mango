@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { MemoryRouter } from "react-router-dom";
 import type { ReactNode } from "react";
 import type { Shot } from "@/lib/bindings/commands";
 
@@ -20,6 +21,10 @@ vi.mock("./CreateShotDialog", () => ({
   CreateShotDialog: () => null,
 }));
 
+vi.mock("@/components/generation/BatchSubmitDialog", () => ({
+  BatchSubmitDialog: () => null,
+}));
+
 import { ShotListPanel } from "./ShotListPanel";
 
 function makeShot(id: string, orderIndex: number, summary: string): Shot {
@@ -36,6 +41,7 @@ function makeShot(id: string, orderIndex: number, summary: string): Shot {
     video_prompt: "",
     image_prompt: "",
     status: "draft",
+    adopted_asset_id: null,
     created_at: "",
     updated_at: "",
   };
@@ -52,9 +58,11 @@ function renderPanel() {
     defaultOptions: { queries: { retry: false } },
   });
   const wrapper = ({ children }: { children: ReactNode }) => (
-    <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    <MemoryRouter>
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    </MemoryRouter>
   );
-  return render(<ShotListPanel episodeId="e1" />, { wrapper });
+  return render(<ShotListPanel episodeId="e1" projectId="p1" />, { wrapper });
 }
 
 describe("ShotListPanel", () => {

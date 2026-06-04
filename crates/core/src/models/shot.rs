@@ -57,6 +57,7 @@ pub struct Shot {
     pub video_prompt: String,
     pub image_prompt: String,
     pub status: ShotStatus,
+    pub adopted_asset_id: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }

@@ -46,7 +46,7 @@ pub async fn run(conn: &AsyncConnection, args: ListArgs) -> anyhow::Result<i32> 
     let limit = args.limit.clamp(1, 500);
 
     let tasks = conn
-        .call(move |c| Ok(task_queries::list(c, project_id.as_deref(), status_filter, Some(limit))))
+        .call(move |c| Ok(task_queries::list(c, project_id.as_deref(), status_filter, None, Some(limit))))
         .await
         .map_err(|e: tokio_rusqlite::Error<rusqlite::Error>| anyhow::anyhow!("db error: {e}"))?
         .map_err(|e| anyhow::anyhow!("{e}"))?;

@@ -105,6 +105,9 @@ export const commands = {
 	getCharacter: (id: string) => typedError<Character, IpcError_Serialize>(__TAURI_INVOKE("get_character", { id })),
 	listCharacters: (opts: ListCharactersOptions) => typedError<Character[], IpcError_Serialize>(__TAURI_INVOKE("list_characters", { opts })),
 	updateCharacter: (id: string, input: UpdateCharacterInput_Deserialize) => typedError<Character, IpcError_Serialize>(__TAURI_INVOKE("update_character", { id, input })),
+	checkCliInstalled: () => typedError<CliStatus, IpcError_Serialize>(__TAURI_INVOKE("check_cli_installed")),
+	installCli: () => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("install_cli")),
+	uninstallCli: () => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("uninstall_cli")),
 	createCostume: (input: CreateCostumeInput) => typedError<Costume, IpcError_Serialize>(__TAURI_INVOKE("create_costume", { input })),
 	deleteCostume: (id: string) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("delete_costume", { id })),
 	getCostume: (id: string) => typedError<Costume, IpcError_Serialize>(__TAURI_INVOKE("get_costume", { id })),
@@ -129,13 +132,10 @@ export const commands = {
 	listEpisodes: (opts: ListEpisodesOptions) => typedError<Episode[], IpcError_Serialize>(__TAURI_INVOKE("list_episodes", { opts })),
 	reorderEpisodes: (projectId: string, orderedIds: string[]) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("reorder_episodes", { projectId, orderedIds })),
 	updateEpisode: (id: string, input: UpdateEpisodeInput_Deserialize) => typedError<Episode, IpcError_Serialize>(__TAURI_INVOKE("update_episode", { id, input })),
-	/**
-	 *  Persist a placeholder checkpoint for the given episode. Reads the current
-	 *  `canvas_layout` row on the DB worker and snapshots its three JSON columns
-	 *  into a new `episode_checkpoint` row. Full version-management (list,
-	 *  restore, retention) lands in MS4.
-	 */
 	createEpisodeCheckpoint: (input: CreateCheckpointInput) => typedError<EpisodeCheckpoint, IpcError_Serialize>(__TAURI_INVOKE("create_episode_checkpoint", { input })),
+	deleteEpisodeCheckpoint: (id: string) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("delete_episode_checkpoint", { id })),
+	listEpisodeCheckpoints: (episodeId: string) => typedError<EpisodeCheckpointListItem[], IpcError_Serialize>(__TAURI_INVOKE("list_episode_checkpoints", { episodeId })),
+	restoreEpisodeCheckpoint: (checkpointId: string) => typedError<Episode, IpcError_Serialize>(__TAURI_INVOKE("restore_episode_checkpoint", { checkpointId })),
 	createProject: (input: CreateProjectInput) => typedError<Project, IpcError_Serialize>(__TAURI_INVOKE("create_project", { input })),
 	/**
 	 *  Delete project metadata only. The on-disk root_path directory and its
@@ -160,6 +160,7 @@ export const commands = {
 	getScene: (id: string) => typedError<Scene, IpcError_Serialize>(__TAURI_INVOKE("get_scene", { id })),
 	listScenes: (opts: ListScenesOptions) => typedError<Scene[], IpcError_Serialize>(__TAURI_INVOKE("list_scenes", { opts })),
 	updateScene: (id: string, input: UpdateSceneInput_Deserialize) => typedError<Scene, IpcError_Serialize>(__TAURI_INVOKE("update_scene", { id, input })),
+	adoptTaskResult: (shotId: string, taskId: string) => typedError<Shot, IpcError_Serialize>(__TAURI_INVOKE("adopt_task_result", { shotId, taskId })),
 	createShot: (input: CreateShotInput) => typedError<Shot, IpcError_Serialize>(__TAURI_INVOKE("create_shot", { input })),
 	deleteShot: (id: string) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("delete_shot", { id })),
 	getShot: (id: string) => typedError<Shot, IpcError_Serialize>(__TAURI_INVOKE("get_shot", { id })),
@@ -167,13 +168,17 @@ export const commands = {
 	listShotLinks: (shotId: string) => typedError<ShotLinks, IpcError_Serialize>(__TAURI_INVOKE("list_shot_links", { shotId })),
 	listShots: (opts: ListShotsOptions) => typedError<Shot[], IpcError_Serialize>(__TAURI_INVOKE("list_shots", { opts })),
 	reorderShots: (episodeId: string, orderedIds: string[]) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("reorder_shots", { episodeId, orderedIds })),
+	unadoptShot: (shotId: string) => typedError<Shot, IpcError_Serialize>(__TAURI_INVOKE("unadopt_shot", { shotId })),
 	unlinkShotSubject: (shotId: string, subjectId: string, subjectKind: SubjectKind) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("unlink_shot_subject", { shotId, subjectId, subjectKind })),
 	updateShot: (id: string, input: UpdateShotInput_Deserialize) => typedError<Shot, IpcError_Serialize>(__TAURI_INVOKE("update_shot", { id, input })),
 	cancelTask: (taskId: string) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("cancel_task", { taskId })),
 	getTask: (taskId: string) => typedError<GenerationTask, IpcError_Serialize>(__TAURI_INVOKE("get_task", { taskId })),
+	getTaskMaxConcurrency: () => typedError<number, IpcError_Serialize>(__TAURI_INVOKE("get_task_max_concurrency")),
 	listTaskEvents: (taskId: string) => typedError<GenerationTaskEvent[], IpcError_Serialize>(__TAURI_INVOKE("list_task_events", { taskId })),
-	listTasks: (projectId: string | null, status: "pending" | "running" | "success" | "failed" | "cancelled" | null, limit: number | null) => typedError<GenerationTask[], IpcError_Serialize>(__TAURI_INVOKE("list_tasks", { projectId, status, limit })),
+	listTasks: (projectId: string | null, status: "pending" | "running" | "success" | "failed" | "cancelled" | null, shotId: string | null, limit: number | null) => typedError<GenerationTask[], IpcError_Serialize>(__TAURI_INVOKE("list_tasks", { projectId, status, shotId, limit })),
+	setTaskMaxConcurrency: (value: number) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("set_task_max_concurrency", { value })),
 	submitTask: (input: CreateGenerationTaskInput) => typedError<string, IpcError_Serialize>(__TAURI_INVOKE("submit_task", { input })),
+	submitTasksBatch: (inputs: CreateGenerationTaskInput[]) => typedError<SubmitBatchOutcome, IpcError_Serialize>(__TAURI_INVOKE("submit_tasks_batch", { inputs })),
 	/**
 	 *  Current workspace mount state. Drives the frontend's onboarding vs
 	 *  main-app routing decision.
@@ -225,6 +230,7 @@ export const commands = {
 
 /** Events */
 export const events = {
+	episodeDataRestored: makeEvent<EpisodeDataRestored>("episode-data-restored"),
 	taskEventLogged: makeEvent<TaskEventLogged>("task-event-logged"),
 	taskProgressTick: makeEvent<TaskProgressTick>("task-progress-tick"),
 	taskStatusChanged: makeEvent<TaskStatusChanged>("task-status-changed"),
@@ -339,6 +345,12 @@ export type Character = {
 	updated_at: string,
 };
 
+export type CliStatus = {
+	installed: boolean,
+	symlink_target: string | null,
+	points_to_current_app: boolean,
+};
+
 export type Costume = {
 	id: string,
 	project_id: string,
@@ -394,8 +406,8 @@ export type CreateCharacterInput = {
 
 export type CreateCheckpointInput = {
 	episode_id: string,
-	/**  Optional user-supplied label. Empty / missing maps to NULL in DB. */
 	label: string | null,
+	trigger_type?: string | null,
 };
 
 export type CreateCostumeInput = {
@@ -473,22 +485,37 @@ export type Episode = {
 	updated_at: string,
 };
 
-/**
- *  A point-in-time snapshot of a single episode's canvas layout. The schema
- *  reserves space for additional MS4 fields (`script_text`, `shots_json`,
- *  `change_summary`) that this MS3 placeholder does not surface yet — the
- *  minimal command writes the schema defaults for those columns.
- */
 export type EpisodeCheckpoint = {
 	id: string,
 	episode_id: string,
 	version_number: number,
 	label: string | null,
 	trigger_type: string,
+	script_text: string,
+	shots_json: string,
 	canvas_nodes_json: string,
 	canvas_edges_json: string,
 	canvas_viewport_json: string,
+	change_summary: string | null,
 	created_at: string,
+};
+
+export type EpisodeCheckpointListItem = {
+	id: string,
+	episode_id: string,
+	version_number: number,
+	trigger_type: string,
+	label: string | null,
+	change_summary: string | null,
+	created_at: string,
+};
+
+/**
+ *  Emitted after a checkpoint restore completes. The frontend invalidates all
+ *  episode-scoped queries (shots, canvas, script) on this event.
+ */
+export type EpisodeDataRestored = {
+	episode_id: string,
 };
 
 export type EventPhase = "submit_upload" | "submit_call" | "poll" | "download" | "persist" | "cleanup";
@@ -512,6 +539,12 @@ export type GenerationTask = {
 	error_message: string | null,
 	retry_count: number,
 	created_at: string,
+	/**
+	 *  Groups multiple tasks created from a single batch submission. NULL for
+	 *  single-task submits (the MS2 path). Set by [`task_engine::submit_batch`]
+	 *  to a UUID v4 shared by every row in the batch.
+	 */
+	batch_id: string | null,
 };
 
 export type GenerationTaskEvent = {
@@ -656,6 +689,10 @@ export type Model = {
 	 *  constraint in `001_initial.sql`.
 	 */
 	model_type: string,
+	/**  JSON metadata for model capability filtering. */
+	capabilities_json: string | null,
+	/**  JSON defaults used to prefill provider params. */
+	default_params_json: string | null,
 };
 
 export type OssConfigInput = {
@@ -795,6 +832,7 @@ export type Shot = {
 	video_prompt: string,
 	image_prompt: string,
 	status: ShotStatus,
+	adopted_asset_id: string | null,
 	created_at: string,
 	updated_at: string,
 };
@@ -813,6 +851,17 @@ export type ShotStatus = "draft" | "ready" | "generating" | "done";
  *  exploding the IPC surface into three near-identical commands.
  */
 export type SubjectKind = "character" | "scene" | "prop";
+
+export type SubmitBatchOutcome = {
+	/**
+	 *  UUID v4 shared by every task row created by this submission. Echoes
+	 *  the `generation_task.batch_id` column for downstream filtering.
+	 */
+	batch_id: string,
+	/**  Task IDs in the caller-supplied input order. */
+	task_ids: string[],
+	created_count: number,
+};
 
 /**
  *  A new diagnostic event has been persisted for `task_id`. Carries the full

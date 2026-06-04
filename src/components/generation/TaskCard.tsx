@@ -13,25 +13,11 @@ import { useAsset } from "@/hooks/useAssets";
 import { useResolvedAssetUrl } from "@/hooks/useResolvedAssetUrl";
 import { useProject } from "@/hooks/useProjects";
 import type { GenerationTask, GenerationTaskEvent } from "@/lib/bindings/commands";
-import { parseDbDate } from "@/lib/datetime";
+import { formatRelative } from "@/lib/datetime";
 
 interface TaskCardProps {
   task: GenerationTask;
   projectId: string;
-}
-
-function formatRelative(dateStr: string): string {
-  const date = parseDbDate(dateStr);
-  const now = new Date();
-  const diffMs = now.getTime() - date.getTime();
-  const diffMin = Math.floor(diffMs / 60000);
-  if (diffMin < 1) return "刚刚";
-  if (diffMin < 60) return `${diffMin} 分钟前`;
-  const diffHour = Math.floor(diffMin / 60);
-  if (diffHour < 24) return `${diffHour} 小时前`;
-  const diffDay = Math.floor(diffHour / 24);
-  if (diffDay < 30) return `${diffDay} 天前`;
-  return date.toLocaleDateString("zh-CN");
 }
 
 function getPrompt(paramsJson: string): string {
@@ -116,6 +102,14 @@ export function TaskCard({ task, projectId }: TaskCardProps) {
         <div className="flex-1 min-w-0 space-y-1.5">
           <div className="flex items-center gap-2">
             <TaskStatusBadge status={task.status} />
+            {task.retry_count > 0 && (
+              <span
+                className="rounded-full bg-amber-500/15 px-2 py-0.5 text-xs text-amber-700 dark:text-amber-300"
+                title="已自动重试"
+              >
+                已重试 {task.retry_count} 次
+              </span>
+            )}
             <span className="text-xs text-muted-foreground">
               {formatRelative(task.created_at)}
             </span>

@@ -8,6 +8,7 @@ pub(crate) mod client;
 pub(crate) mod happyhorse;
 pub mod materializer;
 pub(crate) mod types;
+pub(crate) mod validate;
 pub(crate) mod wan27;
 
 use std::collections::HashMap;
@@ -63,6 +64,7 @@ impl Default for BailianProvider {
 #[async_trait]
 impl ModelProvider for BailianProvider {
     async fn submit(&self, params: GenerationParams) -> Result<SubmitOutcome> {
+        validate::validate_params(&params)?;
         let client = BailianClient::new(&self.http, &params.credentials)?;
         match params.model_id.as_str() {
             "wan2.7-image-pro" => {

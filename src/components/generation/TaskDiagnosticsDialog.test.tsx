@@ -43,6 +43,7 @@ function makeTask(overrides: Partial<GenerationTask> = {}): GenerationTask {
     error_message: "认证失败",
     retry_count: 0,
     created_at: "2026-05-26 10:00:00",
+    batch_id: null,
     ...overrides,
   };
 }

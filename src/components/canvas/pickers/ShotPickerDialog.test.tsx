@@ -48,6 +48,7 @@ function fullShot(s: Pick<{ id: string; episode_id: string; order_index: number;
     dialogue: "",
     video_prompt: "",
     image_prompt: "",
+    adopted_asset_id: null,
     created_at: "",
     updated_at: "",
   };

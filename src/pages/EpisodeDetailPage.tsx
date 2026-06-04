@@ -119,7 +119,7 @@ export default function EpisodeDetailPage() {
         episodeId={ep.id}
         initialText={ep.script_text}
       />
-      <ShotListPanel episodeId={ep.id} />
+      <ShotListPanel episodeId={ep.id} projectId={projectId} />
     </div>
   );
 }

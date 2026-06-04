@@ -29,6 +29,8 @@ import { DropTargetOverlay } from "./drag/DropTargetOverlay";
 import { useInternalAssetDrop } from "./drag/useInternalAssetDrop";
 import { CanvasToolbar } from "./toolbar/CanvasToolbar";
 import { useCanvasShortcuts } from "./toolbar/useCanvasShortcuts";
+import { useCheckpointAutoSave } from "@/hooks/useCheckpointAutoSave";
+import { useEpisodeDataRestoredListener } from "@/hooks/useCheckpoint";
 
 interface Props {
   episodeId: string;
@@ -55,6 +57,8 @@ export function CanvasInner({ episodeId, initialViewport }: Props) {
 
   const autoSave = useAutoSaveLayout(episodeId);
   useCanvasShortcuts();
+  useCheckpointAutoSave(episodeId);
+  useEpisodeDataRestoredListener();
 
   const onNodeDragStart = useCallback(() => {
     useCanvasStore.temporal.getState().pause();
