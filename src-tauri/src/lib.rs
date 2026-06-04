@@ -58,6 +58,7 @@ fn make_builder() -> Builder<tauri::Wry> {
             commands::ffmpeg::check_ffmpeg,
             commands::ffmpeg::concat_videos,
             commands::ffmpeg::extract_thumbnail,
+            commands::ffmpeg::extract_thumbnail_strip,
             commands::ffmpeg::probe_video,
             commands::ffmpeg::split_video,
             commands::ffmpeg::trim_video,

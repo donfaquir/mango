@@ -135,6 +135,7 @@ export const commands = {
 	checkFfmpeg: () => typedError<FfmpegStatus, IpcError_Serialize>(__TAURI_INVOKE("check_ffmpeg")),
 	concatVideos: (inputs: string[], output: string) => typedError<string, IpcError_Serialize>(__TAURI_INVOKE("concat_videos", { inputs, output })),
 	extractThumbnail: (input: string, timestampMs: number, output: string) => typedError<string, IpcError_Serialize>(__TAURI_INVOKE("extract_thumbnail", { input, timestampMs, output })),
+	extractThumbnailStrip: (input: string, intervalMs: number, thumbWidth: number) => typedError<ThumbnailStripResult, IpcError_Serialize>(__TAURI_INVOKE("extract_thumbnail_strip", { input, intervalMs, thumbWidth })),
 	probeVideo: (path: string) => typedError<VideoMetadata, IpcError_Serialize>(__TAURI_INVOKE("probe_video", { path })),
 	splitVideo: (input: string, splitPointsMs: number[], outputDir: string, mode: TrimMode) => typedError<string[], IpcError_Serialize>(__TAURI_INVOKE("split_video", { input, splitPointsMs, outputDir, mode })),
 	trimVideo: (input: string, startMs: number, endMs: number, output: string, mode: TrimMode) => typedError<string, IpcError_Serialize>(__TAURI_INVOKE("trim_video", { input, startMs, endMs, output, mode })),
@@ -912,6 +913,12 @@ export type TaskStatusChanged = {
 	/**  0..=100; `None` means the provider does not report progress. */
 	progress: number | null,
 	error_message: string | null,
+};
+
+export type ThumbnailStripResult = {
+	thumbnails: string[],
+	interval_ms: number,
+	count: number,
 };
 
 export type TrimMode = "Copy" | "Reencode";

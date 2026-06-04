@@ -1,8 +1,8 @@
 use std::path::Path;
 
 use mango_core::ffmpeg::{
-    check_ffmpeg, concat_videos, extract_thumbnail, probe_video, split_video, trim_video,
-    FfmpegConfig, FfmpegProgress, TrimMode,
+    check_ffmpeg, concat_videos, extract_thumbnail, extract_thumbnail_strip, probe_video,
+    split_video, trim_video, FfmpegConfig, FfmpegProgress, TrimMode,
 };
 
 // ---------------------------------------------------------------------------
@@ -285,6 +285,47 @@ fn progress_none_still_works() {
     let out = tmp.join("none_out.mp4");
     trim_video(&config, &src, 0, 2000, &out, &TrimMode::Copy, None).unwrap();
     assert!(out.exists());
+
+    std::fs::remove_dir_all(&tmp).ok();
+}
+
+// ---------------------------------------------------------------------------
+// spec-35 tests: thumbnail strip
+// ---------------------------------------------------------------------------
+
+#[test]
+#[ignore]
+fn thumbnail_strip_real() {
+    let config = FfmpegConfig::from_env();
+    let tmp = test_dir("thumb_strip");
+    let src = tmp.join("strip_src.mp4");
+    generate_test_video(&config, &src, 5, 320, 240);
+
+    let out_dir = tmp.join("strip_out");
+    let result = extract_thumbnail_strip(&config, &src, 1000, 120, &out_dir).unwrap();
+
+    println!("Thumbnail strip: {} images", result.count);
+    assert!(result.count >= 4 && result.count <= 6, "should produce ~5 thumbnails for 5s video");
+    for path in &result.thumbnails {
+        assert!(std::path::Path::new(path).exists(), "thumbnail should exist: {path}");
+    }
+
+    std::fs::remove_dir_all(&tmp).ok();
+}
+
+#[test]
+#[ignore]
+fn thumbnail_strip_cache_hit() {
+    let config = FfmpegConfig::from_env();
+    let tmp = test_dir("thumb_cache");
+    let src = tmp.join("cache_src.mp4");
+    generate_test_video(&config, &src, 3, 320, 240);
+
+    let out_dir = tmp.join("cache_out");
+    let r1 = extract_thumbnail_strip(&config, &src, 1000, 120, &out_dir).unwrap();
+    let r2 = extract_thumbnail_strip(&config, &src, 1000, 120, &out_dir).unwrap();
+
+    assert_eq!(r1.count, r2.count, "cache should return same count");
 
     std::fs::remove_dir_all(&tmp).ok();
 }

@@ -1,8 +1,8 @@
 # SPEC-35: 单轨时间轴 UI 与裁剪交互
 
-> 对应 MS5 原任务 6（基础时间轴 UI）。构建自研的单轨视频时间轴组件，支持缩略图条背景、裁剪手柄拖拽、播放头同步。
+> 对应 MS5 原任务 6（基础时间轴 UI）。构建自研的单轨视频时间轴组件，支持缩略图条背景、裁剪手柄拖拽、播放头同步。包含 `extract_thumbnail_strip` 后端实现（从 spec-33 移入）。
 
-依赖：spec-33（`extract_thumbnail_strip` 生成缩略图条）、spec-34（`useFFmpegProgress` 供操作触发时显示进度）
+依赖：spec-32（`FfmpegConfig` + `probe_video`）、spec-33（`extract_thumbnail` 单帧抽取）、spec-34（`useFFmpegProgress`）
 
 非目标：
 - 多轨时间轴（仅单视频轨）
@@ -34,19 +34,92 @@ VideoEditorLayout
 
 ---
 
-## 2. 缩略图条（ThumbnailStrip）
+## 2. 缩略图条后端（extract_thumbnail_strip）
 
-**数据获取**：组件 mount 时调用 `extract_thumbnail_strip` IPC（spec-33），传入视频路径、间隔（默认 1000ms）、宽度（120px）。
+> 从 spec-33 移入。spec-33 仅实现了单帧 `extract_thumbnail`，缩略图条涉及缓存策略和项目目录结构，属于时间轴业务层。
 
-**渲染**：将缩略图按序排列为水平条，通过 CSS `display: flex` 或 `background-image` 拼接。总宽度 = `thumbnailCount * thumbDisplayWidth`，受缩放级别影响。
+### 2.1 Core 层实现
 
-**缓存**：缩略图存储在项目 `thumbnails/strips/` 下，按 `{asset_id}_{interval}_{width}` 缓存。TanStack Query 管理请求状态，`staleTime: Infinity`（同一视频的缩略图不会变）。
+```rust
+// crates/core/src/ffmpeg/thumbnail.rs
 
-**加载态**：生成缩略图前显示灰色骨架条 + spinner。
+pub struct ThumbnailStripResult {
+    pub thumbnails: Vec<PathBuf>,
+    pub interval_ms: i64,
+    pub count: u32,
+}
+
+pub fn extract_thumbnail_strip(
+    config: &FfmpegConfig,
+    input: &Path,
+    interval_ms: i64,
+    thumb_width: u32,
+    output_dir: &Path,
+) -> Result<ThumbnailStripResult>
+```
+
+FFmpeg 命令：`ffmpeg -y -i {input} -vf "fps=1/{interval_s},scale={width}:-1" {output_dir}/%04d.jpg`
+
+**参数校验**：
+- `interval_ms > 0`
+- `thumb_width > 0`
+- 输入文件存在
+- `output_dir` 存在（调用方负责创建）
+
+### 2.2 缓存策略
+
+缩略图存储在项目目录下 `thumbnails/strips/{cache_key}/`：
+
+- **缓存 key**：`{path_hash}_{interval}_{width}`，其中 `path_hash` 为源文件绝对路径的 SHA-256 前 12 位 hex
+- **命中判定**：缓存目录存在且非空 → 跳过生成，直接返回已有文件列表
+- **失效**：不主动失效（同一文件路径的缩略图不会变）；用户手动删除 `thumbnails/strips/` 可强制重新生成
+
+不使用 `asset_id` 做 key——时间轴组件不感知 asset 概念，只接收文件路径。
+
+### 2.3 IPC + 类型
+
+```rust
+// src-tauri/src/commands/ffmpeg.rs
+
+#[tauri::command]
+pub async fn extract_thumbnail_strip(
+    state: State<'_, AppState>,
+    input: String,
+    interval_ms: i32,
+    thumb_width: u32,
+) -> Result<ThumbnailStripResult, IpcError>
+```
+
+Tauri command 层负责：
+1. 从 `MountedState` 取 `workspace_root`
+2. 构建 output_dir = `{workspace_root}/thumbnails/strips/{cache_key}/`
+3. 检查缓存命中
+4. 未命中时调 core 函数生成
+5. 将绝对路径转为 `convertFileSrc` 可用的路径返回
+
+**TS 返回类型**：
+
+```typescript
+interface ThumbnailStripResult {
+    thumbnails: string[];  // 各缩略图文件路径
+    intervalMs: number;
+    count: number;
+}
+```
 
 ---
 
-## 3. 时间刻度（TimeScale）
+## 3. 缩略图条前端（ThumbnailStrip）
+
+**数据获取**：`useThumbnailStrip(videoPath)` hook 调用 `extract_thumbnail_strip` IPC。TanStack Query 管理请求状态，`staleTime: Infinity`。
+
+**渲染**：将缩略图按序排列为水平条，通过 CSS `display: flex` 拼接。每张缩略图的显示宽度受缩放级别影响：`thumbDisplayWidth = interval_ms * zoom / 100`（zoom 基准 1x = 1px/100ms）。
+
+**加载态**：生成缩略图前显示灰色骨架条（shadcn `Skeleton`）。
+
+---
+
+## 4. 时间刻度（TimeScale）
 
 div-based 刻度尺，位于缩略图条上方。
 
@@ -64,7 +137,7 @@ div-based 刻度尺，位于缩略图条上方。
 
 ---
 
-## 4. 裁剪手柄（TrimHandles）
+## 5. 裁剪手柄（TrimHandles）
 
 两个可拖拽的垂直条（左 = in point，右 = out point）。
 
@@ -87,7 +160,7 @@ div-based 刻度尺，位于缩略图条上方。
 
 ---
 
-## 5. 播放头（PlaybackHead）
+## 6. 播放头（PlaybackHead）
 
 垂直红色细线（2px），顶部带倒三角标记。
 
@@ -101,7 +174,7 @@ div-based 刻度尺，位于缩略图条上方。
 
 ---
 
-## 6. 视频预览（VideoPreview）
+## 7. 视频预览（VideoPreview）
 
 ```tsx
 <video
@@ -111,7 +184,7 @@ div-based 刻度尺，位于缩略图条上方。
 />
 ```
 
-使用 Tauri `convertFileSrc()` 通过 asset protocol 访问本地视频文件。
+使用 Tauri `convertFileSrc()` 通过 asset protocol 访问本地视频文件（复用 `src/lib/assetUrl.ts` 的模式）。
 
 **自定义控制**：
 - 播放/暂停按钮
@@ -122,7 +195,7 @@ div-based 刻度尺，位于缩略图条上方。
 
 ---
 
-## 7. 缩放控制（TimelineControls）
+## 8. 缩放控制（TimelineControls）
 
 - shadcn `Slider` 组件控制缩放级别（0.1x – 20x，对数刻度）
 - 滚轮缩放：`Ctrl/Cmd + wheel` 以鼠标位置为锚点缩放
@@ -131,7 +204,7 @@ div-based 刻度尺，位于缩略图条上方。
 
 ---
 
-## 8. Zustand Store
+## 9. Zustand Store
 
 ```typescript
 // src/stores/timelineStore.ts
@@ -157,9 +230,16 @@ interface TimelineState {
 
 ---
 
-## 9. 目录增量
+## 10. 目录增量
 
 ```
+crates/core/src/ffmpeg/
+├── mod.rs              # + pub mod thumbnail;
+└── thumbnail.rs        # extract_thumbnail_strip, ThumbnailStripResult
+
+src-tauri/src/commands/
+└── ffmpeg.rs           # + extract_thumbnail_strip command
+
 src/components/editor/
 ├── VideoEditorLayout.tsx    # 整体布局容器
 ├── VideoPreview.tsx         # <video> 预览 + 自定义控制
@@ -179,7 +259,42 @@ src/hooks/
 
 ---
 
-## 10. 测试
+## 11. IPC 一览
+
+| command | 签名 | 说明 |
+|---|---|---|
+| `extract_thumbnail_strip` | `(input: String, interval_ms: i32, thumb_width: u32) -> Result<ThumbnailStripResult, String>` | 按间隔抽取缩略图序列，带缓存 |
+
+---
+
+## 12. Model 变更
+
+Core 层（`thumbnail.rs`）：
+
+```rust
+#[derive(Debug, Clone, Serialize, Deserialize, Type, TS)]
+#[ts(export)]
+pub struct ThumbnailStripResult {
+    pub thumbnails: Vec<String>,
+    #[specta(type = specta_typescript::Number)]
+    pub interval_ms: i64,
+    pub count: u32,
+}
+```
+
+---
+
+## 13. 测试
+
+### 13.1 后端测试
+
+| 用例 | 说明 |
+|---|---|
+| `thumbnail_strip_real` | 5s 视频 + 1000ms 间隔 → 产出 ~5 张缩略图（`#[ignore]`） |
+| `thumbnail_strip_cache` | 二次调用跳过 FFmpeg，直接返回缓存（`#[ignore]`） |
+| `thumbnail_strip_invalid_interval` | interval_ms=0 返回错误 |
+
+### 13.2 前端测试
 
 | 用例 | 说明 |
 |---|---|
@@ -194,8 +309,10 @@ src/hooks/
 
 ---
 
-## 11. 验收清单
+## 14. 验收清单
 
+- [ ] `extract_thumbnail_strip` 对 5s 视频产出正确数量的缩略图
+- [ ] 缩略图缓存在项目 `thumbnails/strips/` 下，二次调用不重复生成
 - [ ] 时间轴正确显示视频时长对应的缩略图条
 - [ ] 缩略图条加载有 loading 态，生成完成后正确渲染
 - [ ] 可拖动左右裁剪手柄设置裁剪范围

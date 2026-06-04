@@ -131,3 +131,34 @@ pub async fn extract_thumbnail(
     .map_err(IpcError::from)?;
     Ok(result.to_string_lossy().into_owned())
 }
+
+#[tauri::command]
+#[specta::specta]
+pub async fn extract_thumbnail_strip(
+    state: tauri::State<'_, crate::state::AppState>,
+    input: String,
+    interval_ms: i32,
+    thumb_width: u32,
+) -> Result<ffmpeg::ThumbnailStripResult, IpcError> {
+    let mounted = super::require_mount(&state)?;
+    let workspace_root = mounted.workspace_root.clone();
+
+    tokio::task::spawn_blocking(move || {
+        let config = ffmpeg::FfmpegConfig::from_env();
+        let input_path = Path::new(&input);
+        let cache_key =
+            ffmpeg::thumbnail_strip_cache_key(input_path, interval_ms as i64, thumb_width);
+        let output_dir = workspace_root.join("thumbnails").join("strips").join(&cache_key);
+
+        ffmpeg::extract_thumbnail_strip(
+            &config,
+            input_path,
+            interval_ms as i64,
+            thumb_width,
+            &output_dir,
+        )
+        .map_err(IpcError::from)
+    })
+    .await
+    .map_err(|e| IpcError::internal(format!("task join error: {e}")))?
+}
