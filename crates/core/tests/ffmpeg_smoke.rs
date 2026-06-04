@@ -1,97 +1,243 @@
 use std::path::Path;
 
-use mango_core::ffmpeg::{check_ffmpeg, probe_video, FfmpegConfig};
+use mango_core::ffmpeg::{
+    check_ffmpeg, concat_videos, extract_thumbnail, probe_video, split_video, trim_video,
+    FfmpegConfig, TrimMode,
+};
 
-/// Smoke test: verify check_ffmpeg detects a real FFmpeg installation.
-/// Requires FFmpeg in PATH or MANGO_FFMPEG_PATH. Skip (ignore) in CI
-/// where FFmpeg may not be installed.
+// ---------------------------------------------------------------------------
+// Helper: generate a test video with lavfi
+// ---------------------------------------------------------------------------
+
+fn test_dir(name: &str) -> std::path::PathBuf {
+    let dir = std::env::temp_dir().join(format!("mango_ffmpeg_test_{name}"));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    dir
+}
+
+fn generate_test_video(config: &FfmpegConfig, path: &Path, duration_secs: u32, width: u32, height: u32) {
+    let video_src = format!("testsrc=duration={duration_secs}:size={width}x{height}:rate=25");
+    let audio_src = format!("sine=frequency=440:duration={duration_secs}");
+    let status = std::process::Command::new(config.ffmpeg_bin())
+        .args(["-y", "-f", "lavfi", "-i", &video_src, "-f", "lavfi", "-i", &audio_src])
+        .args(["-c:v", "libx264", "-preset", "ultrafast", "-c:a", "aac", "-shortest"])
+        .arg(path)
+        .output()
+        .expect("failed to run ffmpeg");
+    assert!(status.status.success(), "generate video failed: {}", String::from_utf8_lossy(&status.stderr));
+}
+
+fn generate_video_only(config: &FfmpegConfig, path: &Path, duration_secs: u32) {
+    let video_src = format!("testsrc=duration={duration_secs}:size=320x240:rate=25");
+    let status = std::process::Command::new(config.ffmpeg_bin())
+        .args(["-y", "-f", "lavfi", "-i", &video_src])
+        .args(["-c:v", "libx264", "-preset", "ultrafast", "-an"])
+        .arg(path)
+        .output()
+        .expect("failed to run ffmpeg");
+    assert!(status.status.success(), "generate video-only failed: {}", String::from_utf8_lossy(&status.stderr));
+}
+
+// ---------------------------------------------------------------------------
+// spec-32 tests
+// ---------------------------------------------------------------------------
+
 #[test]
 #[ignore]
 fn check_ffmpeg_real() {
     let config = FfmpegConfig::from_env();
     let status = check_ffmpeg(&config);
-
     println!("FFmpeg available: {}", status.available);
     println!("FFmpeg version:   {:?}", status.version);
     println!("FFmpeg path:      {:?}", status.path);
-
-    assert!(status.available, "FFmpeg should be available on this machine");
-    assert!(status.version.is_some(), "version should be parsed");
+    assert!(status.available);
+    assert!(status.version.is_some());
 }
 
-/// Smoke test: generate a tiny video with FFmpeg, then probe it.
-/// Requires FFmpeg in PATH.
 #[test]
 #[ignore]
 fn probe_video_real() {
     let config = FfmpegConfig::from_env();
+    let tmp = test_dir("probe");
+    let video = tmp.join("probe_test.mp4");
+    generate_test_video(&config, &video, 2, 320, 240);
 
-    // Generate a 2-second test video using FFmpeg's lavfi test source
-    let tmp_dir = std::env::temp_dir().join("mango_ffmpeg_test");
-    std::fs::create_dir_all(&tmp_dir).unwrap();
-    let test_video = tmp_dir.join("test_2s.mp4");
-
-    let gen_status = std::process::Command::new(config.ffmpeg_bin())
-        .args([
-            "-y",
-            "-f",
-            "lavfi",
-            "-i",
-            "testsrc=duration=2:size=320x240:rate=25",
-            "-f",
-            "lavfi",
-            "-i",
-            "sine=frequency=440:duration=2",
-            "-c:v",
-            "libx264",
-            "-preset",
-            "ultrafast",
-            "-c:a",
-            "aac",
-            "-shortest",
-        ])
-        .arg(&test_video)
-        .output()
-        .expect("failed to generate test video");
-
-    assert!(
-        gen_status.status.success(),
-        "ffmpeg should generate test video: {}",
-        String::from_utf8_lossy(&gen_status.stderr)
-    );
-    assert!(test_video.exists(), "test video file should exist");
-
-    // Probe the generated video
-    let meta = probe_video(&config, &test_video).expect("probe should succeed");
-
-    println!("Duration:    {} ms", meta.duration_ms);
-    println!("Resolution:  {}x{}", meta.width, meta.height);
-    println!("Video codec: {}", meta.video_codec);
-    println!("Audio codec: {:?}", meta.audio_codec);
-    println!("FPS:         {:.2}", meta.fps);
-    println!("Bitrate:     {:?} kbps", meta.bitrate_kbps);
-    println!("File size:   {} bytes", meta.file_size_bytes);
-
-    assert!(meta.duration_ms >= 1800 && meta.duration_ms <= 2500, "duration ~2s");
+    let meta = probe_video(&config, &video).unwrap();
+    println!("{meta:?}");
+    assert!(meta.duration_ms >= 1800 && meta.duration_ms <= 2500);
     assert_eq!(meta.width, 320);
     assert_eq!(meta.height, 240);
     assert_eq!(meta.video_codec, "h264");
-    assert!(meta.audio_codec.is_some(), "should have audio track");
-    assert!(meta.fps > 24.0 && meta.fps < 26.0, "fps ~25");
-    assert!(meta.file_size_bytes > 0);
+    assert!(meta.audio_codec.is_some());
+    assert!(meta.fps > 24.0 && meta.fps < 26.0);
 
-    // Cleanup
-    std::fs::remove_dir_all(&tmp_dir).ok();
+    std::fs::remove_dir_all(&tmp).ok();
 }
 
-/// Probe a non-existent file should return a clear error.
 #[test]
 #[ignore]
 fn probe_video_missing_file() {
     let config = FfmpegConfig::from_env();
-    let result = probe_video(&config, Path::new("/tmp/nonexistent_video.mp4"));
-    assert!(result.is_err());
-    let err_msg = result.unwrap_err().to_string();
-    println!("Error: {err_msg}");
-    assert!(err_msg.contains("does not exist"));
+    let err = probe_video(&config, Path::new("/tmp/nonexistent_video.mp4"));
+    assert!(err.is_err());
+    assert!(err.unwrap_err().to_string().contains("does not exist"));
+}
+
+// ---------------------------------------------------------------------------
+// spec-33 tests: trim
+// ---------------------------------------------------------------------------
+
+#[test]
+#[ignore]
+fn trim_copy_real() {
+    let config = FfmpegConfig::from_env();
+    let tmp = test_dir("trim_copy");
+    let src = tmp.join("trim_src.mp4");
+    generate_test_video(&config, &src, 5, 320, 240);
+
+    let out = tmp.join("trim_copy_out.mp4");
+    trim_video(&config, &src, 1000, 4000, &out, &TrimMode::Copy).unwrap();
+
+    assert!(out.exists());
+    let meta = probe_video(&config, &out).unwrap();
+    println!("Trimmed (copy) duration: {} ms", meta.duration_ms);
+    assert!(meta.duration_ms >= 2500 && meta.duration_ms <= 3500, "duration ~3s");
+
+    std::fs::remove_dir_all(&tmp).ok();
+}
+
+#[test]
+#[ignore]
+fn trim_reencode_real() {
+    let config = FfmpegConfig::from_env();
+    let tmp = test_dir("trim_reencode");
+    let src = tmp.join("trim_reencode_src.mp4");
+    generate_test_video(&config, &src, 5, 320, 240);
+
+    let out = tmp.join("trim_reencode_out.mp4");
+    trim_video(&config, &src, 1000, 4000, &out, &TrimMode::Reencode).unwrap();
+
+    assert!(out.exists());
+    let meta = probe_video(&config, &out).unwrap();
+    println!("Trimmed (reencode) duration: {} ms", meta.duration_ms);
+    assert!(meta.duration_ms >= 2800 && meta.duration_ms <= 3200, "duration ~3s");
+
+    std::fs::remove_dir_all(&tmp).ok();
+}
+
+#[test]
+#[ignore]
+fn trim_reencode_no_audio() {
+    let config = FfmpegConfig::from_env();
+    let tmp = test_dir("trim_noaudio");
+    let src = tmp.join("trim_noaudio_src.mp4");
+    generate_video_only(&config, &src, 3);
+
+    let out = tmp.join("trim_noaudio_out.mp4");
+    trim_video(&config, &src, 500, 2500, &out, &TrimMode::Reencode).unwrap();
+
+    assert!(out.exists());
+    let meta = probe_video(&config, &out).unwrap();
+    println!("Trimmed (no audio) duration: {} ms, audio: {:?}", meta.duration_ms, meta.audio_codec);
+    assert!(meta.audio_codec.is_none());
+
+    std::fs::remove_dir_all(&tmp).ok();
+}
+
+// ---------------------------------------------------------------------------
+// spec-33 tests: split
+// ---------------------------------------------------------------------------
+
+#[test]
+#[ignore]
+fn split_two_points_real() {
+    let config = FfmpegConfig::from_env();
+    let tmp = test_dir("split");
+    let src = tmp.join("split_src.mp4");
+    generate_test_video(&config, &src, 6, 320, 240);
+
+    let out_dir = tmp.join("split_out");
+    std::fs::create_dir_all(&out_dir).unwrap();
+
+    let parts = split_video(&config, &src, &[2000, 4000], &out_dir, &TrimMode::Copy).unwrap();
+    println!("Split produced {} parts", parts.len());
+    assert_eq!(parts.len(), 3);
+    for p in &parts {
+        assert!(p.exists(), "part should exist: {}", p.display());
+        let meta = probe_video(&config, p).unwrap();
+        println!("  {}: {} ms", p.file_name().unwrap().to_string_lossy(), meta.duration_ms);
+    }
+
+    std::fs::remove_dir_all(&tmp).ok();
+}
+
+// ---------------------------------------------------------------------------
+// spec-33 tests: concat
+// ---------------------------------------------------------------------------
+
+#[test]
+#[ignore]
+fn concat_same_params_real() {
+    let config = FfmpegConfig::from_env();
+    let tmp = test_dir("concat_same");
+
+    let a = tmp.join("concat_a.mp4");
+    let b = tmp.join("concat_b.mp4");
+    generate_test_video(&config, &a, 2, 320, 240);
+    generate_test_video(&config, &b, 3, 320, 240);
+
+    let out = tmp.join("concat_out.mp4");
+    concat_videos(&config, &[a, b], &out).unwrap();
+
+    assert!(out.exists());
+    let meta = probe_video(&config, &out).unwrap();
+    println!("Concat duration: {} ms", meta.duration_ms);
+    assert!(meta.duration_ms >= 4500 && meta.duration_ms <= 5500, "duration ~5s");
+
+    std::fs::remove_dir_all(&tmp).ok();
+}
+
+#[test]
+#[ignore]
+fn concat_diff_params_error() {
+    let config = FfmpegConfig::from_env();
+    let tmp = test_dir("concat_diff");
+
+    let a = tmp.join("concat_diff_a.mp4");
+    let b = tmp.join("concat_diff_b.mp4");
+    generate_test_video(&config, &a, 2, 320, 240);
+    generate_test_video(&config, &b, 2, 640, 480);
+
+    let out = tmp.join("concat_diff_out.mp4");
+    let err = concat_videos(&config, &[a, b], &out);
+    assert!(err.is_err());
+    let msg = err.unwrap_err().to_string();
+    println!("Expected error: {msg}");
+    assert!(msg.contains("resolution"));
+
+    std::fs::remove_dir_all(&tmp).ok();
+}
+
+// ---------------------------------------------------------------------------
+// spec-33 tests: thumbnail
+// ---------------------------------------------------------------------------
+
+#[test]
+#[ignore]
+fn thumbnail_real() {
+    let config = FfmpegConfig::from_env();
+    let tmp = test_dir("thumbnail");
+    let src = tmp.join("thumb_src.mp4");
+    generate_test_video(&config, &src, 3, 320, 240);
+
+    let out = tmp.join("thumb_1s.jpg");
+    extract_thumbnail(&config, &src, 1000, &out).unwrap();
+
+    assert!(out.exists());
+    let size = std::fs::metadata(&out).unwrap().len();
+    println!("Thumbnail size: {} bytes", size);
+    assert!(size > 100, "thumbnail should not be empty");
+
+    std::fs::remove_dir_all(&tmp).ok();
 }

@@ -5,15 +5,34 @@
 依赖：spec-32（FFmpeg sidecar + probe）
 
 非目标：
-- 进度解析与事件推送 — spec-34（本 spec 的命令函数预留 progress sender 参数，但不实现解析逻辑）
+- 进度解析与事件推送 — spec-34（本 spec 的命令函数为纯功能实现，spec-34 再加进度回调）
+- 缩略图条生成（`extract_thumbnail_strip`）— spec-35（涉及 asset_id 缓存和项目目录结构，属于时间轴业务层）
 - 前端 UI — spec-35/36
 - 字幕烧录 / 气泡叠加 — MS6
+- 异参数视频拼接（FilterComplex 模式）— 后续按需添加
 
 ---
 
-## 1. 裁剪（Trim）
+## 1. 设计决策
+
+### 1.1 同步函数，不用 async
+
+所有命令函数使用同步签名（`std::process::Command`），与 spec-32 的 `probe_video` / `check_ffmpeg` 保持一致。Tauri command 层已经是 async 的，由调用方决定是否用 `spawn_blocking` 包装。core crate 不引入 async 运行时依赖。
+
+### 1.2 不预留 progress_tx 参数
+
+spec-34 的 `FfmpegProgress` 类型在本 spec 实现时尚不存在。先写纯功能实现，spec-34 再扩展函数签名添加进度回调，保持每个 spec 自包含。
+
+### 1.3 拼接只做 Demuxer 模式（MVP）
+
+FilterComplex 模式（异参数转码拼接）涉及大量边界情况（音轨有无混合、像素格式对齐、采样率重采样、N 路 filter chain 拼接）。Mango 的使用场景是 AI 生成的视频片段——同一模型产出的视频参数大概率一致。MVP 阶段只实现 Demuxer（`-c copy`）模式，检测到参数不一致时返回明确错误提示用户，不尝试转码。
+
+---
+
+## 2. 裁剪（Trim）
 
 ```rust
+#[derive(Debug, Clone, Serialize, Deserialize, Type, TS)]
 pub enum TrimMode {
     Copy,      // -c copy，快速但关键帧对齐
     Reencode,  // 重编码，精确到帧
@@ -27,20 +46,23 @@ pub struct TrimInput {
     pub mode: TrimMode,
 }
 
-pub async fn trim_video(
+pub fn trim_video(
     config: &FfmpegConfig,
     input: TrimInput,
-    progress_tx: Option<mpsc::Sender<FfmpegProgress>>,
 ) -> Result<PathBuf>
 ```
 
-**Copy 模式**：`ffmpeg -ss {start} -to {end} -i {input} -c copy {output}`
+**Copy 模式**：`ffmpeg -y -ss {start} -to {end} -i {input} -c copy {output}`
 - `-ss` 放在 `-i` 前面，利用 seek 加速
 - 裁剪点对齐到最近关键帧，可能有 ±0.5s 偏差
 
-**Reencode 模式**：`ffmpeg -i {input} -ss {start} -to {end} -c:v libx264 -preset fast -crf 18 -c:a aac {output}`
+**Reencode 模式**：
+- 先 probe 输入文件，检测是否有音轨
+- 有音轨：`ffmpeg -y -i {input} -ss {start} -to {end} -c:v libx264 -preset fast -crf 18 -c:a aac {output}`
+- 无音轨：`ffmpeg -y -i {input} -ss {start} -to {end} -c:v libx264 -preset fast -crf 18 -an {output}`
 - `-ss` 放在 `-i` 后面，精确到帧
-- 编码参数使用合理默认值（crf 18 = 高质量）
+
+**编码器降级**：如果 `libx264` 不可用（可通过 `ffmpeg -encoders` 检测），回退到不指定编码器让 FFmpeg 自动选择输出格式的默认编码器。
 
 **参数校验**：
 - `start_ms >= 0`
@@ -48,9 +70,11 @@ pub async fn trim_video(
 - `end_ms <= duration_ms`（通过 probe 获取）
 - 输出路径的父目录存在
 
+**时间格式化**：毫秒转为 FFmpeg 时间字符串 `HH:MM:SS.mmm`，封装为工具函数 `ms_to_ffmpeg_time(ms: i64) -> String`。
+
 ---
 
-## 2. 分割（Split）
+## 3. 分割（Split）
 
 ```rust
 pub struct SplitInput {
@@ -60,10 +84,9 @@ pub struct SplitInput {
     pub mode: TrimMode,
 }
 
-pub async fn split_video(
+pub fn split_video(
     config: &FfmpegConfig,
     input: SplitInput,
-    progress_tx: Option<mpsc::Sender<FfmpegProgress>>,
 ) -> Result<Vec<PathBuf>>
 ```
 
@@ -81,49 +104,44 @@ pub async fn split_video(
 
 ---
 
-## 3. 拼接（Concat）
+## 4. 拼接（Concat）
 
 ```rust
-pub enum ConcatMode {
-    Demuxer,        // -f concat -c copy，同参数快速拼接
-    FilterComplex,  // filter_complex，异参数需重编码
-}
-
 pub struct ConcatInput {
     pub inputs: Vec<PathBuf>,
     pub output: PathBuf,
-    pub mode: Option<ConcatMode>,  // None = 自动检测
 }
 
-pub async fn concat_videos(
+pub fn concat_videos(
     config: &FfmpegConfig,
     input: ConcatInput,
-    progress_tx: Option<mpsc::Sender<FfmpegProgress>>,
 ) -> Result<PathBuf>
 ```
 
-**Demuxer 模式**（同参数）：
-1. 创建临时 concat list 文件：`file '/path/to/a.mp4'\nfile '/path/to/b.mp4'`
-2. `ffmpeg -f concat -safe 0 -i {list} -c copy {output}`
+**Demuxer 模式**（`-c copy`，快速无损拼接）：
 
-**FilterComplex 模式**（异参数）：
-1. 对所有输入 probe，取最大分辨率 + 最高帧率作为目标
-2. `ffmpeg -i a.mp4 -i b.mp4 -filter_complex "[0:v]scale=W:H,setsar=1[v0];[1:v]scale=W:H,setsar=1[v1];[v0][0:a][v1][1:a]concat=n=2:v=1:a=1[outv][outa]" -map "[outv]" -map "[outa]" {output}`
-
-**自动检测**（`mode=None`）：对所有输入 probe，如果分辨率、帧率、编解码器均一致则用 Demuxer，否则用 FilterComplex。
+1. 对所有输入 probe，检查分辨率、帧率、视频编解码器是否一致
+2. 不一致时返回错误：`"cannot concat: input videos have different parameters (resolution/fps/codec). Please trim them to the same format first."`
+3. 创建临时 concat list 文件：`file '/path/to/a.mp4'\nfile '/path/to/b.mp4'`
+4. `ffmpeg -y -f concat -safe 0 -i {list} -c copy {output}`
+5. 删除临时 list 文件
 
 **校验**：
 - 至少 2 个输入文件
 - 所有输入文件存在且可读
 
+**一致性判定规则**：
+- 分辨率：`width` 和 `height` 完全相同
+- 帧率：差异 < 0.01
+- 视频编解码器：字符串相同
+- 音轨：要么全有音轨，要么全无（混合则报错）
+
 ---
 
-## 4. 缩略图抽取
-
-### 4.1 单帧缩略图
+## 5. 单帧缩略图
 
 ```rust
-pub async fn extract_thumbnail(
+pub fn extract_thumbnail(
     config: &FfmpegConfig,
     input: &Path,
     timestamp_ms: i64,
@@ -131,119 +149,112 @@ pub async fn extract_thumbnail(
 ) -> Result<PathBuf>
 ```
 
-`ffmpeg -ss {t} -i {input} -frames:v 1 -q:v 2 {output}`
+`ffmpeg -y -ss {t} -i {input} -frames:v 1 -q:v 2 {output}`
 
 输出格式由 output 扩展名决定（jpg/png/webp）。
 
-### 4.2 缩略图条（时间轴用）
-
-```rust
-pub struct ThumbnailStripResult {
-    pub thumbnails: Vec<PathBuf>,
-    pub interval_ms: i64,
-    pub count: u32,
-}
-
-pub async fn extract_thumbnail_strip(
-    config: &FfmpegConfig,
-    input: &Path,
-    interval_ms: i64,
-    thumb_width: u32,
-    output_dir: &Path,
-) -> Result<ThumbnailStripResult>
-```
-
-`ffmpeg -i {input} -vf "fps=1/{interval_s},scale={width}:-1" {output_dir}/%04d.jpg`
-
-缩略图存放在项目 `thumbnails/strips/{asset_id}/` 下。前端拼接为时间轴背景。
-
-**缓存策略**：按 `{asset_id}_{interval_ms}_{width}` 作为缓存 key，已存在则跳过生成。
+**校验**：
+- `timestamp_ms >= 0`
+- 输入文件存在
+- 输出路径的父目录存在
 
 ---
 
-## 5. 目录增量
+## 6. 工具函数
+
+```rust
+/// Convert milliseconds to FFmpeg time string: "HH:MM:SS.mmm"
+pub fn ms_to_ffmpeg_time(ms: i64) -> String
+
+/// Check if a specific encoder (e.g. "libx264") is available
+pub fn has_encoder(config: &FfmpegConfig, encoder: &str) -> bool
+```
+
+`has_encoder` 执行 `ffmpeg -encoders` 并在输出中搜索编码器名。结果可在进程生命周期内缓存（`OnceLock<HashSet<String>>`）。
+
+---
+
+## 7. 目录增量
 
 ```
 crates/core/src/ffmpeg/
-├── mod.rs          # + pub mod commands; pub mod thumbnail;
+├── mod.rs          # + pub mod commands;
 ├── sidecar.rs      # (spec-32)
 ├── probe.rs        # (spec-32)
-├── commands.rs     # trim_video, split_video, concat_videos
-└── thumbnail.rs    # extract_thumbnail, extract_thumbnail_strip
+└── commands.rs     # trim_video, split_video, concat_videos,
+                    # extract_thumbnail, ms_to_ffmpeg_time, has_encoder
 
 src-tauri/src/commands/
 └── ffmpeg.rs       # + trim_video, split_video, concat_videos,
-                    #   extract_thumbnail, extract_thumbnail_strip
+                    #   extract_thumbnail
 ```
 
 ---
 
-## 6. IPC 一览
+## 8. IPC 一览
 
 | command | 签名 | 说明 |
 |---|---|---|
-| `trim_video` | `(input: String, start_ms: i64, end_ms: i64, output: String, mode: String) -> Result<String, String>` | 裁剪视频 |
-| `split_video` | `(input: String, split_points_ms: Vec<i64>, output_dir: String, mode: String) -> Result<Vec<String>, String>` | 分割视频 |
-| `concat_videos` | `(inputs: Vec<String>, output: String, mode: Option<String>) -> Result<String, String>` | 拼接视频 |
-| `extract_thumbnail` | `(input: String, timestamp_ms: i64, output: String) -> Result<String, String>` | 单帧缩略图 |
-| `extract_thumbnail_strip` | `(input: String, interval_ms: i64, thumb_width: u32, output_dir: String) -> Result<ThumbnailStripResult, String>` | 缩略图条 |
+| `trim_video` | `(input: String, start_ms: i64, end_ms: i64, output: String, mode: TrimMode) -> Result<String, String>` | 裁剪视频，返回输出路径 |
+| `split_video` | `(input: String, split_points_ms: Vec<i64>, output_dir: String, mode: TrimMode) -> Result<Vec<String>, String>` | 分割视频，返回各段路径 |
+| `concat_videos` | `(inputs: Vec<String>, output: String) -> Result<String, String>` | 拼接视频（Demuxer 模式），返回输出路径 |
+| `extract_thumbnail` | `(input: String, timestamp_ms: i64, output: String) -> Result<String, String>` | 单帧缩略图，返回输出路径 |
+
+IPC 层的 `mode` 参数直接使用 `TrimMode` enum（tauri-specta 自动生成 TS 类型），不再用 `String`。
 
 ---
 
-## 7. Model 变更
+## 9. Model 变更
 
 ```rust
 #[derive(Debug, Clone, Serialize, Deserialize, Type, TS)]
+#[ts(export)]
 pub enum TrimMode {
     Copy,
     Reencode,
 }
-
-#[derive(Debug, Clone, Serialize, Deserialize, Type, TS)]
-pub enum ConcatMode {
-    Demuxer,
-    FilterComplex,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Type, TS)]
-pub struct ThumbnailStripResult {
-    pub thumbnails: Vec<String>,  // relative paths
-    pub interval_ms: i64,
-    pub count: u32,
-}
 ```
+
+`ConcatMode` 不再需要（MVP 只有 Demuxer 模式）。`ThumbnailStripResult` 移至 spec-35。
 
 ---
 
-## 8. 测试
+## 10. 测试
+
+### 10.1 纯逻辑测试（不需要 FFmpeg）
 
 | 用例 | 说明 |
 |---|---|
-| `trim_copy_mode` | Copy 模式裁剪输出文件存在且可播放（需 fixture 视频） |
-| `trim_reencode_mode` | Reencode 模式裁剪精度验证 |
-| `trim_invalid_range` | `start >= end` 或 `end > duration` 返回错误 |
-| `split_two_points` | 2 个分割点产出 3 个文件 |
+| `ms_to_ffmpeg_time` | `0 → "00:00:00.000"`, `90061 → "00:01:30.061"`, `3661500 → "01:01:01.500"` |
+| `trim_invalid_range` | `start >= end` 返回错误 |
+| `trim_negative_start` | `start < 0` 返回错误 |
 | `split_empty_points` | 空分割点列表返回错误 |
-| `concat_same_params` | 同参数拼接走 Demuxer 模式 |
-| `concat_diff_params` | 异参数拼接走 FilterComplex 模式 |
-| `concat_auto_detect` | 自动检测模式正确选择 |
+| `split_non_increasing` | `[5000, 3000]` 返回错误 |
 | `concat_single_input` | 单个输入返回错误 |
-| `thumbnail_single` | 指定时间点抽取缩略图存在 |
-| `thumbnail_strip` | 缩略图条数量 ≈ duration / interval |
-| `thumbnail_strip_cache` | 二次调用跳过生成 |
+| `concat_param_mismatch` | 分辨率不同时返回错误（mock probe 结果） |
 
-**注意**：需要测试用 fixture 视频文件。建议放置 2 个小视频（<1MB each）在 `crates/core/tests/fixtures/` 下，一个 5s mp4 (h264/aac)，一个 3s webm (vp9/opus)。测试标记 `#[ignore]` 供无 FFmpeg 环境跳过。
+### 10.2 集成测试（需要 FFmpeg，`#[ignore]`）
+
+| 用例 | 说明 |
+|---|---|
+| `trim_copy_real` | Copy 模式裁剪 lavfi 测试视频，输出存在且 probe 时长正确 |
+| `trim_reencode_real` | Reencode 模式裁剪，精度验证 |
+| `split_two_points_real` | 2 个分割点产出 3 个文件，各段可 probe |
+| `concat_same_params_real` | 两个同参数片段拼接，输出时长 ≈ 两段之和 |
+| `thumbnail_real` | 抽取指定时间点缩略图，输出文件存在且是 JPEG |
+
+测试视频使用 lavfi 测试源动态生成（与 `ffmpeg_smoke.rs` 相同方式），不提交 fixture 文件到仓库。
 
 ---
 
-## 9. 验收清单
+## 11. 验收清单
 
 - [ ] `trim_video` Copy 模式输出可播放，时长约等于 `end - start`
 - [ ] `trim_video` Reencode 模式裁剪精确到帧
+- [ ] Reencode 对无音轨视频不报错（自动 `-an`）
 - [ ] 非法时间参数（start >= end, end > duration）返回明确错误
 - [ ] `split_video` 产出文件数 = 分割点数 + 1，各段可独立播放
-- [ ] `concat_videos` 同参数片段快速拼接（Demuxer），输出连续
-- [ ] `concat_videos` 异参数片段自动转码对齐（FilterComplex）
-- [ ] `extract_thumbnail` 输出图片尺寸合理、内容对应指定时间点
-- [ ] `extract_thumbnail_strip` 输出缩略图数量与间隔/时长一致
-- [ ] 缩略图条二次调用使用缓存，不重复生成
+- [ ] `concat_videos` 同参数片段快速拼接，输出连续
+- [ ] `concat_videos` 异参数片段返回明确错误（不静默转码）
+- [ ] `extract_thumbnail` 输出图片存在、尺寸合理
+- [ ] `ms_to_ffmpeg_time` 覆盖边界值（0, 大数, 带毫秒）

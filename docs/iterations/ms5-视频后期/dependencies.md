@@ -68,9 +68,9 @@ FFmpeg + ffprobe 静态二进制嵌入安装包。各平台来源见 [spec-32 §
 | `probe_video` | spec-32 | 返回视频元数据（时长、分辨率、编解码器、帧率） |
 | `trim_video` | spec-33 | 按起止时间裁剪视频 |
 | `split_video` | spec-33 | 按多个时间点分割视频 |
-| `concat_videos` | spec-33 | 将多个视频片段按顺序拼接 |
+| `concat_videos` | spec-33 | 同参数视频片段拼接（Demuxer 模式） |
 | `extract_thumbnail` | spec-33 | 抽取指定时间点的单帧缩略图 |
-| `extract_thumbnail_strip` | spec-33 | 按间隔抽取缩略图序列（时间轴用） |
+| `extract_thumbnail_strip` | spec-35 | 按间隔抽取缩略图序列（时间轴用） |
 | `list_video_clips` | spec-36 | 按 episode 列出片段列表 |
 | `create_video_clip` | spec-36 | 创建片段记录 |
 | `update_video_clip` | spec-36 | 更新裁剪范围/标签 |
@@ -100,9 +100,9 @@ spec-32 (FFmpeg sidecar + probe)              ~6–8h
                             └─▸ spec-36 (clip assembly + export)  ~6–8h
 ```
 
-- **spec-33 依赖 spec-32**：所有 FFmpeg 命令需要 sidecar 层的 `FfmpegCommand` 构建器。
-- **spec-34 依赖 spec-32+33**：进度解析需要 sidecar 的 stderr 流（spec-32），命令函数接受 progress sender（spec-33）。
-- **spec-35 依赖 spec-33+34**：缩略图条需要 `extract_thumbnail_strip`（spec-33），操作触发需要进度 hook（spec-34）。
+- **spec-33 依赖 spec-32**：所有 FFmpeg 命令需要 sidecar 层的 `FfmpegConfig` 和 `probe_video`。
+- **spec-34 依赖 spec-32+33**：进度解析需要 sidecar 的 stderr 流（spec-32），并扩展 spec-33 的命令函数添加进度回调。
+- **spec-35 依赖 spec-33+34**：缩略图条（`extract_thumbnail_strip`）在 spec-35 实现，基于 spec-33 的 `extract_thumbnail`；操作触发需要进度 hook（spec-34）。
 - **spec-36 依赖 spec-33+34+35**：导出执行裁剪+拼接（spec-33），显示进度（spec-34），时间轴提供裁剪参数（spec-35）。
 - **并行机会**：spec-35 的纯 UI 组件（手柄拖拽、刻度尺、播放头同步）可与 spec-34 并行开发，集成测试时需 spec-34。
 

@@ -133,7 +133,11 @@ export const commands = {
 	reorderEpisodes: (projectId: string, orderedIds: string[]) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("reorder_episodes", { projectId, orderedIds })),
 	updateEpisode: (id: string, input: UpdateEpisodeInput_Deserialize) => typedError<Episode, IpcError_Serialize>(__TAURI_INVOKE("update_episode", { id, input })),
 	checkFfmpeg: () => typedError<FfmpegStatus, IpcError_Serialize>(__TAURI_INVOKE("check_ffmpeg")),
+	concatVideos: (inputs: string[], output: string) => typedError<string, IpcError_Serialize>(__TAURI_INVOKE("concat_videos", { inputs, output })),
+	extractThumbnail: (input: string, timestampMs: number, output: string) => typedError<string, IpcError_Serialize>(__TAURI_INVOKE("extract_thumbnail", { input, timestampMs, output })),
 	probeVideo: (path: string) => typedError<VideoMetadata, IpcError_Serialize>(__TAURI_INVOKE("probe_video", { path })),
+	splitVideo: (input: string, splitPointsMs: number[], outputDir: string, mode: TrimMode) => typedError<string[], IpcError_Serialize>(__TAURI_INVOKE("split_video", { input, splitPointsMs, outputDir, mode })),
+	trimVideo: (input: string, startMs: number, endMs: number, output: string, mode: TrimMode) => typedError<string, IpcError_Serialize>(__TAURI_INVOKE("trim_video", { input, startMs, endMs, output, mode })),
 	createEpisodeCheckpoint: (input: CreateCheckpointInput) => typedError<EpisodeCheckpoint, IpcError_Serialize>(__TAURI_INVOKE("create_episode_checkpoint", { input })),
 	deleteEpisodeCheckpoint: (id: string) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("delete_episode_checkpoint", { id })),
 	listEpisodeCheckpoints: (episodeId: string) => typedError<EpisodeCheckpointListItem[], IpcError_Serialize>(__TAURI_INVOKE("list_episode_checkpoints", { episodeId })),
@@ -900,6 +904,8 @@ export type TaskStatusChanged = {
 	progress: number | null,
 	error_message: string | null,
 };
+
+export type TrimMode = "Copy" | "Reencode";
 
 export type UpdateApiAccountInput = UpdateApiAccountInput_Serialize | UpdateApiAccountInput_Deserialize;
 
