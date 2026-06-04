@@ -7,6 +7,7 @@ import {
   type EpisodeCheckpointListItem,
 } from "@/lib/bindings/commands";
 import { unwrap } from "@/lib/ipc";
+import { canvasLayoutKey } from "./useCanvasLayout";
 import { shotKeys } from "./useShots";
 
 export const checkpointKeys = {
@@ -46,7 +47,7 @@ export function useRestoreCheckpoint(episodeId: string) {
       qc.invalidateQueries({ queryKey: shotKeys.all(episodeId) });
       qc.invalidateQueries({ queryKey: checkpointKeys.all(episodeId) });
       qc.invalidateQueries({ queryKey: ["episode", episodeId] });
-      qc.invalidateQueries({ queryKey: ["canvas-layout"] });
+      qc.invalidateQueries({ queryKey: canvasLayoutKey(episodeId) });
     },
   });
 }
@@ -72,7 +73,7 @@ export function useEpisodeDataRestoredListener() {
       qc.invalidateQueries({ queryKey: shotKeys.all(eid) });
       qc.invalidateQueries({ queryKey: checkpointKeys.all(eid) });
       qc.invalidateQueries({ queryKey: ["episode", eid] });
-      qc.invalidateQueries({ queryKey: ["canvas-layout"] });
+      qc.invalidateQueries({ queryKey: canvasLayoutKey(eid) });
     });
     return () => {
       void unlisten.then((fn) => fn());

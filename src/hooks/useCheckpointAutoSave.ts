@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { commands } from "@/lib/bindings/commands";
 import { unwrap } from "@/lib/ipc";
+import { canvasLayoutKey } from "./useCanvasLayout";
 import { shotKeys } from "./useShots";
 import { checkpointKeys } from "./useCheckpoint";
 
@@ -32,7 +33,7 @@ export function useCheckpointAutoSave(episodeId: string | undefined) {
         const canvasData = qc.getQueryData<{
           nodes_json?: string;
           edges_json?: string;
-        }>(["canvas-layout", episodeId]);
+        }>(canvasLayoutKey(episodeId));
 
         const snapshot = JSON.stringify({
           script: episodeData?.script_text ?? "",

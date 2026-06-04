@@ -1,4 +1,4 @@
-import { type ComponentProps, type ElementType } from "react";
+import { type ComponentProps, type ElementType, useState } from "react";
 import {
   useReactFlow,
   useStore as useFlowStore,
@@ -7,6 +7,7 @@ import {
 import { useStore } from "zustand";
 import {
   BookmarkPlus,
+  History,
   Lock,
   Maximize,
   Redo2,
@@ -15,7 +16,6 @@ import {
   ZoomIn,
   ZoomOut,
 } from "lucide-react";
-import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import {
@@ -24,7 +24,8 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useCanvasStore } from "@/stores/canvasStore";
-import { useCreateCheckpoint } from "@/hooks/useCheckpoint";
+import { SaveVersionDialog } from "@/components/checkpoint/SaveVersionDialog";
+import { VersionHistoryDialog } from "@/components/checkpoint/VersionHistoryDialog";
 import { ZoomIndicator } from "./ZoomIndicator";
 
 interface CanvasToolbarProps {
@@ -53,7 +54,8 @@ export function CanvasToolbar({
     (s) => s.nodesDraggable || s.nodesConnectable || s.elementsSelectable,
   );
   const flowStore = useFlowStoreApi();
-  const createCheckpoint = useCreateCheckpoint();
+  const [saveOpen, setSaveOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
 
   const onToggleLock = () => {
     const next = !isInteractive;
@@ -62,16 +64,6 @@ export function CanvasToolbar({
       nodesConnectable: next,
       elementsSelectable: next,
     });
-  };
-
-  const onSaveVersion = async () => {
-    try {
-      await onBeforeSaveVersion?.();
-      await createCheckpoint.mutateAsync({ episode_id: episodeId, label: null });
-      toast.success("已保存版本");
-    } catch (e) {
-      toast.error(`保存版本失败：${String(e)}`);
-    }
   };
 
   return (
@@ -109,14 +101,29 @@ export function CanvasToolbar({
       <ToolbarBtn
         icon={BookmarkPlus}
         tooltip="保存版本"
-        disabled={createCheckpoint.isPending}
-        onClick={onSaveVersion}
+        onClick={() => setSaveOpen(true)}
+      />
+      <ToolbarBtn
+        icon={History}
+        tooltip="版本历史"
+        onClick={() => setHistoryOpen(true)}
       />
       <Separator orientation="vertical" className="mx-1 h-5" />
       <ToolbarBtn
         icon={isInteractive ? Unlock : Lock}
         tooltip={isInteractive ? "锁定画布" : "解锁画布"}
         onClick={onToggleLock}
+      />
+      <SaveVersionDialog
+        open={saveOpen}
+        onOpenChange={setSaveOpen}
+        episodeId={episodeId}
+        onBeforeSave={onBeforeSaveVersion}
+      />
+      <VersionHistoryDialog
+        open={historyOpen}
+        onOpenChange={setHistoryOpen}
+        episodeId={episodeId}
       />
     </div>
   );

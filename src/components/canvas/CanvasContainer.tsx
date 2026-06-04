@@ -1,8 +1,9 @@
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ErrorAlert } from "@/components/common/ErrorAlert";
 import { useCanvasStore } from "@/stores/canvasStore";
 import { useCanvasLayoutQuery } from "@/hooks/useCanvasLayout";
+import { events } from "@/lib/bindings/commands";
 import { CanvasInner } from "./CanvasInner";
 import { deserializeLayout } from "./persistence/serialization";
 
@@ -27,6 +28,26 @@ export function CanvasContainer({ episodeId }: Props) {
     const raw = deserializeLayout(layoutQuery.data ?? null);
     init(raw);
   }, [layoutQuery.data, init, episodeId]);
+
+  // After a checkpoint restore, the backend overwrites canvas_layout in DB.
+  // Reset the guard so the next layoutQuery.data change re-inits the store.
+  const handleRestored = useCallback(
+    (eid: string) => {
+      if (eid === episodeId) {
+        initedEpisodeRef.current = null;
+      }
+    },
+    [episodeId],
+  );
+
+  useEffect(() => {
+    const unlisten = events.episodeDataRestored.listen((event) => {
+      handleRestored(event.payload.episode_id);
+    });
+    return () => {
+      void unlisten.then((fn) => fn());
+    };
+  }, [handleRestored]);
 
   // NOTE: do not reset() on unmount. React 19 runs parent cleanups before
   // child cleanups, so a reset() here would clear the store while the
