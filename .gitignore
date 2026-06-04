@@ -54,6 +54,9 @@ __pycache__/
 /src-tauri/resources/models/bge-small-zh-v1.5/*
 !/src-tauri/resources/models/bge-small-zh-v1.5/.gitkeep
 
+# CLI sidecar binary (built by scripts/bundle-cli.sh)
+src-tauri/binaries/
+
 .idea/
 .cursor/
 .qoder/

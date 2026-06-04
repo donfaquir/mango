@@ -105,6 +105,9 @@ export const commands = {
 	getCharacter: (id: string) => typedError<Character, IpcError_Serialize>(__TAURI_INVOKE("get_character", { id })),
 	listCharacters: (opts: ListCharactersOptions) => typedError<Character[], IpcError_Serialize>(__TAURI_INVOKE("list_characters", { opts })),
 	updateCharacter: (id: string, input: UpdateCharacterInput_Deserialize) => typedError<Character, IpcError_Serialize>(__TAURI_INVOKE("update_character", { id, input })),
+	checkCliInstalled: () => typedError<CliStatus, IpcError_Serialize>(__TAURI_INVOKE("check_cli_installed")),
+	installCli: () => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("install_cli")),
+	uninstallCli: () => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("uninstall_cli")),
 	createCostume: (input: CreateCostumeInput) => typedError<Costume, IpcError_Serialize>(__TAURI_INVOKE("create_costume", { input })),
 	deleteCostume: (id: string) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("delete_costume", { id })),
 	getCostume: (id: string) => typedError<Costume, IpcError_Serialize>(__TAURI_INVOKE("get_costume", { id })),
@@ -340,6 +343,12 @@ export type Character = {
 	reference_image_path: string | null,
 	created_at: string,
 	updated_at: string,
+};
+
+export type CliStatus = {
+	installed: boolean,
+	symlink_target: string | null,
+	points_to_current_app: boolean,
 };
 
 export type Costume = {
