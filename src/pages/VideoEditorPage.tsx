@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useState } from "react";
 import { Navigate, useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -42,19 +42,21 @@ export default function VideoEditorPage() {
   return (
     <VideoEditorPageContent
       episodeId={episodeId}
+      assetId={firstVideo.id}
       videoPath={firstVideo.file_path}
       exportOpen={exportOpen}
       setExportOpen={setExportOpen}
-      onAddClip={(assetId) =>
+      onAddClip={() => {
+        const { trimStart, trimEnd } = useTimelineStore.getState();
         createClip.mutate({
           project_id: projectId,
           episode_id: episodeId,
-          source_asset_id: assetId,
+          source_asset_id: firstVideo.id,
           label: null,
-          trim_start_ms: useTimelineStore.getState().trimStart || null,
-          trim_end_ms: useTimelineStore.getState().trimEnd || null,
-        })
-      }
+          trim_start_ms: trimStart || null,
+          trim_end_ms: trimEnd || null,
+        });
+      }}
       onBack={() => navigate(-1)}
     />
   );
@@ -69,16 +71,13 @@ function VideoEditorPageContent({
   onBack,
 }: {
   episodeId: string;
+  assetId: string;
   videoPath: string;
   exportOpen: boolean;
   setExportOpen: (v: boolean) => void;
-  onAddClip: (assetId: string) => void;
+  onAddClip: () => void;
   onBack: () => void;
 }) {
-  const handleAddFromTimeline = useCallback(() => {
-    // TODO: integrate asset picker; for now use first video asset
-    onAddClip("");
-  }, [onAddClip]);
 
   return (
     <div className="flex flex-col gap-0 p-1">
@@ -91,7 +90,7 @@ function VideoEditorPageContent({
       <VideoEditorLayout videoPath={videoPath} />
       <ClipAssembly
         episodeId={episodeId}
-        onAddClip={handleAddFromTimeline}
+        onAddClip={onAddClip}
         onExport={() => setExportOpen(true)}
       />
       <ExportSettingsSheet
