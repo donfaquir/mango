@@ -24,7 +24,10 @@ export function useCreateVideoClip(episodeId: string) {
   return useMutation({
     mutationFn: (input: CreateVideoClipInput) =>
       unwrap(commands.createVideoClip(input)),
-    onSuccess: () => qc.invalidateQueries({ queryKey: videoClipKeys.list(episodeId) }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: videoClipKeys.list(episodeId) });
+      toast.success("片段已添加");
+    },
     onError: (e) => toast.error(`添加片段失败：${e.message}`),
   });
 }
