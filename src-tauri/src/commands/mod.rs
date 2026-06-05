@@ -7,12 +7,14 @@ pub mod costume;
 pub mod dialog;
 pub mod episode;
 pub mod episode_checkpoint;
+pub mod ffmpeg;
 pub mod project;
 pub mod provider;
 pub mod prop;
 pub mod scene;
 pub mod shot;
 pub mod task;
+pub mod video;
 pub mod workspace;
 
 use crate::error::IpcError;

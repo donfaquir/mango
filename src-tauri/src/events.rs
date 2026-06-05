@@ -44,3 +44,14 @@ pub struct TaskProgressTick {
     #[specta(type = specta_typescript::Number)]
     pub progress: u8,
 }
+
+/// Real-time FFmpeg operation progress. Emitted while trim/split/concat runs.
+#[derive(Clone, Debug, Serialize, Deserialize, Type, Event)]
+pub struct FfmpegProgressTick {
+    pub progress_pct: f64,
+    #[specta(type = specta_typescript::Number)]
+    pub current_time_ms: i64,
+    #[specta(type = specta_typescript::Number)]
+    pub total_duration_ms: i64,
+    pub speed: Option<f64>,
+}

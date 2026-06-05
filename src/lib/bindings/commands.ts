@@ -132,6 +132,13 @@ export const commands = {
 	listEpisodes: (opts: ListEpisodesOptions) => typedError<Episode[], IpcError_Serialize>(__TAURI_INVOKE("list_episodes", { opts })),
 	reorderEpisodes: (projectId: string, orderedIds: string[]) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("reorder_episodes", { projectId, orderedIds })),
 	updateEpisode: (id: string, input: UpdateEpisodeInput_Deserialize) => typedError<Episode, IpcError_Serialize>(__TAURI_INVOKE("update_episode", { id, input })),
+	checkFfmpeg: () => typedError<FfmpegStatus, IpcError_Serialize>(__TAURI_INVOKE("check_ffmpeg")),
+	concatVideos: (inputs: string[], output: string) => typedError<string, IpcError_Serialize>(__TAURI_INVOKE("concat_videos", { inputs, output })),
+	extractThumbnail: (input: string, timestampMs: number, output: string) => typedError<string, IpcError_Serialize>(__TAURI_INVOKE("extract_thumbnail", { input, timestampMs, output })),
+	extractThumbnailStrip: (input: string, intervalMs: number, thumbWidth: number) => typedError<ThumbnailStripResult, IpcError_Serialize>(__TAURI_INVOKE("extract_thumbnail_strip", { input, intervalMs, thumbWidth })),
+	probeVideo: (path: string) => typedError<VideoMetadata, IpcError_Serialize>(__TAURI_INVOKE("probe_video", { path })),
+	splitVideo: (input: string, splitPointsMs: number[], outputDir: string, mode: TrimMode) => typedError<string[], IpcError_Serialize>(__TAURI_INVOKE("split_video", { input, splitPointsMs, outputDir, mode })),
+	trimVideo: (input: string, startMs: number, endMs: number, output: string, mode: TrimMode) => typedError<string, IpcError_Serialize>(__TAURI_INVOKE("trim_video", { input, startMs, endMs, output, mode })),
 	createEpisodeCheckpoint: (input: CreateCheckpointInput) => typedError<EpisodeCheckpoint, IpcError_Serialize>(__TAURI_INVOKE("create_episode_checkpoint", { input })),
 	deleteEpisodeCheckpoint: (id: string) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("delete_episode_checkpoint", { id })),
 	listEpisodeCheckpoints: (episodeId: string) => typedError<EpisodeCheckpointListItem[], IpcError_Serialize>(__TAURI_INVOKE("list_episode_checkpoints", { episodeId })),
@@ -179,6 +186,12 @@ export const commands = {
 	setTaskMaxConcurrency: (value: number) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("set_task_max_concurrency", { value })),
 	submitTask: (input: CreateGenerationTaskInput) => typedError<string, IpcError_Serialize>(__TAURI_INVOKE("submit_task", { input })),
 	submitTasksBatch: (inputs: CreateGenerationTaskInput[]) => typedError<SubmitBatchOutcome, IpcError_Serialize>(__TAURI_INVOKE("submit_tasks_batch", { inputs })),
+	createVideoClip: (input: CreateVideoClipInput) => typedError<VideoClip, IpcError_Serialize>(__TAURI_INVOKE("create_video_clip", { input })),
+	deleteVideoClip: (id: string) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("delete_video_clip", { id })),
+	exportVideoClips: (episodeId: string, outputPath: string) => typedError<string, IpcError_Serialize>(__TAURI_INVOKE("export_video_clips", { episodeId, outputPath })),
+	listVideoClips: (episodeId: string) => typedError<VideoClip[], IpcError_Serialize>(__TAURI_INVOKE("list_video_clips", { episodeId })),
+	reorderVideoClips: (ids: string[]) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("reorder_video_clips", { ids })),
+	updateVideoClip: (id: string, input: UpdateVideoClipInput) => typedError<VideoClip, IpcError_Serialize>(__TAURI_INVOKE("update_video_clip", { id, input })),
 	/**
 	 *  Current workspace mount state. Drives the frontend's onboarding vs
 	 *  main-app routing decision.
@@ -231,6 +244,7 @@ export const commands = {
 /** Events */
 export const events = {
 	episodeDataRestored: makeEvent<EpisodeDataRestored>("episode-data-restored"),
+	ffmpegProgressTick: makeEvent<FfmpegProgressTick>("ffmpeg-progress-tick"),
 	taskEventLogged: makeEvent<TaskEventLogged>("task-event-logged"),
 	taskProgressTick: makeEvent<TaskProgressTick>("task-progress-tick"),
 	taskStatusChanged: makeEvent<TaskStatusChanged>("task-status-changed"),
@@ -475,6 +489,15 @@ export type CreateShotInput = {
 	summary?: string | null,
 };
 
+export type CreateVideoClipInput = {
+	project_id: string,
+	episode_id: string | null,
+	source_asset_id: string,
+	label: string | null,
+	trim_start_ms: number | null,
+	trim_end_ms: number | null,
+};
+
 export type Episode = {
 	id: string,
 	project_id: string,
@@ -521,6 +544,20 @@ export type EpisodeDataRestored = {
 export type EventPhase = "submit_upload" | "submit_call" | "poll" | "download" | "persist" | "cleanup";
 
 export type EventSeverity = "info" | "warn" | "error";
+
+/**  Real-time FFmpeg operation progress. Emitted while trim/split/concat runs. */
+export type FfmpegProgressTick = {
+	progress_pct: number | null,
+	current_time_ms: number,
+	total_duration_ms: number,
+	speed: number | null,
+};
+
+export type FfmpegStatus = {
+	available: boolean,
+	version: string | null,
+	path: string | null,
+};
 
 export type GenerationTask = {
 	id: string,
@@ -893,6 +930,14 @@ export type TaskStatusChanged = {
 	error_message: string | null,
 };
 
+export type ThumbnailStripResult = {
+	thumbnails: string[],
+	interval_ms: number,
+	count: number,
+};
+
+export type TrimMode = "Copy" | "Reencode";
+
 export type UpdateApiAccountInput = UpdateApiAccountInput_Serialize | UpdateApiAccountInput_Deserialize;
 
 export type UpdateApiAccountInput_Deserialize = {
@@ -1045,11 +1090,40 @@ export type UpdateShotInput_Serialize = {
 	status?: ShotStatus | null,
 };
 
+export type UpdateVideoClipInput = {
+	label: string | null,
+	trim_start_ms: number | null,
+	trim_end_ms: number | null,
+};
+
 export type UpsertCanvasLayoutInput = {
 	episode_id: string,
 	nodes_json: string,
 	edges_json: string,
 	viewport_json: string,
+};
+
+export type VideoClip = {
+	id: string,
+	project_id: string,
+	episode_id: string | null,
+	source_asset_id: string,
+	label: string | null,
+	trim_start_ms: number | null,
+	trim_end_ms: number | null,
+	order_index: number,
+	created_at: string,
+};
+
+export type VideoMetadata = {
+	duration_ms: number,
+	width: number,
+	height: number,
+	video_codec: string,
+	audio_codec: string | null,
+	fps: number | null,
+	bitrate_kbps: number | null,
+	file_size_bytes: number,
 };
 
 /**

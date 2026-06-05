@@ -29,6 +29,8 @@ enum Commands {
     Account(commands::account::AccountArgs),
     /// AI generation tasks (submit / status / list / cancel)
     Task(commands::task::TaskArgs),
+    /// Export video clips
+    Export(commands::export::ExportArgs),
 }
 
 fn main() {
@@ -70,6 +72,7 @@ fn run() -> anyhow::Result<()> {
         Commands::Checkpoint(args) => commands::checkpoint::execute(&mut conn, args)?,
         Commands::Account(args) => commands::account::execute(&conn, args)?,
         Commands::Task(args) => commands::task::execute(&conn, &app_data_dir, args)?,
+        Commands::Export(args) => commands::export::execute(&conn, &app_data_dir, args)?,
     }
 
     Ok(())

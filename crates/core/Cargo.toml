@@ -30,6 +30,7 @@ percent-encoding = { workspace = true }
 reqwest = { workspace = true }
 futures = { workspace = true }
 slug = { workspace = true }
+ffmpeg-sidecar = { workspace = true }
 
 [dev-dependencies]
 tempfile = "3"
