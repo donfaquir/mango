@@ -9,6 +9,8 @@ import { ExportSettingsSheet } from "@/components/editor/ExportSettingsSheet";
 import { useCreateVideoClip } from "@/hooks/useVideoClips";
 import { useTimelineStore } from "@/stores/timelineStore";
 import { useAssetList } from "@/hooks/useAssets";
+import { useProject } from "@/hooks/useProjects";
+import { useResolvedAssetUrl } from "@/hooks/useResolvedAssetUrl";
 
 export default function VideoEditorPage() {
   const { projectId, episodeId } = useParams<{
@@ -19,16 +21,19 @@ export default function VideoEditorPage() {
   const [exportOpen, setExportOpen] = useState(false);
   const createClip = useCreateVideoClip(episodeId ?? "");
 
+  const { data: project } = useProject(projectId);
   const { data: assets, isLoading } = useAssetList(projectId, "video");
 
-  if (!projectId || !episodeId) return <Navigate to="/" replace />;
-
-  if (isLoading) return <Skeleton className="h-96 w-full" />;
-
+  const projectRoot = project?.root_path;
   const videoAssets = assets ?? [];
   const firstVideo = videoAssets[0];
 
-  if (!firstVideo) {
+  const videoSrcUrl = useResolvedAssetUrl(projectRoot, firstVideo?.file_path ?? null);
+
+  if (!projectId || !episodeId) return <Navigate to="/" replace />;
+  if (isLoading) return <Skeleton className="h-96 w-full" />;
+
+  if (!firstVideo || !projectRoot) {
     return (
       <div className="flex flex-col items-center gap-4 py-16">
         <p className="text-muted-foreground">该项目暂无视频素材</p>
@@ -39,65 +44,40 @@ export default function VideoEditorPage() {
     );
   }
 
-  return (
-    <VideoEditorPageContent
-      episodeId={episodeId}
-      assetId={firstVideo.id}
-      videoPath={firstVideo.file_path}
-      exportOpen={exportOpen}
-      setExportOpen={setExportOpen}
-      onAddClip={() => {
-        const { trimStart, trimEnd } = useTimelineStore.getState();
-        createClip.mutate({
-          project_id: projectId,
-          episode_id: episodeId,
-          source_asset_id: firstVideo.id,
-          label: null,
-          trim_start_ms: trimStart || null,
-          trim_end_ms: trimEnd || null,
-        });
-      }}
-      onBack={() => navigate(-1)}
-    />
-  );
-}
-
-function VideoEditorPageContent({
-  episodeId,
-  videoPath,
-  exportOpen,
-  setExportOpen,
-  onAddClip,
-  onBack,
-}: {
-  episodeId: string;
-  assetId: string;
-  videoPath: string;
-  exportOpen: boolean;
-  setExportOpen: (v: boolean) => void;
-  onAddClip: () => void;
-  onBack: () => void;
-}) {
+  const absoluteVideoPath = `${projectRoot}/${firstVideo.file_path}`;
 
   return (
     <div className="flex flex-col gap-0 p-1">
       <header className="flex items-center gap-2 py-1">
-        <Button variant="ghost" size="icon" onClick={onBack}>
+        <Button variant="ghost" size="icon" onClick={() => navigate(-1)}>
           <ArrowLeft className="h-4 w-4" />
         </Button>
         <span className="text-sm font-medium">视频编辑</span>
       </header>
-      <VideoEditorLayout videoPath={videoPath} />
+      <VideoEditorLayout
+        videoPath={absoluteVideoPath}
+        videoSrcUrl={videoSrcUrl}
+      />
       <ClipAssembly
         episodeId={episodeId}
-        onAddClip={onAddClip}
+        onAddClip={() => {
+          const { trimStart, trimEnd } = useTimelineStore.getState();
+          createClip.mutate({
+            project_id: projectId,
+            episode_id: episodeId,
+            source_asset_id: firstVideo.id,
+            label: null,
+            trim_start_ms: trimStart || null,
+            trim_end_ms: trimEnd || null,
+          });
+        }}
         onExport={() => setExportOpen(true)}
       />
       <ExportSettingsSheet
         open={exportOpen}
         onOpenChange={setExportOpen}
         episodeId={episodeId}
-        defaultOutputPath={`exports/${episodeId}_export.mp4`}
+        defaultOutputPath={`${projectRoot}/exports/${episodeId}_export.mp4`}
       />
     </div>
   );

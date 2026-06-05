@@ -1,10 +1,9 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef } from "react";
-import { convertFileSrc } from "@tauri-apps/api/core";
 import { useTimelineStore } from "@/stores/timelineStore";
 import { cn } from "@/lib/utils";
 
 interface VideoPreviewProps {
-  videoPath: string | null;
+  videoSrcUrl: string | null;
   className?: string;
 }
 
@@ -13,7 +12,7 @@ export interface VideoPreviewHandle {
 }
 
 export const VideoPreview = forwardRef<VideoPreviewHandle, VideoPreviewProps>(
-  function VideoPreview({ videoPath, className }, ref) {
+  function VideoPreview({ videoSrcUrl, className }, ref) {
     const videoRef = useRef<HTMLVideoElement>(null);
     const rafRef = useRef<number>(0);
     const { isPlaying, setPlaybackPosition, togglePlay } = useTimelineStore();
@@ -49,7 +48,7 @@ export const VideoPreview = forwardRef<VideoPreviewHandle, VideoPreviewProps>(
       togglePlay();
     }, [togglePlay]);
 
-    if (!videoPath) {
+    if (!videoSrcUrl) {
       return (
         <div className={cn("flex items-center justify-center bg-muted text-muted-foreground h-64", className)}>
           No video selected
@@ -61,7 +60,7 @@ export const VideoPreview = forwardRef<VideoPreviewHandle, VideoPreviewProps>(
       <div className={cn("relative bg-black", className)}>
         <video
           ref={videoRef}
-          src={convertFileSrc(videoPath)}
+          src={videoSrcUrl}
           className="w-full max-h-80 object-contain"
           onClick={handleToggle}
         />

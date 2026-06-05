@@ -9,10 +9,11 @@ import { unwrap } from "@/lib/ipc";
 
 interface VideoEditorLayoutProps {
   videoPath: string;
+  videoSrcUrl: string | null;
   className?: string;
 }
 
-export function VideoEditorLayout({ videoPath, className }: VideoEditorLayoutProps) {
+export function VideoEditorLayout({ videoPath, videoSrcUrl, className }: VideoEditorLayoutProps) {
   const previewRef = useRef<VideoPreviewHandle>(null);
   const {
     zoom,
@@ -43,7 +44,7 @@ export function VideoEditorLayout({ videoPath, className }: VideoEditorLayoutPro
 
   return (
     <div className={cn("flex flex-col gap-0", className)}>
-      <VideoPreview ref={previewRef} videoPath={videoPath} />
+      <VideoPreview ref={previewRef} videoSrcUrl={videoSrcUrl} />
       <Timeline videoPath={videoPath} onSeek={handleSeek} />
       <TimelineControls
         zoom={zoom}
