@@ -71,6 +71,11 @@ const MIGRATIONS: &[Migration] = &[
         name: "shot_adopted_asset",
         sql: include_str!("migrations/012_shot_adopted_asset.sql"),
     },
+    Migration {
+        version: 13,
+        name: "video_clip",
+        sql: include_str!("migrations/013_video_clip.sql"),
+    },
 ];
 
 /// Execute all pending migrations. Each migration runs in its own transaction.

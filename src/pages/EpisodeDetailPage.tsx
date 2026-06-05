@@ -102,6 +102,11 @@ export default function EpisodeDetailPage() {
               打开画布
             </Link>
           </Button>
+          <Button asChild type="button" variant="outline">
+            <Link to={`/project/${projectId}/episodes/${ep.id}/editor`}>
+              视频编辑
+            </Link>
+          </Button>
           <Button
             type="button"
             variant="ghost"

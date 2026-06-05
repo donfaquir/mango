@@ -79,8 +79,8 @@ mod tests {
             .collect::<Result<_, _>>()
             .unwrap();
 
-        // Bumped from 19 to 20 when spec-27 added `app_preference`.
-        assert_eq!(tables.len(), 20, "expected 20 tables, got: {tables:?}");
+        // Bumped from 20 to 21 when spec-36 added `video_clip`.
+        assert_eq!(tables.len(), 21, "expected 21 tables, got: {tables:?}");
     }
 
     #[test]

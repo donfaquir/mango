@@ -186,6 +186,12 @@ export const commands = {
 	setTaskMaxConcurrency: (value: number) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("set_task_max_concurrency", { value })),
 	submitTask: (input: CreateGenerationTaskInput) => typedError<string, IpcError_Serialize>(__TAURI_INVOKE("submit_task", { input })),
 	submitTasksBatch: (inputs: CreateGenerationTaskInput[]) => typedError<SubmitBatchOutcome, IpcError_Serialize>(__TAURI_INVOKE("submit_tasks_batch", { inputs })),
+	createVideoClip: (input: CreateVideoClipInput) => typedError<VideoClip, IpcError_Serialize>(__TAURI_INVOKE("create_video_clip", { input })),
+	deleteVideoClip: (id: string) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("delete_video_clip", { id })),
+	exportVideoClips: (episodeId: string, outputPath: string) => typedError<string, IpcError_Serialize>(__TAURI_INVOKE("export_video_clips", { episodeId, outputPath })),
+	listVideoClips: (episodeId: string) => typedError<VideoClip[], IpcError_Serialize>(__TAURI_INVOKE("list_video_clips", { episodeId })),
+	reorderVideoClips: (ids: string[]) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("reorder_video_clips", { ids })),
+	updateVideoClip: (id: string, input: UpdateVideoClipInput) => typedError<VideoClip, IpcError_Serialize>(__TAURI_INVOKE("update_video_clip", { id, input })),
 	/**
 	 *  Current workspace mount state. Drives the frontend's onboarding vs
 	 *  main-app routing decision.
@@ -481,6 +487,15 @@ export type CreateSceneInput = {
 export type CreateShotInput = {
 	episode_id: string,
 	summary?: string | null,
+};
+
+export type CreateVideoClipInput = {
+	project_id: string,
+	episode_id: string | null,
+	source_asset_id: string,
+	label: string | null,
+	trim_start_ms: number | null,
+	trim_end_ms: number | null,
 };
 
 export type Episode = {
@@ -1075,11 +1090,29 @@ export type UpdateShotInput_Serialize = {
 	status?: ShotStatus | null,
 };
 
+export type UpdateVideoClipInput = {
+	label: string | null,
+	trim_start_ms: number | null,
+	trim_end_ms: number | null,
+};
+
 export type UpsertCanvasLayoutInput = {
 	episode_id: string,
 	nodes_json: string,
 	edges_json: string,
 	viewport_json: string,
+};
+
+export type VideoClip = {
+	id: string,
+	project_id: string,
+	episode_id: string | null,
+	source_asset_id: string,
+	label: string | null,
+	trim_start_ms: number | null,
+	trim_end_ms: number | null,
+	order_index: number,
+	created_at: string,
 };
 
 export type VideoMetadata = {

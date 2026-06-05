@@ -3,6 +3,7 @@ pub mod app_config;
 pub mod asset;
 pub mod db;
 pub mod error;
+pub mod export;
 pub mod ffmpeg;
 pub mod models;
 pub mod paths;
