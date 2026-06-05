@@ -2,16 +2,13 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useThumbnailStrip } from "@/hooks/useThumbnailStrip";
 import { cn } from "@/lib/utils";
+import { msToPixel } from "./timelineUtils";
 
 interface ThumbnailStripProps {
   videoPath: string | null;
   duration: number;
   zoom: number;
   className?: string;
-}
-
-function msToPixel(ms: number, zoom: number): number {
-  return (ms / 100) * zoom;
 }
 
 export function ThumbnailStrip({

@@ -38,7 +38,7 @@ pub fn extract_thumbnail_strip(
         )));
     }
 
-    if let Some(cached) = check_cache(output_dir) {
+    if let Some(cached) = check_cache(output_dir, interval_ms) {
         return Ok(cached);
     }
 
@@ -68,23 +68,23 @@ pub fn extract_thumbnail_strip(
     collect_results(output_dir, interval_ms)
 }
 
-fn check_cache(output_dir: &Path) -> Option<ThumbnailStripResult> {
+fn check_cache(output_dir: &Path, interval_ms: i64) -> Option<ThumbnailStripResult> {
     if !output_dir.is_dir() {
         return None;
     }
-    let entries = list_jpg_files(output_dir);
+    let entries = list_jpg_files(output_dir).ok()?;
     if entries.is_empty() {
         return None;
     }
     Some(ThumbnailStripResult {
         count: entries.len() as u32,
         thumbnails: entries,
-        interval_ms: 0,
+        interval_ms,
     })
 }
 
 fn collect_results(output_dir: &Path, interval_ms: i64) -> Result<ThumbnailStripResult> {
-    let thumbnails = list_jpg_files(output_dir);
+    let thumbnails = list_jpg_files(output_dir)?;
     Ok(ThumbnailStripResult {
         count: thumbnails.len() as u32,
         thumbnails,
@@ -92,10 +92,8 @@ fn collect_results(output_dir: &Path, interval_ms: i64) -> Result<ThumbnailStrip
     })
 }
 
-fn list_jpg_files(dir: &Path) -> Vec<String> {
-    let mut files: Vec<String> = std::fs::read_dir(dir)
-        .into_iter()
-        .flatten()
+fn list_jpg_files(dir: &Path) -> Result<Vec<String>> {
+    let mut files: Vec<String> = std::fs::read_dir(dir)?
         .filter_map(|e| e.ok())
         .filter(|e| {
             e.path()
@@ -105,7 +103,7 @@ fn list_jpg_files(dir: &Path) -> Vec<String> {
         .filter_map(|e| e.path().to_str().map(|s| s.to_string()))
         .collect();
     files.sort();
-    files
+    Ok(files)
 }
 
 pub fn thumbnail_strip_cache_key(input_path: &Path, interval_ms: i64, thumb_width: u32) -> String {
@@ -161,6 +159,6 @@ mod tests {
     fn check_cache_empty_dir() {
         let dir = std::env::temp_dir().join("mango_test_cache_empty");
         let _ = std::fs::remove_dir_all(&dir);
-        assert!(check_cache(&dir).is_none());
+        assert!(check_cache(&dir, 1000).is_none());
     }
 }

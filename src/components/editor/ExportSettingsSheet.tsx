@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Sheet,
   SheetContent,
@@ -30,6 +30,10 @@ export function ExportSettingsSheet({
 }: ExportSettingsSheetProps) {
   const [outputPath, setOutputPath] = useState(defaultOutputPath);
   const [exporting, setExporting] = useState(false);
+
+  useEffect(() => {
+    setOutputPath(defaultOutputPath);
+  }, [defaultOutputPath]);
   const { progress, reset: resetProgress } = useFFmpegProgress();
 
   const handleExport = async () => {

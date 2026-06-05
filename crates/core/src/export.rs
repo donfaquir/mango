@@ -9,14 +9,17 @@ use crate::ffmpeg::commands::TrimMode;
 use crate::ffmpeg::progress::FfmpegProgress;
 use crate::ffmpeg::sidecar::FfmpegConfig;
 
-pub fn export_video_clips(
+pub struct ResolvedClip {
+    pub source_path: PathBuf,
+    pub trim_start_ms: Option<i64>,
+    pub trim_end_ms: Option<i64>,
+}
+
+pub fn resolve_clips(
     conn: &Connection,
-    config: &FfmpegConfig,
     episode_id: &str,
     workspace_root: &Path,
-    output_path: &Path,
-    on_progress: Option<&mut dyn FnMut(FfmpegProgress)>,
-) -> Result<PathBuf> {
+) -> Result<Vec<ResolvedClip>> {
     let clips = video_clip::list(conn, episode_id)?;
     if clips.is_empty() {
         return Err(CoreError::Validation(
@@ -24,8 +27,8 @@ pub fn export_video_clips(
         ));
     }
 
-    let resolved: Vec<(i64, i64, PathBuf)> = clips
-        .iter()
+    clips
+        .into_iter()
         .map(|clip| {
             let a = asset::get_by_id(conn, &clip.source_asset_id)?;
             let abs_path = workspace_root.join(&a.file_path);
@@ -35,48 +38,82 @@ pub fn export_video_clips(
                     abs_path.display()
                 )));
             }
-            let start = clip.trim_start_ms.unwrap_or(0);
-            let end = clip.trim_end_ms.unwrap_or_else(|| {
-                crate::ffmpeg::probe::probe_video(config, &abs_path)
-                    .map(|m| m.duration_ms)
-                    .unwrap_or(0)
-            });
-            Ok((start, end, abs_path))
+            Ok(ResolvedClip {
+                source_path: abs_path,
+                trim_start_ms: clip.trim_start_ms,
+                trim_end_ms: clip.trim_end_ms,
+            })
         })
-        .collect::<Result<Vec<_>>>()?;
+        .collect()
+}
+
+pub fn export_resolved_clips(
+    config: &FfmpegConfig,
+    clips: &[ResolvedClip],
+    output_path: &Path,
+    on_progress: Option<&mut dyn FnMut(FfmpegProgress)>,
+) -> Result<PathBuf> {
+    if clips.is_empty() {
+        return Err(CoreError::Validation(
+            "no video clips to export".into(),
+        ));
+    }
 
     if let Some(parent) = output_path.parent() {
         std::fs::create_dir_all(parent)?;
     }
 
-    if resolved.len() == 1 {
-        let (start, end, ref src_path) = resolved[0];
-        let no_trim = clips[0].trim_start_ms.is_none() && clips[0].trim_end_ms.is_none();
-        if no_trim || (start == 0 && end == 0) {
-            std::fs::copy(src_path, output_path)?;
+    if clips.len() == 1 {
+        let clip = &clips[0];
+        let no_trim = clip.trim_start_ms.is_none() && clip.trim_end_ms.is_none();
+        if no_trim {
+            std::fs::copy(&clip.source_path, output_path)?;
         } else {
+            let start = clip.trim_start_ms.unwrap_or(0);
+            let end = match clip.trim_end_ms {
+                Some(e) => e,
+                None => crate::ffmpeg::probe::probe_video(config, &clip.source_path)?.duration_ms,
+            };
             crate::ffmpeg::commands::trim_video(
-                config, src_path, start, end, output_path, &TrimMode::Copy, on_progress,
+                config,
+                &clip.source_path,
+                start,
+                end,
+                output_path,
+                &TrimMode::Copy,
+                on_progress,
             )?;
         }
         return Ok(output_path.to_path_buf());
     }
 
-    // Multi-clip: trim each to temp, then concat
     let temp_dir = std::env::temp_dir().join(format!("mango_export_{}", Uuid::new_v4()));
     std::fs::create_dir_all(&temp_dir)?;
 
-    let mut trimmed_paths: Vec<PathBuf> = Vec::with_capacity(resolved.len());
-    for (i, (start, end, src_path)) in resolved.iter().enumerate() {
-        let needs_trim = clips[i].trim_start_ms.is_some() || clips[i].trim_end_ms.is_some();
+    let mut trimmed_paths: Vec<PathBuf> = Vec::with_capacity(clips.len());
+    for (i, clip) in clips.iter().enumerate() {
+        let needs_trim = clip.trim_start_ms.is_some() || clip.trim_end_ms.is_some();
         if needs_trim {
+            let start = clip.trim_start_ms.unwrap_or(0);
+            let end = match clip.trim_end_ms {
+                Some(e) => e,
+                None => {
+                    crate::ffmpeg::probe::probe_video(config, &clip.source_path)?.duration_ms
+                }
+            };
             let trimmed = temp_dir.join(format!("trim_{i}.mp4"));
             crate::ffmpeg::commands::trim_video(
-                config, src_path, *start, *end, &trimmed, &TrimMode::Copy, None,
+                config,
+                &clip.source_path,
+                start,
+                end,
+                &trimmed,
+                &TrimMode::Copy,
+                None,
             )?;
             trimmed_paths.push(trimmed);
         } else {
-            trimmed_paths.push(src_path.clone());
+            trimmed_paths.push(clip.source_path.clone());
         }
     }
 

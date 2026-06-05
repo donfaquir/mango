@@ -67,7 +67,7 @@ pub fn trim_video(
     mode: &TrimMode,
     on_progress: Option<&mut dyn FnMut(FfmpegProgress)>,
 ) -> Result<PathBuf> {
-    validate_trim_params(config, input, start_ms, end_ms, output)?;
+    let meta = validate_trim_params(config, input, start_ms, end_ms, output)?;
 
     let start_t = ms_to_ffmpeg_time(start_ms);
     let end_t = ms_to_ffmpeg_time(end_ms);
@@ -85,7 +85,6 @@ pub fn trim_video(
             cmd.arg("-i").arg(input)
                 .args(["-ss", &start_t, "-to", &end_t]);
 
-            let meta = super::probe::probe_video(config, input)?;
             let use_libx264 = has_encoder(config, "libx264");
 
             if use_libx264 {
@@ -111,7 +110,7 @@ pub fn trim_video(
     Ok(output.to_path_buf())
 }
 
-fn validate_trim_params(config: &FfmpegConfig, input: &Path, start_ms: i64, end_ms: i64, output: &Path) -> Result<()> {
+fn validate_trim_params(config: &FfmpegConfig, input: &Path, start_ms: i64, end_ms: i64, output: &Path) -> Result<VideoMetadata> {
     if start_ms < 0 {
         return Err(CoreError::Validation("start_ms must be >= 0".into()));
     }
@@ -134,7 +133,7 @@ fn validate_trim_params(config: &FfmpegConfig, input: &Path, start_ms: i64, end_
             meta.duration_ms
         )));
     }
-    Ok(())
+    Ok(meta)
 }
 
 // ---------------------------------------------------------------------------
@@ -149,9 +148,7 @@ pub fn split_video(
     mode: &TrimMode,
     mut on_progress: Option<&mut dyn FnMut(FfmpegProgress)>,
 ) -> Result<Vec<PathBuf>> {
-    validate_split_params(config, input, split_points_ms, output_dir)?;
-
-    let meta = super::probe::probe_video(config, input)?;
+    let meta = validate_split_params(config, input, split_points_ms, output_dir)?;
     let stem = input.file_stem().and_then(|s| s.to_str()).unwrap_or("output");
     let ext = input.extension().and_then(|s| s.to_str()).unwrap_or("mp4");
 
@@ -188,7 +185,7 @@ pub fn split_video(
     Ok(outputs)
 }
 
-fn validate_split_params(config: &FfmpegConfig, input: &Path, split_points_ms: &[i64], output_dir: &Path) -> Result<()> {
+fn validate_split_params(config: &FfmpegConfig, input: &Path, split_points_ms: &[i64], output_dir: &Path) -> Result<VideoMetadata> {
     if split_points_ms.is_empty() {
         return Err(CoreError::Validation("split_points_ms must not be empty".into()));
     }
@@ -216,7 +213,7 @@ fn validate_split_params(config: &FfmpegConfig, input: &Path, split_points_ms: &
         }
     }
 
-    Ok(())
+    Ok(meta)
 }
 
 // ---------------------------------------------------------------------------
@@ -246,7 +243,7 @@ pub fn concat_videos(
 
     let metas = check_concat_compatibility(config, inputs)?;
 
-    let list_file = std::env::temp_dir().join(format!("mango_concat_{}.txt", std::process::id()));
+    let list_file = std::env::temp_dir().join(format!("mango_concat_{}.txt", uuid::Uuid::new_v4()));
     let list_content: String = inputs
         .iter()
         .map(|p| format!("file '{}'", p.display()))

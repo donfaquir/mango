@@ -1,5 +1,6 @@
 import { useCallback, useRef } from "react";
 import { cn } from "@/lib/utils";
+import { msToPixel, pixelToMs } from "./timelineUtils";
 
 interface TrimHandlesProps {
   trimStart: number;
@@ -12,14 +13,6 @@ interface TrimHandlesProps {
 
 const MIN_DURATION_MS = 100;
 const SNAP_THRESHOLD_MS = 50;
-
-function msToPixel(ms: number, zoom: number): number {
-  return (ms / 100) * zoom;
-}
-
-function pixelToMs(px: number, zoom: number): number {
-  return (px / zoom) * 100;
-}
 
 function snapToSecond(ms: number, shiftKey: boolean): number {
   if (shiftKey) return ms;

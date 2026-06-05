@@ -23,15 +23,23 @@ fn progress_emitter(app: &AppHandle) -> impl FnMut(FfmpegProgress) + '_ {
 #[tauri::command]
 #[specta::specta]
 pub async fn check_ffmpeg() -> Result<ffmpeg::FfmpegStatus, IpcError> {
-    let config = ffmpeg::FfmpegConfig::from_env();
-    Ok(ffmpeg::check_ffmpeg(&config))
+    tokio::task::spawn_blocking(|| {
+        let config = ffmpeg::FfmpegConfig::from_env();
+        Ok(ffmpeg::check_ffmpeg(&config))
+    })
+    .await
+    .map_err(|e| IpcError::internal(format!("task join error: {e}")))?
 }
 
 #[tauri::command]
 #[specta::specta]
 pub async fn probe_video(path: String) -> Result<ffmpeg::VideoMetadata, IpcError> {
-    let config = ffmpeg::FfmpegConfig::from_env();
-    ffmpeg::probe_video(&config, Path::new(&path)).map_err(IpcError::from)
+    tokio::task::spawn_blocking(move || {
+        let config = ffmpeg::FfmpegConfig::from_env();
+        ffmpeg::probe_video(&config, Path::new(&path)).map_err(IpcError::from)
+    })
+    .await
+    .map_err(|e| IpcError::internal(format!("task join error: {e}")))?
 }
 
 #[tauri::command]
@@ -121,15 +129,19 @@ pub async fn extract_thumbnail(
     timestamp_ms: i32,
     output: String,
 ) -> Result<String, IpcError> {
-    let config = ffmpeg::FfmpegConfig::from_env();
-    let result = ffmpeg::extract_thumbnail(
-        &config,
-        Path::new(&input),
-        timestamp_ms as i64,
-        Path::new(&output),
-    )
-    .map_err(IpcError::from)?;
-    Ok(result.to_string_lossy().into_owned())
+    tokio::task::spawn_blocking(move || {
+        let config = ffmpeg::FfmpegConfig::from_env();
+        let result = ffmpeg::extract_thumbnail(
+            &config,
+            Path::new(&input),
+            timestamp_ms as i64,
+            Path::new(&output),
+        )
+        .map_err(IpcError::from)?;
+        Ok(result.to_string_lossy().into_owned())
+    })
+    .await
+    .map_err(|e| IpcError::internal(format!("task join error: {e}")))?
 }
 
 #[tauri::command]

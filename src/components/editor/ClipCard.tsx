@@ -10,16 +10,17 @@ interface ClipCardProps {
   dragHandleProps?: Record<string, unknown>;
 }
 
+function formatMs(ms: number): string {
+  const s = Math.floor(ms / 1000);
+  const m = Math.floor(s / 60);
+  const sec = s % 60;
+  const tenths = Math.floor((ms % 1000) / 100);
+  return `${m}:${sec.toString().padStart(2, "0")}.${tenths}`;
+}
+
 function formatRange(startMs: number | null, endMs: number | null): string {
-  if (startMs == null && endMs == null) return "Full";
-  const fmt = (ms: number) => {
-    const s = Math.floor(ms / 1000);
-    const m = Math.floor(s / 60);
-    const sec = s % 60;
-    const mil = ms % 1000;
-    return `${m}:${sec.toString().padStart(2, "0")}.${Math.floor(mil / 100)}`;
-  };
-  return `${fmt(startMs ?? 0)} – ${fmt(endMs ?? 0)}`;
+  if (startMs == null && endMs == null) return "完整片段";
+  return `${formatMs(startMs ?? 0)} – ${endMs != null ? formatMs(endMs) : "结尾"}`;
 }
 
 function formatDuration(startMs: number | null, endMs: number | null): string {

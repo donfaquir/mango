@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef } from "react";
+import { toast } from "sonner";
 import { useTimelineStore } from "@/stores/timelineStore";
 import { VideoPreview, type VideoPreviewHandle } from "./VideoPreview";
 import { Timeline } from "./Timeline";
@@ -27,11 +28,17 @@ export function VideoEditorLayout({ videoPath, videoSrcUrl, className }: VideoEd
 
   useEffect(() => {
     let cancelled = false;
-    unwrap(commands.probeVideo(videoPath)).then((meta) => {
-      if (!cancelled) {
-        setVideoSrc(videoPath, meta.duration_ms);
-      }
-    });
+    unwrap(commands.probeVideo(videoPath))
+      .then((meta) => {
+        if (!cancelled) {
+          setVideoSrc(videoPath, meta.duration_ms);
+        }
+      })
+      .catch((e) => {
+        if (!cancelled) {
+          toast.error(`视频探测失败：${e instanceof Error ? e.message : String(e)}`);
+        }
+      });
     return () => {
       cancelled = true;
       reset();

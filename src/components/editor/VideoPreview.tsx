@@ -15,7 +15,8 @@ export const VideoPreview = forwardRef<VideoPreviewHandle, VideoPreviewProps>(
   function VideoPreview({ videoSrcUrl, className }, ref) {
     const videoRef = useRef<HTMLVideoElement>(null);
     const rafRef = useRef<number>(0);
-    const { isPlaying, setPlaybackPosition, togglePlay } = useTimelineStore();
+    const { isPlaying, trimEnd, setPlaybackPosition, togglePlay } =
+      useTimelineStore();
 
     useImperativeHandle(ref, () => ({
       seekTo: (ms: number) => {
@@ -28,10 +29,19 @@ export const VideoPreview = forwardRef<VideoPreviewHandle, VideoPreviewProps>(
 
     const syncPlayback = useCallback(() => {
       if (videoRef.current) {
-        setPlaybackPosition(videoRef.current.currentTime * 1000);
+        const currentMs = videoRef.current.currentTime * 1000;
+        if (trimEnd > 0 && currentMs >= trimEnd) {
+          videoRef.current.pause();
+          videoRef.current.currentTime = trimEnd / 1000;
+          setPlaybackPosition(trimEnd);
+          useTimelineStore.setState({ isPlaying: false });
+          cancelAnimationFrame(rafRef.current);
+          return;
+        }
+        setPlaybackPosition(currentMs);
       }
       rafRef.current = requestAnimationFrame(syncPlayback);
-    }, [setPlaybackPosition]);
+    }, [setPlaybackPosition, trimEnd]);
 
     useEffect(() => {
       if (isPlaying) {

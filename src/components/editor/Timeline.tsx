@@ -5,19 +5,12 @@ import { ThumbnailStrip } from "./ThumbnailStrip";
 import { TrimHandles } from "./TrimHandles";
 import { PlaybackHead } from "./PlaybackHead";
 import { cn } from "@/lib/utils";
+import { msToPixel, pixelToMs } from "./timelineUtils";
 
 interface TimelineProps {
   videoPath: string | null;
   onSeek: (ms: number) => void;
   className?: string;
-}
-
-function msToPixel(ms: number, zoom: number): number {
-  return (ms / 100) * zoom;
-}
-
-function pixelToMs(px: number, zoom: number): number {
-  return (px / zoom) * 100;
 }
 
 export function Timeline({ videoPath, onSeek, className }: TimelineProps) {

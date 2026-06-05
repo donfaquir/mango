@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { cn } from "@/lib/utils";
+import { msToPixel } from "./timelineUtils";
 
 interface TimeScaleProps {
   duration: number;
@@ -13,33 +14,23 @@ interface TickConfig {
 }
 
 function getTickConfig(zoom: number): TickConfig {
-  if (zoom < 0.5) return { intervalMs: 60_000, format: formatMinutes };
-  if (zoom < 2) return { intervalMs: 10_000, format: formatSeconds };
-  if (zoom < 5) return { intervalMs: 5_000, format: formatSeconds };
-  if (zoom < 10) return { intervalMs: 1_000, format: formatSeconds };
-  return { intervalMs: 500, format: formatMillis };
+  if (zoom < 0.5) return { intervalMs: 60_000, format: formatTime };
+  if (zoom < 2) return { intervalMs: 10_000, format: formatTime };
+  if (zoom < 5) return { intervalMs: 5_000, format: formatTime };
+  if (zoom < 10) return { intervalMs: 1_000, format: formatTime };
+  return { intervalMs: 500, format: formatTimeMs };
 }
 
-function formatMinutes(ms: number): string {
+function formatTime(ms: number): string {
   const min = Math.floor(ms / 60_000);
   const sec = Math.floor((ms % 60_000) / 1000);
   return `${min}:${sec.toString().padStart(2, "0")}`;
 }
 
-function formatSeconds(ms: number): string {
+function formatTimeMs(ms: number): string {
   const min = Math.floor(ms / 60_000);
-  const sec = Math.floor((ms % 60_000) / 1000);
-  return `${min}:${sec.toString().padStart(2, "0")}`;
-}
-
-function formatMillis(ms: number): string {
-  const sec = (ms / 1000).toFixed(1);
-  const min = Math.floor(ms / 60_000);
-  return `${min}:${sec.padStart(4, "0")}`;
-}
-
-function msToPixel(ms: number, zoom: number): number {
-  return (ms / 100) * zoom;
+  const secTotal = (ms % 60_000) / 1000;
+  return `${min}:${secTotal.toFixed(1).padStart(4, "0")}`;
 }
 
 export function TimeScale({ duration, zoom, className }: TimeScaleProps) {

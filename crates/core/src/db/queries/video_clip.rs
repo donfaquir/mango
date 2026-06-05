@@ -72,15 +72,11 @@ pub fn create(conn: &Connection, input: CreateVideoClipInput) -> Result<VideoCli
 }
 
 pub fn update(conn: &Connection, id: &str, input: UpdateVideoClipInput) -> Result<VideoClip> {
-    let existing = get_by_id(conn, id)?;
-
-    let label = input.label.or(existing.label);
-    let trim_start = input.trim_start_ms.or(existing.trim_start_ms);
-    let trim_end = input.trim_end_ms.or(existing.trim_end_ms);
+    get_by_id(conn, id)?;
 
     conn.execute(
         "UPDATE video_clip SET label = ?1, trim_start_ms = ?2, trim_end_ms = ?3 WHERE id = ?4",
-        params![label, trim_start, trim_end, id],
+        params![input.label, input.trim_start_ms, input.trim_end_ms, id],
     )?;
 
     get_by_id(conn, id)
@@ -98,12 +94,22 @@ pub fn delete(conn: &Connection, id: &str) -> Result<()> {
 }
 
 pub fn reorder(conn: &Connection, ids: &[String]) -> Result<()> {
+    if ids.is_empty() {
+        return Ok(());
+    }
+    let first = get_by_id(conn, &ids[0])?;
     let tx = conn.unchecked_transaction()?;
     for (i, id) in ids.iter().enumerate() {
-        tx.execute(
-            "UPDATE video_clip SET order_index = ?1 WHERE id = ?2",
-            params![i as i32, id],
+        let affected = tx.execute(
+            "UPDATE video_clip SET order_index = ?1 WHERE id = ?2 AND \
+             COALESCE(episode_id, '') = COALESCE(?3, '')",
+            params![i as i32, id, first.episode_id],
         )?;
+        if affected == 0 {
+            return Err(CoreError::Validation(format!(
+                "clip '{id}' not found or belongs to a different episode"
+            )));
+        }
     }
     tx.commit()?;
     Ok(())
@@ -203,7 +209,7 @@ mod tests {
     }
 
     #[test]
-    fn update_clip() {
+    fn update_clip_overwrite() {
         let conn = setup();
         let clip = create(&conn, make_input()).unwrap();
         let updated = update(
@@ -212,12 +218,32 @@ mod tests {
             UpdateVideoClipInput {
                 label: Some("New Label".into()),
                 trim_start_ms: Some(2000),
-                trim_end_ms: None,
+                trim_end_ms: Some(4000),
             },
         )
         .unwrap();
         assert_eq!(updated.label, Some("New Label".into()));
         assert_eq!(updated.trim_start_ms, Some(2000));
-        assert_eq!(updated.trim_end_ms, Some(5000));
+        assert_eq!(updated.trim_end_ms, Some(4000));
+    }
+
+    #[test]
+    fn update_clip_clear_trim() {
+        let conn = setup();
+        let clip = create(&conn, make_input()).unwrap();
+        assert!(clip.trim_start_ms.is_some());
+        let updated = update(
+            &conn,
+            &clip.id,
+            UpdateVideoClipInput {
+                label: None,
+                trim_start_ms: None,
+                trim_end_ms: None,
+            },
+        )
+        .unwrap();
+        assert!(updated.trim_start_ms.is_none());
+        assert!(updated.trim_end_ms.is_none());
+        assert!(updated.label.is_none());
     }
 }

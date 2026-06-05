@@ -70,31 +70,34 @@ pub async fn export_video_clips(
     let db = mounted.db.clone();
     let workspace_root = mounted.workspace_root.clone();
 
-    let result: mango_core::error::Result<std::path::PathBuf> = db
+    let resolved = db
         .call(move |conn| {
-            let config = mango_core::ffmpeg::FfmpegConfig::from_env();
-            let mut cb = |p: FfmpegProgress| {
-                let _ = FfmpegProgressTick {
-                    progress_pct: p.progress_pct,
-                    current_time_ms: p.current_time_ms,
-                    total_duration_ms: p.total_duration_ms,
-                    speed: p.speed,
-                }
-                .emit(&app);
-            };
-            Ok(mango_core::export::export_video_clips(
-                conn,
-                &config,
-                &episode_id,
-                &workspace_root,
-                Path::new(&output_path),
-                Some(&mut cb),
-            ))
+            Ok(mango_core::export::resolve_clips(conn, &episode_id, &workspace_root))
         })
         .await
+        .map_err(IpcError::from)?
         .map_err(IpcError::from)?;
 
-    result
+    tokio::task::spawn_blocking(move || {
+        let config = mango_core::ffmpeg::FfmpegConfig::from_env();
+        let mut cb = |p: FfmpegProgress| {
+            let _ = FfmpegProgressTick {
+                progress_pct: p.progress_pct,
+                current_time_ms: p.current_time_ms,
+                total_duration_ms: p.total_duration_ms,
+                speed: p.speed,
+            }
+            .emit(&app);
+        };
+        mango_core::export::export_resolved_clips(
+            &config,
+            &resolved,
+            Path::new(&output_path),
+            Some(&mut cb),
+        )
         .map(|p| p.to_string_lossy().into_owned())
         .map_err(IpcError::from)
+    })
+    .await
+    .map_err(|e| IpcError::internal(format!("task join error: {e}")))?
 }

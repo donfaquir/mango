@@ -11,6 +11,7 @@ import { useTimelineStore } from "@/stores/timelineStore";
 import { useAssetList } from "@/hooks/useAssets";
 import { useProject } from "@/hooks/useProjects";
 import { useResolvedAssetUrl } from "@/hooks/useResolvedAssetUrl";
+import { useResolvedPath } from "@/hooks/useResolvedPath";
 
 export default function VideoEditorPage() {
   const { projectId, episodeId } = useParams<{
@@ -29,11 +30,13 @@ export default function VideoEditorPage() {
   const firstVideo = videoAssets[0];
 
   const videoSrcUrl = useResolvedAssetUrl(projectRoot, firstVideo?.file_path ?? null);
+  const absoluteVideoPath = useResolvedPath(projectRoot, firstVideo?.file_path ?? null);
+  const defaultExportPath = useResolvedPath(projectRoot, `exports/${episodeId}_export.mp4`);
 
   if (!projectId || !episodeId) return <Navigate to="/" replace />;
   if (isLoading) return <Skeleton className="h-96 w-full" />;
 
-  if (!firstVideo || !projectRoot) {
+  if (!firstVideo || !projectRoot || !absoluteVideoPath) {
     return (
       <div className="flex flex-col items-center gap-4 py-16">
         <p className="text-muted-foreground">该项目暂无视频素材</p>
@@ -43,8 +46,6 @@ export default function VideoEditorPage() {
       </div>
     );
   }
-
-  const absoluteVideoPath = `${projectRoot}/${firstVideo.file_path}`;
 
   return (
     <div className="flex flex-col gap-0 p-1">
@@ -61,14 +62,15 @@ export default function VideoEditorPage() {
       <ClipAssembly
         episodeId={episodeId}
         onAddClip={() => {
-          const { trimStart, trimEnd } = useTimelineStore.getState();
+          const { trimStart, trimEnd, duration } = useTimelineStore.getState();
+          const hasCustomTrim = trimStart > 0 || trimEnd < duration;
           createClip.mutate({
             project_id: projectId,
             episode_id: episodeId,
             source_asset_id: firstVideo.id,
             label: null,
-            trim_start_ms: trimStart || null,
-            trim_end_ms: trimEnd || null,
+            trim_start_ms: hasCustomTrim ? trimStart : null,
+            trim_end_ms: hasCustomTrim ? trimEnd : null,
           });
         }}
         onExport={() => setExportOpen(true)}
@@ -77,7 +79,7 @@ export default function VideoEditorPage() {
         open={exportOpen}
         onOpenChange={setExportOpen}
         episodeId={episodeId}
-        defaultOutputPath={`${projectRoot}/exports/${episodeId}_export.mp4`}
+        defaultOutputPath={defaultExportPath ?? ""}
       />
     </div>
   );

@@ -1,13 +1,10 @@
 import { cn } from "@/lib/utils";
+import { msToPixel } from "./timelineUtils";
 
 interface PlaybackHeadProps {
   positionMs: number;
   zoom: number;
   className?: string;
-}
-
-function msToPixel(ms: number, zoom: number): number {
-  return (ms / 100) * zoom;
 }
 
 export function PlaybackHead({ positionMs, zoom, className }: PlaybackHeadProps) {
