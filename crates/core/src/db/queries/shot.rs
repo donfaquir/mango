@@ -513,6 +513,7 @@ mod tests {
                 description: None,
                 appearance_prompt: None,
                 reference_image_path: None,
+                voice_id: None,
             },
         )
         .unwrap();
@@ -542,6 +543,7 @@ mod tests {
                 description: None,
                 appearance_prompt: None,
                 reference_image_path: None,
+                voice_id: None,
             },
         )
         .unwrap();

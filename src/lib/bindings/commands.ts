@@ -192,6 +192,9 @@ export const commands = {
 	listVideoClips: (episodeId: string) => typedError<VideoClip[], IpcError_Serialize>(__TAURI_INVOKE("list_video_clips", { episodeId })),
 	reorderVideoClips: (ids: string[]) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("reorder_video_clips", { ids })),
 	updateVideoClip: (id: string, input: UpdateVideoClipInput) => typedError<VideoClip, IpcError_Serialize>(__TAURI_INVOKE("update_video_clip", { id, input })),
+	generateEpisodeVoices: (episodeId: string, accountId: string) => typedError<SubmitBatchOutcome, IpcError_Serialize>(__TAURI_INVOKE("generate_episode_voices", { episodeId, accountId })),
+	generateShotVoice: (shotId: string, accountId: string) => typedError<string, IpcError_Serialize>(__TAURI_INVOKE("generate_shot_voice", { shotId, accountId })),
+	previewVoice: (voiceId: string, text: string, accountId: string) => typedError<string, IpcError_Serialize>(__TAURI_INVOKE("preview_voice", { voiceId, text, accountId })),
 	/**
 	 *  Current workspace mount state. Drives the frontend's onboarding vs
 	 *  main-app routing decision.
@@ -355,6 +358,7 @@ export type Character = {
 	description: string,
 	appearance_prompt: string,
 	reference_image_path: string | null,
+	voice_id: string | null,
 	created_at: string,
 	updated_at: string,
 };
@@ -416,6 +420,7 @@ export type CreateCharacterInput = {
 	description?: string | null,
 	appearance_prompt?: string | null,
 	reference_image_path?: string | null,
+	voice_id?: string | null,
 };
 
 export type CreateCheckpointInput = {
@@ -972,6 +977,8 @@ export type UpdateCharacterInput_Deserialize = {
 	appearance_prompt?: string | null,
 	/**  None = don't modify, Some(None) = clear to NULL, Some(Some(v)) = set to v */
 	reference_image_path?: string | null,
+	/**  None = don't modify, Some(None) = clear to NULL, Some(Some(v)) = set to v */
+	voice_id?: string | null,
 };
 
 export type UpdateCharacterInput_Serialize = {
@@ -980,6 +987,8 @@ export type UpdateCharacterInput_Serialize = {
 	appearance_prompt?: string | null,
 	/**  None = don't modify, Some(None) = clear to NULL, Some(Some(v)) = set to v */
 	reference_image_path?: string | null,
+	/**  None = don't modify, Some(None) = clear to NULL, Some(Some(v)) = set to v */
+	voice_id?: string | null,
 };
 
 export type UpdateCostumeInput = UpdateCostumeInput_Serialize | UpdateCostumeInput_Deserialize;

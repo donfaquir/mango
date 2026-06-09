@@ -15,6 +15,7 @@ pub mod scene;
 pub mod shot;
 pub mod task;
 pub mod video;
+pub mod voice;
 pub mod workspace;
 
 use crate::error::IpcError;

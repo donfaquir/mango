@@ -9,6 +9,7 @@ pub struct Character {
     pub description: String,
     pub appearance_prompt: String,
     pub reference_image_path: Option<String>,
+    pub voice_id: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -23,6 +24,8 @@ pub struct CreateCharacterInput {
     pub appearance_prompt: Option<String>,
     #[serde(default)]
     pub reference_image_path: Option<String>,
+    #[serde(default)]
+    pub voice_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Type)]
@@ -36,6 +39,9 @@ pub struct UpdateCharacterInput {
     /// None = don't modify, Some(None) = clear to NULL, Some(Some(v)) = set to v
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reference_image_path: Option<Option<String>>,
+    /// None = don't modify, Some(None) = clear to NULL, Some(Some(v)) = set to v
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub voice_id: Option<Option<String>>,
 }
 
 #[derive(Debug, Deserialize, Type)]

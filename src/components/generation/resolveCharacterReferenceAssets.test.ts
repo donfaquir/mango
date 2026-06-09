@@ -25,6 +25,7 @@ function makeCharacter(overrides: Partial<Character> = {}): Character {
     description: "",
     appearance_prompt: "",
     reference_image_path: "assets/abc.png",
+    voice_id: null,
     created_at: "2026-05-26 10:00:00",
     updated_at: "2026-05-26 10:00:00",
     ...overrides,

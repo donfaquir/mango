@@ -5,6 +5,13 @@ import * as z from "zod";
 
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { ReferenceImageDropzone } from "@/components/subjects/ReferenceImageDropzone";
 import { useProject } from "@/hooks/useProjects";
@@ -15,11 +22,23 @@ import {
 } from "@/hooks/useCharacters";
 import { QueryFallback, SubjectFormFooter } from "./SubjectFormShell";
 
+const VOICE_OPTIONS = [
+  { id: "longxiaochun", label: "龙小淳", desc: "女 · 温柔知性" },
+  { id: "longlaotie", label: "龙老铁", desc: "男 · 东北话" },
+  { id: "longshu", label: "龙叔", desc: "男 · 沉稳旁白" },
+  { id: "longxiaoxia", label: "龙小夏", desc: "女 · 活泼少女" },
+  { id: "longyue", label: "龙悦", desc: "女 · 温柔甜美" },
+  { id: "longfei", label: "龙飞", desc: "男 · 激昂解说" },
+  { id: "longjielidou", label: "龙杰力豆", desc: "男 · 少年音" },
+  { id: "longwan", label: "龙婉", desc: "女 · 新闻播报" },
+] as const;
+
 const schema = z.object({
   name: z.string().trim().min(1, "名称必填").max(100),
   description: z.string().max(2000),
   appearance_prompt: z.string().max(4000),
   reference_image_path: z.string().nullable(),
+  voice_id: z.string().nullable(),
 });
 type FormValues = z.infer<typeof schema>;
 
@@ -55,6 +74,7 @@ export function CharacterForm({
         description: character.data.description,
         appearance_prompt: character.data.appearance_prompt,
         reference_image_path: character.data.reference_image_path,
+        voice_id: character.data.voice_id,
       }}
       submit={(v) => update.mutateAsync({ id: subjectId, input: v })}
       deletePending={del.isPending}
@@ -145,6 +165,35 @@ function Inner({
             placeholder="如：黑色短发，琥珀色眼睛..."
             {...form.register("appearance_prompt")}
             disabled={busy}
+          />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="char-voice">配音音色</Label>
+          <Controller
+            control={form.control}
+            name="voice_id"
+            render={({ field }) => (
+              <Select
+                value={field.value ?? "__none__"}
+                onValueChange={(v) => field.onChange(v === "__none__" ? null : v)}
+                disabled={busy}
+              >
+                <SelectTrigger id="char-voice">
+                  <SelectValue placeholder="未设置" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">未设置</SelectItem>
+                  {VOICE_OPTIONS.map((v) => (
+                    <SelectItem key={v.id} value={v.id}>
+                      {v.label}
+                      <span className="ml-2 text-muted-foreground text-xs">
+                        {v.desc}
+                      </span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
           />
         </div>
         <SubjectFormFooter
