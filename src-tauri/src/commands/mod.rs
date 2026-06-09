@@ -1,5 +1,6 @@
 pub mod account;
 pub mod asset;
+pub mod audio;
 pub mod canvas_layout;
 pub mod cli;
 pub mod character;

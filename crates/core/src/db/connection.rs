@@ -79,8 +79,8 @@ mod tests {
             .collect::<Result<_, _>>()
             .unwrap();
 
-        // Bumped from 20 to 21 when spec-36 added `video_clip`.
-        assert_eq!(tables.len(), 21, "expected 21 tables, got: {tables:?}");
+        // Bumped from 21 to 22 when spec-39 added `shot_audio`.
+        assert_eq!(tables.len(), 22, "expected 22 tables, got: {tables:?}");
     }
 
     #[test]

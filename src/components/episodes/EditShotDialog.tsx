@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { useUpdateShot } from "@/hooks/useShots";
+import { ShotAudioPanel } from "@/components/audio/ShotAudioPanel";
 import type { Shot, ShotStatus } from "@/lib/bindings/commands";
 
 const STATUS_OPTIONS: { value: ShotStatus; label: string }[] = [
@@ -54,12 +55,13 @@ type FormValues = z.infer<typeof schema>;
 
 interface Props {
   episodeId: string;
+  projectId?: string;
   shot: Shot;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }
 
-export function EditShotDialog({ episodeId, shot, open, onOpenChange }: Props) {
+export function EditShotDialog({ episodeId, projectId, shot, open, onOpenChange }: Props) {
   const update = useUpdateShot(episodeId);
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
@@ -210,6 +212,10 @@ export function EditShotDialog({ episodeId, shot, open, onOpenChange }: Props) {
               </SelectContent>
             </Select>
           </Field>
+
+          {projectId && (
+            <ShotAudioPanel shotId={shot.id} projectId={projectId} />
+          )}
 
           <DialogFooter>
             <Button

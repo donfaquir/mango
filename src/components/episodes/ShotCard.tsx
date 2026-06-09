@@ -197,6 +197,7 @@ export function ShotCard({
       </Button>
       <EditShotDialog
         episodeId={episodeId}
+        projectId={projectId}
         shot={shot}
         open={editOpen}
         onOpenChange={setEditOpen}

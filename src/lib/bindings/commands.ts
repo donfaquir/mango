@@ -86,6 +86,10 @@ export const commands = {
 	 *  the caller's cache can refresh in a single roundtrip.
 	 */
 	updateAssetOriginalName: (id: string, originalName: string) => typedError<Asset, IpcError_Serialize>(__TAURI_INVOKE("update_asset_original_name", { id, originalName })),
+	createShotAudio: (input: CreateShotAudioInput) => typedError<ShotAudio, IpcError_Serialize>(__TAURI_INVOKE("create_shot_audio", { input })),
+	deleteShotAudio: (id: string) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("delete_shot_audio", { id })),
+	listShotAudio: (shotId: string) => typedError<ShotAudio[], IpcError_Serialize>(__TAURI_INVOKE("list_shot_audio", { shotId })),
+	updateShotAudio: (id: string, input: UpdateShotAudioInput_Deserialize) => typedError<ShotAudio, IpcError_Serialize>(__TAURI_INVOKE("update_shot_audio", { id, input })),
 	deleteCanvasLayout: (episodeId: string) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("delete_canvas_layout", { episodeId })),
 	getCanvasLayout: (episodeId: string) => typedError<{
 	id: string,
@@ -336,6 +340,8 @@ export type AssetSource = "imported" | "generated";
 
 export type AssetType = "image" | "video" | "audio" | "script";
 
+export type AudioRole = "voice" | "sfx" | "bgm";
+
 /**
  *  Canvas layout for a single episode. `nodes_json` / `edges_json` /
  *  `viewport_json` are opaque JSON blobs owned by the frontend's React Flow
@@ -487,6 +493,14 @@ export type CreateSceneInput = {
 	description?: string | null,
 	environment_prompt?: string | null,
 	reference_image_path?: string | null,
+};
+
+export type CreateShotAudioInput = {
+	shot_id: string,
+	asset_id: string,
+	audio_role: AudioRole,
+	volume?: number | null,
+	offset_ms?: number,
 };
 
 export type CreateShotInput = {
@@ -879,6 +893,17 @@ export type Shot = {
 	updated_at: string,
 };
 
+export type ShotAudio = {
+	id: string,
+	shot_id: string,
+	asset_id: string,
+	audio_role: AudioRole,
+	volume: number | null,
+	offset_ms: number,
+	order_index: number,
+	created_at: string,
+};
+
 export type ShotLinks = {
 	character_ids: string[],
 	scene_ids: string[],
@@ -1069,6 +1094,18 @@ export type UpdateSceneInput_Serialize = {
 	environment_prompt?: string | null,
 	/**  None = don't modify, Some(None) = clear to NULL, Some(Some(v)) = set to v */
 	reference_image_path?: string | null,
+};
+
+export type UpdateShotAudioInput = UpdateShotAudioInput_Serialize | UpdateShotAudioInput_Deserialize;
+
+export type UpdateShotAudioInput_Deserialize = {
+	volume?: number | null,
+	offset_ms?: number | null,
+};
+
+export type UpdateShotAudioInput_Serialize = {
+	volume?: number | null,
+	offset_ms?: number | null,
 };
 
 export type UpdateShotInput = UpdateShotInput_Serialize | UpdateShotInput_Deserialize;
