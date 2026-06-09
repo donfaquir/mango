@@ -48,6 +48,13 @@ const PROVIDERS: &[ProviderSeed] = &[
                 capabilities_json: r#"{"task_types":["video"],"requires_reference_media":true,"sync_submit":false,"supported_resolutions":["720P","1080P"],"supported_ratios":["16:9","9:16","1:1"],"duration_sec":[5,10]}"#,
                 default_params_json: r#"{"resolution":"720P","ratio":"16:9","duration":5}"#,
             },
+            ModelSeed {
+                id: "cosyvoice-v2",
+                name: "CosyVoice 2.0（语音合成）",
+                model_type: "audio",
+                capabilities_json: r#"{"task_types":["audio"],"sync_submit":true,"max_text_length":2000,"output_format":"mp3","supported_voices":true,"voices":["longxiaochun","longlaotie","longshu","longxiaoxia","longyue","longfei","longjielidou","longwan"]}"#,
+                default_params_json: r#"{"voice_id":"longxiaochun","rate":1.0,"volume":50,"pitch":0,"format":"mp3","sample_rate":24000}"#,
+            },
         ],
     },
     ProviderSeed {
@@ -147,9 +154,9 @@ mod tests {
     fn apply_creates_expected_rows() {
         let conn = open_sync(Path::new(":memory:")).unwrap();
         apply(&conn).unwrap();
-        // bailian + jimeng = 2 providers, 4 models total.
+        // bailian + jimeng = 2 providers, 5 models total (bailian: 3, jimeng: 2).
         assert_eq!(count(&conn, "provider"), 2);
-        assert_eq!(count(&conn, "model"), 4);
+        assert_eq!(count(&conn, "model"), 5);
     }
 
     #[test]
@@ -159,7 +166,7 @@ mod tests {
         apply(&conn).unwrap();
         apply(&conn).unwrap();
         assert_eq!(count(&conn, "provider"), 2);
-        assert_eq!(count(&conn, "model"), 4);
+        assert_eq!(count(&conn, "model"), 5);
     }
 
     #[test]
@@ -255,7 +262,7 @@ mod tests {
     }
 
     #[test]
-    fn apply_creates_bailian_with_two_models() {
+    fn apply_creates_bailian_with_three_models() {
         let conn = open_sync(Path::new(":memory:")).unwrap();
         apply(&conn).unwrap();
         let n: i64 = conn
@@ -265,7 +272,7 @@ mod tests {
                 |r| r.get(0),
             )
             .unwrap();
-        assert_eq!(n, 2);
+        assert_eq!(n, 3);
     }
 
     #[test]

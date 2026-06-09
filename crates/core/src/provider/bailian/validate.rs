@@ -6,6 +6,7 @@ pub(super) fn validate_params(params: &GenerationParams) -> Result<()> {
     match params.model_id.as_str() {
         "wan2.7-image-pro" => validate_wan27(params),
         "happyhorse-1.0-r2v" => validate_happyhorse(params),
+        "cosyvoice-v2" => validate_cosyvoice(params),
         other => Err(CoreError::Provider(ProviderErrorDetail::new(
             ProviderErrorKind::InvalidRequest,
             format!("不支持的百炼模型: {other}"),
@@ -85,6 +86,46 @@ fn validate_happyhorse(params: &GenerationParams) -> Result<()> {
     Ok(())
 }
 
+fn validate_cosyvoice(params: &GenerationParams) -> Result<()> {
+    let text = params
+        .provider_params
+        .get("text")
+        .and_then(|v| v.as_str())
+        .unwrap_or(params.prompt.as_str());
+    if text.trim().is_empty() {
+        return invalid("cosyvoice-v2 需要非空文本（provider_params.text 或 prompt）");
+    }
+    if text.len() > 2000 {
+        return invalid("cosyvoice-v2 单次文本长度不能超过 2000 字符");
+    }
+
+    let voice_id = params
+        .provider_params
+        .get("voice_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    if voice_id.trim().is_empty() {
+        return invalid("cosyvoice-v2 需要指定 voice_id");
+    }
+
+    if let Some(rate) = params.provider_params.get("rate").and_then(|v| v.as_f64())
+        && !(0.5..=2.0).contains(&rate)
+    {
+        return invalid("cosyvoice-v2 的 rate 需在 0.5~2.0 之间");
+    }
+    if let Some(volume) = params.provider_params.get("volume").and_then(|v| v.as_i64())
+        && !(0..=100).contains(&volume)
+    {
+        return invalid("cosyvoice-v2 的 volume 需在 0~100 之间");
+    }
+    if let Some(pitch) = params.provider_params.get("pitch").and_then(|v| v.as_i64())
+        && !(-500..=500).contains(&pitch)
+    {
+        return invalid("cosyvoice-v2 的 pitch 需在 -500~500 之间");
+    }
+    Ok(())
+}
+
 fn invalid(message: &str) -> Result<()> {
     Err(CoreError::Provider(ProviderErrorDetail::new(
         ProviderErrorKind::InvalidRequest,
@@ -150,6 +191,76 @@ mod tests {
             "happyhorse-1.0-r2v",
             "test",
             serde_json::json!({ "media": [] }),
+        );
+        assert!(validate_params(&p).is_err());
+    }
+
+    #[test]
+    fn validates_cosyvoice_ok() {
+        let p = base_params(
+            "cosyvoice-v2",
+            "hello",
+            serde_json::json!({ "voice_id": "longxiaochun", "rate": 1.0, "volume": 50 }),
+        );
+        assert!(validate_params(&p).is_ok());
+    }
+
+    #[test]
+    fn validates_cosyvoice_text_from_provider_params() {
+        let p = base_params(
+            "cosyvoice-v2",
+            "",
+            serde_json::json!({ "text": "from params", "voice_id": "longshu" }),
+        );
+        assert!(validate_params(&p).is_ok());
+    }
+
+    #[test]
+    fn rejects_cosyvoice_empty_text() {
+        let p = base_params(
+            "cosyvoice-v2",
+            "",
+            serde_json::json!({ "voice_id": "longxiaochun" }),
+        );
+        assert!(validate_params(&p).is_err());
+    }
+
+    #[test]
+    fn rejects_cosyvoice_missing_voice() {
+        let p = base_params(
+            "cosyvoice-v2",
+            "hello",
+            serde_json::json!({}),
+        );
+        assert!(validate_params(&p).is_err());
+    }
+
+    #[test]
+    fn rejects_cosyvoice_rate_out_of_range() {
+        let p = base_params(
+            "cosyvoice-v2",
+            "hello",
+            serde_json::json!({ "voice_id": "longshu", "rate": 3.0 }),
+        );
+        assert!(validate_params(&p).is_err());
+    }
+
+    #[test]
+    fn rejects_cosyvoice_volume_out_of_range() {
+        let p = base_params(
+            "cosyvoice-v2",
+            "hello",
+            serde_json::json!({ "voice_id": "longshu", "volume": 150 }),
+        );
+        assert!(validate_params(&p).is_err());
+    }
+
+    #[test]
+    fn rejects_cosyvoice_pitch_out_of_range() {
+        let p = base_params(
+            "cosyvoice-v2",
+            "hello",
+            serde_json::json!({ "voice_id": "longshu", "pitch": 600 }),
         );
         assert!(validate_params(&p).is_err());
     }
