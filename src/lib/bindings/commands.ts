@@ -136,10 +136,12 @@ export const commands = {
 	listEpisodes: (opts: ListEpisodesOptions) => typedError<Episode[], IpcError_Serialize>(__TAURI_INVOKE("list_episodes", { opts })),
 	reorderEpisodes: (projectId: string, orderedIds: string[]) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("reorder_episodes", { projectId, orderedIds })),
 	updateEpisode: (id: string, input: UpdateEpisodeInput_Deserialize) => typedError<Episode, IpcError_Serialize>(__TAURI_INVOKE("update_episode", { id, input })),
+	checkAudioAlignment: (videoPath: string, audioPath: string) => typedError<AlignmentInfo, IpcError_Serialize>(__TAURI_INVOKE("check_audio_alignment", { videoPath, audioPath })),
 	checkFfmpeg: () => typedError<FfmpegStatus, IpcError_Serialize>(__TAURI_INVOKE("check_ffmpeg")),
 	concatVideos: (inputs: string[], output: string) => typedError<string, IpcError_Serialize>(__TAURI_INVOKE("concat_videos", { inputs, output })),
 	extractThumbnail: (input: string, timestampMs: number, output: string) => typedError<string, IpcError_Serialize>(__TAURI_INVOKE("extract_thumbnail", { input, timestampMs, output })),
 	extractThumbnailStrip: (input: string, intervalMs: number, thumbWidth: number) => typedError<ThumbnailStripResult, IpcError_Serialize>(__TAURI_INVOKE("extract_thumbnail_strip", { input, intervalMs, thumbWidth })),
+	probeAudioDuration: (path: string) => typedError<AudioDuration, IpcError_Serialize>(__TAURI_INVOKE("probe_audio_duration", { path })),
 	probeVideo: (path: string) => typedError<VideoMetadata, IpcError_Serialize>(__TAURI_INVOKE("probe_video", { path })),
 	splitVideo: (input: string, splitPointsMs: number[], outputDir: string, mode: TrimMode) => typedError<string[], IpcError_Serialize>(__TAURI_INVOKE("split_video", { input, splitPointsMs, outputDir, mode })),
 	trimVideo: (input: string, startMs: number, endMs: number, output: string, mode: TrimMode) => typedError<string, IpcError_Serialize>(__TAURI_INVOKE("trim_video", { input, startMs, endMs, output, mode })),
@@ -258,6 +260,14 @@ export const events = {
 };
 
 /* Types */
+export type AlignmentInfo = {
+	videoDurationMs: number,
+	audioDurationMs: number,
+	strategy: string,
+	diffMs: number,
+	suggestedSpeed: number | null,
+};
+
 /**
  *  IPC-exposed account row. Crucially excludes `api_key_ref`: the frontend has
  *  no business reading the keyring entry name, and not exporting it makes
@@ -339,6 +349,10 @@ export type Asset = {
 export type AssetSource = "imported" | "generated";
 
 export type AssetType = "image" | "video" | "audio" | "script";
+
+export type AudioDuration = {
+	durationMs: number,
+};
 
 export type AudioRole = "voice" | "sfx" | "bgm";
 
