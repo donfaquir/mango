@@ -13,4 +13,6 @@ pub mod prop;
 pub mod scene;
 pub mod shot;
 pub mod shot_audio;
+pub mod timeline;
+pub mod timeline_params;
 pub mod video_clip;

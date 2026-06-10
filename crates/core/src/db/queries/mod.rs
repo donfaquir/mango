@@ -15,4 +15,7 @@ pub mod prop;
 pub mod scene;
 pub mod shot;
 pub mod shot_audio;
+pub mod timeline_item;
+pub mod timeline_keyframe;
+pub mod timeline_track;
 pub mod video_clip;

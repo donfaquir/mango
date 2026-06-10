@@ -11,4 +11,5 @@ pub mod provider;
 pub mod seed;
 pub mod startup;
 pub mod task_engine;
+pub mod timeline;
 pub mod voice;
