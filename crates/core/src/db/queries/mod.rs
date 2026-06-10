@@ -14,4 +14,5 @@ pub mod provider;
 pub mod prop;
 pub mod scene;
 pub mod shot;
+pub mod shot_audio;
 pub mod video_clip;

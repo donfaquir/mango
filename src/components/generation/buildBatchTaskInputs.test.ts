@@ -129,6 +129,7 @@ describe("buildBatchTaskInputs", () => {
         description: "",
         appearance_prompt: "",
         reference_image_path: "subjects/character/hero.png",
+        voice_id: null,
         created_at: "",
         updated_at: "",
       },

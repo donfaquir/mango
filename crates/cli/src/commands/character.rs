@@ -89,6 +89,7 @@ fn create(
             description: Some(description),
             appearance_prompt: Some(appearance_prompt),
             reference_image_path: None,
+            voice_id: None,
         },
     )?;
     println!("Character created");
@@ -156,6 +157,7 @@ fn update(
             description,
             appearance_prompt,
             reference_image_path: None,
+            voice_id: None,
         },
     )?;
     println!("Character updated");

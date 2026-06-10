@@ -174,3 +174,70 @@ pub async fn extract_thumbnail_strip(
     .await
     .map_err(|e| IpcError::internal(format!("task join error: {e}")))?
 }
+
+#[tauri::command]
+#[specta::specta]
+pub async fn probe_audio_duration(path: String) -> Result<AudioDuration, IpcError> {
+    tokio::task::spawn_blocking(move || {
+        let config = ffmpeg::FfmpegConfig::from_env();
+        let ms = ffmpeg::probe_audio_duration(&config, std::path::Path::new(&path))
+            .map_err(IpcError::from)?;
+        Ok(AudioDuration { duration_ms: ms })
+    })
+    .await
+    .map_err(|e| IpcError::internal(format!("task join error: {e}")))?
+}
+
+#[derive(Debug, serde::Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct AudioDuration {
+    #[specta(type = specta_typescript::Number)]
+    pub duration_ms: i64,
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn check_audio_alignment(
+    video_path: String,
+    audio_path: String,
+) -> Result<AlignmentInfo, IpcError> {
+    tokio::task::spawn_blocking(move || {
+        let config = ffmpeg::FfmpegConfig::from_env();
+        let video_ms = ffmpeg::probe_video(&config, std::path::Path::new(&video_path))
+            .map_err(IpcError::from)?
+            .duration_ms;
+        let audio_ms = ffmpeg::probe_audio_duration(&config, std::path::Path::new(&audio_path))
+            .map_err(IpcError::from)?;
+        let strategy = ffmpeg::calculate_alignment_default(video_ms, audio_ms);
+        let (strategy_name, diff_ms, suggested_speed) = match &strategy {
+            ffmpeg::AlignmentStrategy::Exact => ("exact", 0i64, None),
+            ffmpeg::AlignmentStrategy::PadSilence { gap_ms } => ("pad_silence", -*gap_ms, None),
+            ffmpeg::AlignmentStrategy::TrimAudio { excess_ms } => ("trim_audio", *excess_ms, None),
+            ffmpeg::AlignmentStrategy::RegenerateNeeded { excess_ms, suggested_speed } => {
+                ("regenerate_needed", *excess_ms, Some(*suggested_speed))
+            }
+        };
+        Ok(AlignmentInfo {
+            video_duration_ms: video_ms,
+            audio_duration_ms: audio_ms,
+            strategy: strategy_name.to_string(),
+            diff_ms,
+            suggested_speed,
+        })
+    })
+    .await
+    .map_err(|e| IpcError::internal(format!("task join error: {e}")))?
+}
+
+#[derive(Debug, serde::Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct AlignmentInfo {
+    #[specta(type = specta_typescript::Number)]
+    pub video_duration_ms: i64,
+    #[specta(type = specta_typescript::Number)]
+    pub audio_duration_ms: i64,
+    pub strategy: String,
+    #[specta(type = specta_typescript::Number)]
+    pub diff_ms: i64,
+    pub suggested_speed: Option<f64>,
+}

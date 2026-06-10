@@ -1,10 +1,12 @@
-//! BailianProvider — DashScope-backed provider covering two models:
+//! BailianProvider — DashScope-backed provider covering three models:
 //! - `wan2.7-image-pro`: synchronous text-to-image (chat-messages style)
 //! - `happyhorse-1.0-r2v`: asynchronous reference-image-to-video
+//! - `cosyvoice-v3-flash`: non-realtime HTTP text-to-speech (CosyVoice TTS)
 //!
 //! Routes by `model_id` in submit/poll/cancel/download.
 
 pub(crate) mod client;
+pub(crate) mod cosyvoice;
 pub(crate) mod happyhorse;
 pub mod materializer;
 pub(crate) mod types;
@@ -26,15 +28,18 @@ use crate::provider::traits::{
     SubmitOutcome, UploadSummary,
 };
 use client::BailianClient;
+use cosyvoice::TtsCache;
 use wan27::Wan27Cache;
 
-/// One BailianProvider instance covers both models. Credentials are injected
-/// per-call via `GenerationParams::credentials` — the struct holds no secrets.
+/// One BailianProvider instance covers all DashScope models. Credentials are
+/// injected per-call via `GenerationParams::credentials` — the struct holds no secrets.
 pub struct BailianProvider {
     /// HTTP client shared across calls. Timeout = 120s (wan27 sync can take ~60s).
     http: reqwest::Client,
     /// In-memory cache for wan27 synchronous results. Keyed by "wan27:{uuid}".
     wan_cache: Arc<Mutex<Wan27Cache>>,
+    /// In-memory cache for cosyvoice TTS synchronous results. Keyed by "cosyvoice:{uuid}".
+    tts_cache: Arc<Mutex<TtsCache>>,
     /// Credentials cache for happyhorse poll/cancel: external_task_id → api_key.
     /// Populated at submit time, cleared when task reaches terminal state.
     creds_cache: Arc<Mutex<HashMap<String, String>>>,
@@ -50,6 +55,7 @@ impl BailianProvider {
         Self {
             http,
             wan_cache: Arc::new(Mutex::new(Wan27Cache::default())),
+            tts_cache: Arc::new(Mutex::new(TtsCache::default())),
             creds_cache: Arc::new(Mutex::new(HashMap::new())),
         }
     }
@@ -69,6 +75,15 @@ impl ModelProvider for BailianProvider {
         match params.model_id.as_str() {
             "wan2.7-image-pro" => {
                 let result = wan27::submit(&client, &self.wan_cache, &params).await?;
+                Ok(SubmitOutcome {
+                    external_task_id: result.external_task_id,
+                    request_id: result.request_id,
+                    http_status: Some(result.http_status as i64),
+                    upload: None,
+                })
+            }
+            "cosyvoice-v3-flash" => {
+                let result = cosyvoice::submit(&client, &self.tts_cache, &params).await?;
                 Ok(SubmitOutcome {
                     external_task_id: result.external_task_id,
                     request_id: result.request_id,
@@ -107,6 +122,9 @@ impl ModelProvider for BailianProvider {
         if external_task_id.starts_with("wan27:") {
             let status = wan27::poll(&self.wan_cache, external_task_id).await?;
             Ok(PollOutcome::bare(status))
+        } else if external_task_id.starts_with("cosyvoice:") {
+            let status = cosyvoice::poll(&self.tts_cache, external_task_id).await?;
+            Ok(PollOutcome::bare(status))
         } else {
             // happyhorse — retrieve cached api_key.
             let api_key = self
@@ -144,6 +162,9 @@ impl ModelProvider for BailianProvider {
     async fn cancel(&self, external_task_id: &str) -> Result<()> {
         if external_task_id.starts_with("wan27:") {
             wan27::cancel(&self.wan_cache, external_task_id).await;
+            Ok(())
+        } else if external_task_id.starts_with("cosyvoice:") {
+            cosyvoice::cancel(&self.tts_cache, external_task_id).await;
             Ok(())
         } else {
             // Best-effort cancel for happyhorse.

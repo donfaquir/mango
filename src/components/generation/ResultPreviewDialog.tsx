@@ -32,8 +32,8 @@ export function ResultPreviewDialog({
   const { data: asset } = useAsset(task.result_asset_id);
   const url = useResolvedAssetUrl(project.data?.root_path, asset?.file_path ?? null);
 
-  // Determine media type from the asset rather than task_type for accuracy
   const isVideo = asset?.asset_type === "video";
+  const isAudio = asset?.asset_type === "audio";
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
@@ -46,19 +46,30 @@ export function ResultPreviewDialog({
           <p className="p-6 text-center text-sm text-muted-foreground">
             加载中…
           </p>
-        ) : !isVideo ? (
-          <img
-            src={url}
-            alt=""
-            className="w-full max-h-[80vh] object-contain"
-            onError={() => setMediaError(true)}
-          />
-        ) : (
+        ) : isAudio ? (
+          <div className="flex flex-col items-center gap-4 p-6">
+            <p className="text-sm text-muted-foreground">音频预览</p>
+            <audio
+              src={url}
+              controls
+              autoPlay
+              className="w-full"
+              onError={() => setMediaError(true)}
+            />
+          </div>
+        ) : isVideo ? (
           <video
             src={url}
             controls
             autoPlay
             className="w-full max-h-[80vh]"
+            onError={() => setMediaError(true)}
+          />
+        ) : (
+          <img
+            src={url}
+            alt=""
+            className="w-full max-h-[80vh] object-contain"
             onError={() => setMediaError(true)}
           />
         )}

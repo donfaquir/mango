@@ -26,11 +26,40 @@ enum ExportAction {
         #[arg(long)]
         output: PathBuf,
     },
+    /// Export final video with audio (voice + sfx + bgm)
+    Final {
+        /// Episode ID to export
+        #[arg(long)]
+        episode_id: String,
+
+        /// Output file path (e.g. ./output.mp4)
+        #[arg(long)]
+        output: PathBuf,
+
+        /// Include voice tracks
+        #[arg(long, default_value = "true")]
+        voice: bool,
+
+        /// Include sound effect tracks
+        #[arg(long, default_value = "true")]
+        sfx: bool,
+
+        /// Include background music tracks
+        #[arg(long, default_value = "true")]
+        bgm: bool,
+    },
 }
 
 pub fn execute(conn: &Connection, app_data_dir: &Path, args: ExportArgs) -> anyhow::Result<()> {
     match args.action {
         ExportAction::Clip { episode_id, output } => clip(conn, app_data_dir, &episode_id, &output),
+        ExportAction::Final {
+            episode_id,
+            output,
+            voice,
+            sfx,
+            bgm,
+        } => final_export(conn, app_data_dir, &episode_id, &output, voice, sfx, bgm),
     }
 }
 
@@ -54,6 +83,67 @@ fn clip(
     };
 
     let result = export::export_resolved_clips(
+        &ffmpeg_config,
+        &resolved,
+        output,
+        Some(&mut cb),
+    )?;
+
+    eprintln!();
+
+    let size = std::fs::metadata(&result)
+        .map(|m| m.len())
+        .unwrap_or(0);
+    let size_display = if size >= 1_048_576 {
+        format!("{:.1} MB", size as f64 / 1_048_576.0)
+    } else {
+        format!("{:.0} KB", size as f64 / 1024.0)
+    };
+
+    println!("{}", result.display());
+    eprintln!("Export complete ({size_display})");
+    Ok(())
+}
+
+fn final_export(
+    conn: &Connection,
+    app_data_dir: &Path,
+    episode_id: &str,
+    output: &Path,
+    voice: bool,
+    sfx: bool,
+    bgm: bool,
+) -> anyhow::Result<()> {
+    let config = app_config::read(app_data_dir)?
+        .ok_or_else(|| anyhow::anyhow!("no workspace configured — open the desktop app first to set up a workspace"))?;
+    let workspace_root = &config.workspace_path;
+
+    let ffmpeg_config = FfmpegConfig::from_env();
+    let settings = export::FinalExportSettings {
+        include_voice: voice,
+        include_sfx: sfx,
+        include_bgm: bgm,
+    };
+
+    let resolved = export::resolve_final_export(
+        conn,
+        episode_id,
+        workspace_root,
+        &settings,
+        &ffmpeg_config,
+    )?;
+    eprintln!(
+        "Resolved {} clip(s) + {} audio track(s), starting export...",
+        resolved.clips.len(),
+        resolved.audio_tracks.len()
+    );
+
+    let mut cb = |p: mango_core::ffmpeg::progress::FfmpegProgress| {
+        eprint!("\r  exporting... {:.0}%", p.progress_pct);
+        let _ = std::io::stderr().flush();
+    };
+
+    let result = export::export_final(
         &ffmpeg_config,
         &resolved,
         output,

@@ -86,6 +86,10 @@ export const commands = {
 	 *  the caller's cache can refresh in a single roundtrip.
 	 */
 	updateAssetOriginalName: (id: string, originalName: string) => typedError<Asset, IpcError_Serialize>(__TAURI_INVOKE("update_asset_original_name", { id, originalName })),
+	createShotAudio: (input: CreateShotAudioInput) => typedError<ShotAudio, IpcError_Serialize>(__TAURI_INVOKE("create_shot_audio", { input })),
+	deleteShotAudio: (id: string) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("delete_shot_audio", { id })),
+	listShotAudio: (shotId: string) => typedError<ShotAudio[], IpcError_Serialize>(__TAURI_INVOKE("list_shot_audio", { shotId })),
+	updateShotAudio: (id: string, input: UpdateShotAudioInput_Deserialize) => typedError<ShotAudio, IpcError_Serialize>(__TAURI_INVOKE("update_shot_audio", { id, input })),
 	deleteCanvasLayout: (episodeId: string) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("delete_canvas_layout", { episodeId })),
 	getCanvasLayout: (episodeId: string) => typedError<{
 	id: string,
@@ -132,10 +136,12 @@ export const commands = {
 	listEpisodes: (opts: ListEpisodesOptions) => typedError<Episode[], IpcError_Serialize>(__TAURI_INVOKE("list_episodes", { opts })),
 	reorderEpisodes: (projectId: string, orderedIds: string[]) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("reorder_episodes", { projectId, orderedIds })),
 	updateEpisode: (id: string, input: UpdateEpisodeInput_Deserialize) => typedError<Episode, IpcError_Serialize>(__TAURI_INVOKE("update_episode", { id, input })),
+	checkAudioAlignment: (videoPath: string, audioPath: string) => typedError<AlignmentInfo, IpcError_Serialize>(__TAURI_INVOKE("check_audio_alignment", { videoPath, audioPath })),
 	checkFfmpeg: () => typedError<FfmpegStatus, IpcError_Serialize>(__TAURI_INVOKE("check_ffmpeg")),
 	concatVideos: (inputs: string[], output: string) => typedError<string, IpcError_Serialize>(__TAURI_INVOKE("concat_videos", { inputs, output })),
 	extractThumbnail: (input: string, timestampMs: number, output: string) => typedError<string, IpcError_Serialize>(__TAURI_INVOKE("extract_thumbnail", { input, timestampMs, output })),
 	extractThumbnailStrip: (input: string, intervalMs: number, thumbWidth: number) => typedError<ThumbnailStripResult, IpcError_Serialize>(__TAURI_INVOKE("extract_thumbnail_strip", { input, intervalMs, thumbWidth })),
+	probeAudioDuration: (path: string) => typedError<AudioDuration, IpcError_Serialize>(__TAURI_INVOKE("probe_audio_duration", { path })),
 	probeVideo: (path: string) => typedError<VideoMetadata, IpcError_Serialize>(__TAURI_INVOKE("probe_video", { path })),
 	splitVideo: (input: string, splitPointsMs: number[], outputDir: string, mode: TrimMode) => typedError<string[], IpcError_Serialize>(__TAURI_INVOKE("split_video", { input, splitPointsMs, outputDir, mode })),
 	trimVideo: (input: string, startMs: number, endMs: number, output: string, mode: TrimMode) => typedError<string, IpcError_Serialize>(__TAURI_INVOKE("trim_video", { input, startMs, endMs, output, mode })),
@@ -188,10 +194,14 @@ export const commands = {
 	submitTasksBatch: (inputs: CreateGenerationTaskInput[]) => typedError<SubmitBatchOutcome, IpcError_Serialize>(__TAURI_INVOKE("submit_tasks_batch", { inputs })),
 	createVideoClip: (input: CreateVideoClipInput) => typedError<VideoClip, IpcError_Serialize>(__TAURI_INVOKE("create_video_clip", { input })),
 	deleteVideoClip: (id: string) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("delete_video_clip", { id })),
+	exportFinal: (episodeId: string, outputPath: string, settings: FinalExportSettings) => typedError<string, IpcError_Serialize>(__TAURI_INVOKE("export_final", { episodeId, outputPath, settings })),
 	exportVideoClips: (episodeId: string, outputPath: string) => typedError<string, IpcError_Serialize>(__TAURI_INVOKE("export_video_clips", { episodeId, outputPath })),
 	listVideoClips: (episodeId: string) => typedError<VideoClip[], IpcError_Serialize>(__TAURI_INVOKE("list_video_clips", { episodeId })),
 	reorderVideoClips: (ids: string[]) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("reorder_video_clips", { ids })),
 	updateVideoClip: (id: string, input: UpdateVideoClipInput) => typedError<VideoClip, IpcError_Serialize>(__TAURI_INVOKE("update_video_clip", { id, input })),
+	generateEpisodeVoices: (episodeId: string, accountId: string) => typedError<SubmitBatchOutcome, IpcError_Serialize>(__TAURI_INVOKE("generate_episode_voices", { episodeId, accountId })),
+	generateShotVoice: (shotId: string, accountId: string) => typedError<string, IpcError_Serialize>(__TAURI_INVOKE("generate_shot_voice", { shotId, accountId })),
+	previewVoice: (voiceId: string, text: string, accountId: string) => typedError<string, IpcError_Serialize>(__TAURI_INVOKE("preview_voice", { voiceId, text, accountId })),
 	/**
 	 *  Current workspace mount state. Drives the frontend's onboarding vs
 	 *  main-app routing decision.
@@ -251,6 +261,14 @@ export const events = {
 };
 
 /* Types */
+export type AlignmentInfo = {
+	videoDurationMs: number,
+	audioDurationMs: number,
+	strategy: string,
+	diffMs: number,
+	suggestedSpeed: number | null,
+};
+
 /**
  *  IPC-exposed account row. Crucially excludes `api_key_ref`: the frontend has
  *  no business reading the keyring entry name, and not exporting it makes
@@ -333,6 +351,12 @@ export type AssetSource = "imported" | "generated";
 
 export type AssetType = "image" | "video" | "audio" | "script";
 
+export type AudioDuration = {
+	durationMs: number,
+};
+
+export type AudioRole = "voice" | "sfx" | "bgm";
+
 /**
  *  Canvas layout for a single episode. `nodes_json` / `edges_json` /
  *  `viewport_json` are opaque JSON blobs owned by the frontend's React Flow
@@ -355,6 +379,7 @@ export type Character = {
 	description: string,
 	appearance_prompt: string,
 	reference_image_path: string | null,
+	voice_id: string | null,
 	created_at: string,
 	updated_at: string,
 };
@@ -416,6 +441,7 @@ export type CreateCharacterInput = {
 	description?: string | null,
 	appearance_prompt?: string | null,
 	reference_image_path?: string | null,
+	voice_id?: string | null,
 };
 
 export type CreateCheckpointInput = {
@@ -482,6 +508,14 @@ export type CreateSceneInput = {
 	description?: string | null,
 	environment_prompt?: string | null,
 	reference_image_path?: string | null,
+};
+
+export type CreateShotAudioInput = {
+	shot_id: string,
+	asset_id: string,
+	audio_role: AudioRole,
+	volume?: number | null,
+	offset_ms?: number,
 };
 
 export type CreateShotInput = {
@@ -557,6 +591,12 @@ export type FfmpegStatus = {
 	available: boolean,
 	version: string | null,
 	path: string | null,
+};
+
+export type FinalExportSettings = {
+	include_voice?: boolean,
+	include_sfx?: boolean,
+	include_bgm?: boolean,
 };
 
 export type GenerationTask = {
@@ -874,6 +914,17 @@ export type Shot = {
 	updated_at: string,
 };
 
+export type ShotAudio = {
+	id: string,
+	shot_id: string,
+	asset_id: string,
+	audio_role: AudioRole,
+	volume: number | null,
+	offset_ms: number,
+	order_index: number,
+	created_at: string,
+};
+
 export type ShotLinks = {
 	character_ids: string[],
 	scene_ids: string[],
@@ -972,6 +1023,8 @@ export type UpdateCharacterInput_Deserialize = {
 	appearance_prompt?: string | null,
 	/**  None = don't modify, Some(None) = clear to NULL, Some(Some(v)) = set to v */
 	reference_image_path?: string | null,
+	/**  None = don't modify, Some(None) = clear to NULL, Some(Some(v)) = set to v */
+	voice_id?: string | null,
 };
 
 export type UpdateCharacterInput_Serialize = {
@@ -980,6 +1033,8 @@ export type UpdateCharacterInput_Serialize = {
 	appearance_prompt?: string | null,
 	/**  None = don't modify, Some(None) = clear to NULL, Some(Some(v)) = set to v */
 	reference_image_path?: string | null,
+	/**  None = don't modify, Some(None) = clear to NULL, Some(Some(v)) = set to v */
+	voice_id?: string | null,
 };
 
 export type UpdateCostumeInput = UpdateCostumeInput_Serialize | UpdateCostumeInput_Deserialize;
@@ -1060,6 +1115,18 @@ export type UpdateSceneInput_Serialize = {
 	environment_prompt?: string | null,
 	/**  None = don't modify, Some(None) = clear to NULL, Some(Some(v)) = set to v */
 	reference_image_path?: string | null,
+};
+
+export type UpdateShotAudioInput = UpdateShotAudioInput_Serialize | UpdateShotAudioInput_Deserialize;
+
+export type UpdateShotAudioInput_Deserialize = {
+	volume?: number | null,
+	offset_ms?: number | null,
+};
+
+export type UpdateShotAudioInput_Serialize = {
+	volume?: number | null,
+	offset_ms?: number | null,
 };
 
 export type UpdateShotInput = UpdateShotInput_Serialize | UpdateShotInput_Deserialize;

@@ -7,7 +7,7 @@ use crate::models::character::{
 };
 
 const SELECT_COLUMNS: &str = "id, project_id, name, description, appearance_prompt, \
-                              reference_image_path, created_at, updated_at";
+                              reference_image_path, voice_id, created_at, updated_at";
 
 fn map_row(row: &rusqlite::Row) -> rusqlite::Result<Character> {
     Ok(Character {
@@ -17,8 +17,9 @@ fn map_row(row: &rusqlite::Row) -> rusqlite::Result<Character> {
         description: row.get(3)?,
         appearance_prompt: row.get(4)?,
         reference_image_path: row.get(5)?,
-        created_at: row.get(6)?,
-        updated_at: row.get(7)?,
+        voice_id: row.get(6)?,
+        created_at: row.get(7)?,
+        updated_at: row.get(8)?,
     })
 }
 
@@ -34,8 +35,8 @@ pub fn create(conn: &Connection, input: CreateCharacterInput) -> Result<Characte
     let id = Uuid::new_v4().to_string();
     conn.execute(
         "INSERT INTO character_profile \
-            (id, project_id, name, description, appearance_prompt, reference_image_path) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            (id, project_id, name, description, appearance_prompt, reference_image_path, voice_id) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
         params![
             id,
             input.project_id,
@@ -43,6 +44,7 @@ pub fn create(conn: &Connection, input: CreateCharacterInput) -> Result<Characte
             input.description.unwrap_or_default(),
             input.appearance_prompt.unwrap_or_default(),
             input.reference_image_path,
+            input.voice_id,
         ],
     )?;
     get_by_id(conn, &id)
@@ -110,6 +112,14 @@ pub fn update(conn: &Connection, id: &str, input: UpdateCharacterInput) -> Resul
         }
         idx += 1;
     }
+    if let Some(voice) = input.voice_id {
+        sets.push(format!("voice_id = ?{idx}"));
+        match voice {
+            None => params.push(Box::new(rusqlite::types::Null)),
+            Some(s) => params.push(Box::new(s)),
+        }
+        idx += 1;
+    }
 
     let sql = format!(
         "UPDATE character_profile SET {} WHERE id = ?{idx}",
@@ -170,6 +180,7 @@ mod tests {
                 description: Some("hero".into()),
                 appearance_prompt: Some("red hair".into()),
                 reference_image_path: None,
+                voice_id: None,
             },
         )
         .unwrap();
@@ -193,6 +204,7 @@ mod tests {
                 description: None,
                 appearance_prompt: None,
                 reference_image_path: None,
+                voice_id: None,
             },
         );
         assert!(matches!(r, Err(CoreError::Validation(_))));
@@ -209,6 +221,7 @@ mod tests {
                 description: None,
                 appearance_prompt: None,
                 reference_image_path: None,
+                voice_id: None,
             },
         );
         // FK violation surfaces as Sqlite error
@@ -241,6 +254,7 @@ mod tests {
                     description: None,
                     appearance_prompt: None,
                     reference_image_path: None,
+                    voice_id: None,
                 },
             )
             .unwrap();
@@ -254,6 +268,7 @@ mod tests {
                     description: None,
                     appearance_prompt: None,
                     reference_image_path: None,
+                    voice_id: None,
                 },
             )
             .unwrap();
@@ -293,6 +308,7 @@ mod tests {
                     description: None,
                     appearance_prompt: None,
                     reference_image_path: None,
+                    voice_id: None,
                 },
             )
             .unwrap();
@@ -320,6 +336,7 @@ mod tests {
                 description: None,
                 appearance_prompt: None,
                 reference_image_path: Some("/tmp/a.png".into()),
+                voice_id: None,
             },
         )
         .unwrap();
@@ -333,6 +350,7 @@ mod tests {
                 description: None,
                 appearance_prompt: None,
                 reference_image_path: Some(None),
+                voice_id: None,
             },
         )
         .unwrap();
@@ -352,6 +370,7 @@ mod tests {
                 description: None,
                 appearance_prompt: None,
                 reference_image_path: None,
+                voice_id: None,
             },
         )
         .unwrap();
@@ -363,6 +382,7 @@ mod tests {
                 description: None,
                 appearance_prompt: None,
                 reference_image_path: None,
+                voice_id: None,
             },
         );
         assert!(matches!(r, Err(CoreError::Validation(_))));
@@ -379,6 +399,7 @@ mod tests {
                 description: None,
                 appearance_prompt: None,
                 reference_image_path: None,
+                voice_id: None,
             },
         )
         .unwrap();

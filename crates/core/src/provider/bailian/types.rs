@@ -32,6 +32,23 @@ pub(super) struct Wan27Content {
     pub image: Option<String>,
 }
 
+// ─── cosyvoice TTS response ─────────────────────────────────────────────────
+
+#[derive(Debug, Deserialize)]
+pub(super) struct CosyVoiceResponse {
+    pub output: CosyVoiceOutput,
+}
+
+#[derive(Debug, Deserialize)]
+pub(super) struct CosyVoiceOutput {
+    pub audio: Option<CosyVoiceAudio>,
+}
+
+#[derive(Debug, Deserialize)]
+pub(super) struct CosyVoiceAudio {
+    pub url: Option<String>,
+}
+
 // ─── happyhorse async submit ─────────────────────────────────────────────────
 
 #[derive(Debug, Deserialize)]
