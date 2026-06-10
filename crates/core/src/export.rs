@@ -1,13 +1,17 @@
 use std::path::{Path, PathBuf};
 
 use rusqlite::Connection;
+use serde::{Deserialize, Serialize};
+use specta::Type;
 use uuid::Uuid;
 
-use crate::db::queries::{asset, video_clip};
+use crate::db::queries::{asset, shot_audio, video_clip};
 use crate::error::{CoreError, Result};
+use crate::ffmpeg::audio::AudioMixInput;
 use crate::ffmpeg::commands::TrimMode;
 use crate::ffmpeg::progress::FfmpegProgress;
 use crate::ffmpeg::sidecar::FfmpegConfig;
+use crate::models::shot_audio::AudioRole;
 
 #[derive(Debug)]
 pub struct ResolvedClip {
@@ -119,6 +123,166 @@ pub fn export_resolved_clips(
     }
 
     crate::ffmpeg::commands::concat_videos(config, &trimmed_paths, output_path, on_progress)?;
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
+    Ok(output_path.to_path_buf())
+}
+
+// ─── final export (video + audio) ────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+pub struct FinalExportSettings {
+    #[serde(default = "default_true")]
+    pub include_voice: bool,
+    #[serde(default = "default_true")]
+    pub include_sfx: bool,
+    #[serde(default = "default_true")]
+    pub include_bgm: bool,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+impl Default for FinalExportSettings {
+    fn default() -> Self {
+        Self {
+            include_voice: true,
+            include_sfx: true,
+            include_bgm: true,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct ResolvedAudio {
+    pub path: PathBuf,
+    pub role: AudioRole,
+    pub volume: f64,
+    pub absolute_offset_ms: i64,
+}
+
+#[derive(Debug)]
+pub struct ResolvedFinalExport {
+    pub clips: Vec<ResolvedClip>,
+    pub audio_tracks: Vec<ResolvedAudio>,
+    pub total_video_duration_ms: i64,
+}
+
+pub fn resolve_final_export(
+    conn: &Connection,
+    episode_id: &str,
+    workspace_root: &Path,
+    settings: &FinalExportSettings,
+    config: &FfmpegConfig,
+) -> Result<ResolvedFinalExport> {
+    let clips = resolve_clips(conn, episode_id, workspace_root)?;
+
+    let mut clip_durations: Vec<i64> = Vec::with_capacity(clips.len());
+    for clip in &clips {
+        let meta = crate::ffmpeg::probe::probe_video(config, &clip.source_path)?;
+        let start = clip.trim_start_ms.unwrap_or(0);
+        let end = clip.trim_end_ms.unwrap_or(meta.duration_ms);
+        clip_durations.push(end - start);
+    }
+    let total_video_duration_ms: i64 = clip_durations.iter().sum();
+
+    let video_clips = video_clip::list(conn, episode_id)?;
+
+    let mut audio_tracks: Vec<ResolvedAudio> = Vec::new();
+    let mut timeline_offset: i64 = 0;
+
+    for (i, vc) in video_clips.iter().enumerate() {
+        let source_asset = asset::get_by_id(conn, &vc.source_asset_id)?;
+        let shot_id = match source_asset.shot_id {
+            Some(ref id) => id.clone(),
+            None => {
+                timeline_offset += clip_durations[i];
+                continue;
+            }
+        };
+
+        let bindings = shot_audio::list_by_shot(conn, &shot_id)?;
+        for binding in &bindings {
+            let include = match binding.audio_role {
+                AudioRole::Voice => settings.include_voice,
+                AudioRole::Sfx => settings.include_sfx,
+                AudioRole::Bgm => settings.include_bgm,
+            };
+            if !include {
+                continue;
+            }
+
+            let audio_asset = asset::get_by_id(conn, &binding.asset_id)?;
+            let audio_path = workspace_root.join(&audio_asset.file_path);
+            if !audio_path.exists() {
+                tracing::warn!(
+                    "skipping shot_audio {}: file not found at {}",
+                    binding.id,
+                    audio_path.display()
+                );
+                continue;
+            }
+
+            audio_tracks.push(ResolvedAudio {
+                path: audio_path,
+                role: binding.audio_role,
+                volume: binding.volume,
+                absolute_offset_ms: timeline_offset + binding.offset_ms,
+            });
+        }
+
+        timeline_offset += clip_durations[i];
+    }
+
+    Ok(ResolvedFinalExport {
+        clips,
+        audio_tracks,
+        total_video_duration_ms,
+    })
+}
+
+pub fn export_final(
+    config: &FfmpegConfig,
+    resolved: &ResolvedFinalExport,
+    output_path: &Path,
+    on_progress: Option<&mut dyn FnMut(FfmpegProgress)>,
+) -> Result<PathBuf> {
+    if resolved.clips.is_empty() {
+        return Err(CoreError::Validation("no video clips to export".into()));
+    }
+
+    if let Some(parent) = output_path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+
+    if resolved.audio_tracks.is_empty() {
+        return export_resolved_clips(config, &resolved.clips, output_path, on_progress);
+    }
+
+    let temp_dir = std::env::temp_dir().join(format!("mango_final_{}", Uuid::new_v4()));
+    std::fs::create_dir_all(&temp_dir)?;
+
+    let video_only = temp_dir.join("video_assembled.mp4");
+    export_resolved_clips(config, &resolved.clips, &video_only, None)?;
+
+    let audio_inputs: Vec<AudioMixInput> = resolved
+        .audio_tracks
+        .iter()
+        .map(|t| AudioMixInput {
+            path: t.path.clone(),
+            volume: t.volume,
+            offset_ms: t.absolute_offset_ms,
+        })
+        .collect();
+
+    crate::ffmpeg::audio::overlay_audio_on_video(
+        config,
+        &video_only,
+        &audio_inputs,
+        output_path,
+        on_progress,
+    )?;
 
     let _ = std::fs::remove_dir_all(&temp_dir);
     Ok(output_path.to_path_buf())

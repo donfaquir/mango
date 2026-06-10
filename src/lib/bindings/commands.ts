@@ -194,6 +194,7 @@ export const commands = {
 	submitTasksBatch: (inputs: CreateGenerationTaskInput[]) => typedError<SubmitBatchOutcome, IpcError_Serialize>(__TAURI_INVOKE("submit_tasks_batch", { inputs })),
 	createVideoClip: (input: CreateVideoClipInput) => typedError<VideoClip, IpcError_Serialize>(__TAURI_INVOKE("create_video_clip", { input })),
 	deleteVideoClip: (id: string) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("delete_video_clip", { id })),
+	exportFinal: (episodeId: string, outputPath: string, settings: FinalExportSettings) => typedError<string, IpcError_Serialize>(__TAURI_INVOKE("export_final", { episodeId, outputPath, settings })),
 	exportVideoClips: (episodeId: string, outputPath: string) => typedError<string, IpcError_Serialize>(__TAURI_INVOKE("export_video_clips", { episodeId, outputPath })),
 	listVideoClips: (episodeId: string) => typedError<VideoClip[], IpcError_Serialize>(__TAURI_INVOKE("list_video_clips", { episodeId })),
 	reorderVideoClips: (ids: string[]) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("reorder_video_clips", { ids })),
@@ -590,6 +591,12 @@ export type FfmpegStatus = {
 	available: boolean,
 	version: string | null,
 	path: string | null,
+};
+
+export type FinalExportSettings = {
+	include_voice?: boolean,
+	include_sfx?: boolean,
+	include_bgm?: boolean,
 };
 
 export type GenerationTask = {

@@ -101,3 +101,55 @@ pub async fn export_video_clips(
     .await
     .map_err(|e| IpcError::internal(format!("task join error: {e}")))?
 }
+
+#[tauri::command]
+#[specta::specta]
+pub async fn export_final(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    episode_id: String,
+    output_path: String,
+    settings: mango_core::export::FinalExportSettings,
+) -> Result<String, IpcError> {
+    let mounted = require_mount(&state)?;
+    let db = mounted.db.clone();
+    let workspace_root = mounted.workspace_root.clone();
+
+    let resolved = db
+        .call(move |conn| {
+            let config = mango_core::ffmpeg::FfmpegConfig::from_env();
+            Ok(mango_core::export::resolve_final_export(
+                conn,
+                &episode_id,
+                &workspace_root,
+                &settings,
+                &config,
+            ))
+        })
+        .await
+        .map_err(IpcError::from)?
+        .map_err(IpcError::from)?;
+
+    tokio::task::spawn_blocking(move || {
+        let config = mango_core::ffmpeg::FfmpegConfig::from_env();
+        let mut cb = |p: mango_core::ffmpeg::FfmpegProgress| {
+            let _ = FfmpegProgressTick {
+                progress_pct: p.progress_pct,
+                current_time_ms: p.current_time_ms,
+                total_duration_ms: p.total_duration_ms,
+                speed: p.speed,
+            }
+            .emit(&app);
+        };
+        mango_core::export::export_final(
+            &config,
+            &resolved,
+            Path::new(&output_path),
+            Some(&mut cb),
+        )
+        .map(|p| p.to_string_lossy().into_owned())
+        .map_err(IpcError::from)
+    })
+    .await
+    .map_err(|e| IpcError::internal(format!("task join error: {e}")))?
+}

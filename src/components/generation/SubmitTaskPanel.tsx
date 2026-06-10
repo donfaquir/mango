@@ -2,14 +2,14 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { Card } from "@/components/ui/card";
 import { ModelPicker, type ModelChoice } from "./ModelPicker";
+import { CosyVoiceParams } from "./params/CosyVoiceParams";
 import { Wan27Params } from "./params/Wan27Params";
 import { HappyhorseParams } from "./params/HappyhorseParams";
 import { useSubmitTask } from "@/hooks/useTasks";
 import { useCharacterList } from "@/hooks/useCharacters";
 import { resolveCharacterReferenceAssets } from "./resolveCharacterReferenceAssets";
 import type { Character } from "@/lib/bindings/commands";
-import type { Wan27FormValues } from "./params/types";
-import type { HappyhorseFormValues } from "./params/types";
+import type { CosyVoiceFormValues, Wan27FormValues, HappyhorseFormValues } from "./params/types";
 
 interface SubmitTaskPanelProps {
   projectId: string;
@@ -19,6 +19,34 @@ export function SubmitTaskPanel({ projectId }: SubmitTaskPanelProps) {
   const [model, setModel] = useState<ModelChoice | null>(null);
   const submit = useSubmitTask();
   const characters = useCharacterList(projectId);
+
+  const handleCosyVoiceSubmit = async (values: CosyVoiceFormValues) => {
+    if (!model) return;
+    const paramsJson = JSON.stringify({
+      text: values.text,
+      voice_id: values.voice_id,
+      rate: values.rate,
+      volume: 50,
+      pitch: 1.0,
+      format: "mp3",
+      sample_rate: 24000,
+    });
+    try {
+      await submit.mutateAsync({
+        project_id: projectId,
+        provider_id: model.providerId,
+        model_id: model.modelId,
+        account_id: model.accountId,
+        task_type: model.taskType,
+        params_json: paramsJson,
+      });
+      toast.success("TTS 任务已提交");
+    } catch (err) {
+      toast.error(
+        `提交失败：${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  };
 
   const handleWan27Submit = async (values: Wan27FormValues) => {
     if (!model) return;
@@ -104,6 +132,13 @@ export function SubmitTaskPanel({ projectId }: SubmitTaskPanelProps) {
           </label>
           <ModelPicker value={model} onChange={setModel} />
         </div>
+
+        {model?.modelId === "cosyvoice-v3-flash" && (
+          <CosyVoiceParams
+            submitting={submit.isPending}
+            onSubmit={handleCosyVoiceSubmit}
+          />
+        )}
 
         {model?.modelId === "wan2.7-image-pro" && (
           <Wan27Params

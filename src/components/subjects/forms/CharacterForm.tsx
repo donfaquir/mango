@@ -23,14 +23,18 @@ import {
 import { QueryFallback, SubjectFormFooter } from "./SubjectFormShell";
 
 const VOICE_OPTIONS = [
-  { id: "longxiaochun", label: "龙小淳", desc: "女 · 温柔知性" },
-  { id: "longlaotie", label: "龙老铁", desc: "男 · 东北话" },
-  { id: "longshu", label: "龙叔", desc: "男 · 沉稳旁白" },
-  { id: "longxiaoxia", label: "龙小夏", desc: "女 · 活泼少女" },
-  { id: "longyue", label: "龙悦", desc: "女 · 温柔甜美" },
-  { id: "longfei", label: "龙飞", desc: "男 · 激昂解说" },
-  { id: "longjielidou", label: "龙杰力豆", desc: "男 · 少年音" },
-  { id: "longwan", label: "龙婉", desc: "女 · 新闻播报" },
+  { id: "longanyang", label: "龙安洋", desc: "男 · 阳光大男孩" },
+  { id: "longanhuan_v3", label: "龙安欢", desc: "女 · 欢脱元气" },
+  { id: "longxiaochun_v3", label: "龙小淳", desc: "女 · 知性积极" },
+  { id: "longshu_v3", label: "龙书", desc: "男 · 沉稳青年" },
+  { id: "longfei_v3", label: "龙飞", desc: "男 · 热血磁性" },
+  { id: "longwan_v3", label: "龙婉", desc: "女 · 细腻柔声" },
+  { id: "longyue_v3", label: "龙悦", desc: "女 · 温暖磁性" },
+  { id: "longmiao_v3", label: "龙妙", desc: "女 · 抑扬顿挫" },
+  { id: "longsanshu_v3", label: "龙三叔", desc: "男 · 沉稳质感" },
+  { id: "longcheng_v3", label: "龙橙", desc: "男 · 智慧青年" },
+  { id: "longhuhu_v3", label: "龙呼呼", desc: "女童 · 天真烂漫" },
+  { id: "longjielidou_v3", label: "龙杰力豆", desc: "男童 · 阳光顽皮" },
 ] as const;
 
 const schema = z.object({

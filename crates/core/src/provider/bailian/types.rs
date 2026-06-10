@@ -41,7 +41,12 @@ pub(super) struct CosyVoiceResponse {
 
 #[derive(Debug, Deserialize)]
 pub(super) struct CosyVoiceOutput {
-    pub audio: Option<String>,
+    pub audio: Option<CosyVoiceAudio>,
+}
+
+#[derive(Debug, Deserialize)]
+pub(super) struct CosyVoiceAudio {
+    pub url: Option<String>,
 }
 
 // ─── happyhorse async submit ─────────────────────────────────────────────────

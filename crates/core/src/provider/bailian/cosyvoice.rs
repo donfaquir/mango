@@ -1,8 +1,11 @@
-//! CosyVoice 2.0 synchronous TTS model wrapper.
+//! CosyVoice non-realtime HTTP TTS model wrapper.
 //!
-//! Same pattern as wan27: the DashScope TTS API returns a result URL directly
-//! in the response (no task_id polling). We cache the result in memory so the
-//! engine's uniform state machine works without branching.
+//! Same pattern as wan27: the DashScope TTS HTTP API returns a JSON response
+//! with an audio URL. We cache the result in memory so the engine's uniform
+//! state machine works without branching.
+//!
+//! API endpoint: POST /services/audio/tts/SpeechSynthesizer
+//! Doc: https://help.aliyun.com/zh/model-studio/cosyvoice-tts-http-api
 
 use std::collections::HashMap;
 
@@ -49,17 +52,18 @@ pub(super) async fn submit(
     let body = build_cosyvoice_body(params)?;
 
     let (resp, meta): (CosyVoiceResponse, _) = client
-        .post_json("/services/aigc/text2audio/generation", &body)
+        .post_json("/services/audio/tts/SpeechSynthesizer", &body)
         .await?;
 
     let result_url = resp
         .output
         .audio
+        .and_then(|a| a.url)
         .ok_or_else(|| {
             CoreError::Provider(
                 ProviderErrorDetail::new(
                     ProviderErrorKind::Malformed,
-                    "cosyvoice 响应缺少 output.audio 字段",
+                    "cosyvoice 响应缺少 output.audio.url 字段",
                 )
                 .with_request_id(meta.request_id.clone())
                 .with_http_status(meta.http_status),
@@ -100,7 +104,6 @@ pub(super) async fn cancel(cache: &Mutex<TtsCache>, full_task_id: &str) {
 }
 
 fn build_cosyvoice_body(params: &GenerationParams) -> Result<serde_json::Value> {
-    // Text source: prefer provider_params.text, fall back to params.prompt
     let text = params
         .provider_params
         .get("text")
@@ -111,7 +114,7 @@ fn build_cosyvoice_body(params: &GenerationParams) -> Result<serde_json::Value> 
         .provider_params
         .get("voice_id")
         .and_then(|v| v.as_str())
-        .unwrap_or("longxiaochun");
+        .unwrap_or("longanyang");
 
     let format = params
         .provider_params
@@ -140,15 +143,14 @@ fn build_cosyvoice_body(params: &GenerationParams) -> Result<serde_json::Value> 
     let pitch = params
         .provider_params
         .get("pitch")
-        .and_then(|v| v.as_i64())
-        .unwrap_or(0);
+        .and_then(|v| v.as_f64())
+        .unwrap_or(1.0);
 
+    // CosyVoice HTTP API: all params go inside "input", no separate "parameters"
     Ok(serde_json::json!({
-        "model": "cosyvoice-v2",
+        "model": params.model_id,
         "input": {
-            "text": text
-        },
-        "parameters": {
+            "text": text,
             "voice": voice_id,
             "format": format,
             "sample_rate": sample_rate,
@@ -171,7 +173,7 @@ mod tests {
     #[test]
     fn build_body_correct_structure() {
         let params = GenerationParams {
-            model_id: "cosyvoice-v2".to_string(),
+            model_id: "cosyvoice-v3-flash".to_string(),
             prompt: "hello world".to_string(),
             provider_params: serde_json::json!({
                 "voice_id": "longshu",
@@ -187,20 +189,19 @@ mod tests {
             },
         };
         let body = build_cosyvoice_body(&params).unwrap();
-        assert_eq!(body["model"], "cosyvoice-v2");
+        assert_eq!(body["model"], "cosyvoice-v3-flash");
         assert_eq!(body["input"]["text"], "hello world");
-        assert_eq!(body["parameters"]["voice"], "longshu");
-        assert_eq!(body["parameters"]["rate"], 1.2);
-        assert_eq!(body["parameters"]["volume"], 80);
-        assert_eq!(body["parameters"]["pitch"], 10);
-        assert_eq!(body["parameters"]["format"], "wav");
-        assert_eq!(body["parameters"]["sample_rate"], 16000);
+        assert_eq!(body["input"]["voice"], "longshu");
+        assert_eq!(body["input"]["rate"], 1.2);
+        assert_eq!(body["input"]["volume"], 80);
+        assert_eq!(body["input"]["format"], "wav");
+        assert_eq!(body["input"]["sample_rate"], 16000);
     }
 
     #[test]
     fn build_body_uses_text_from_provider_params() {
         let params = GenerationParams {
-            model_id: "cosyvoice-v2".to_string(),
+            model_id: "cosyvoice-v3-flash".to_string(),
             prompt: "fallback".to_string(),
             provider_params: serde_json::json!({
                 "text": "primary text",
@@ -218,7 +219,7 @@ mod tests {
     #[test]
     fn build_body_falls_back_to_prompt() {
         let params = GenerationParams {
-            model_id: "cosyvoice-v2".to_string(),
+            model_id: "cosyvoice-v3-flash".to_string(),
             prompt: "fallback prompt".to_string(),
             provider_params: serde_json::json!({ "voice_id": "longxiaochun" }),
             credentials: crate::provider::traits::ProviderCredentials {

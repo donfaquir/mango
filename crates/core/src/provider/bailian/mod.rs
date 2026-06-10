@@ -1,7 +1,7 @@
 //! BailianProvider — DashScope-backed provider covering three models:
 //! - `wan2.7-image-pro`: synchronous text-to-image (chat-messages style)
 //! - `happyhorse-1.0-r2v`: asynchronous reference-image-to-video
-//! - `cosyvoice-v2`: synchronous text-to-speech (CosyVoice TTS)
+//! - `cosyvoice-v3-flash`: non-realtime HTTP text-to-speech (CosyVoice TTS)
 //!
 //! Routes by `model_id` in submit/poll/cancel/download.
 
@@ -82,7 +82,7 @@ impl ModelProvider for BailianProvider {
                     upload: None,
                 })
             }
-            "cosyvoice-v2" => {
+            "cosyvoice-v3-flash" => {
                 let result = cosyvoice::submit(&client, &self.tts_cache, &params).await?;
                 Ok(SubmitOutcome {
                     external_task_id: result.external_task_id,

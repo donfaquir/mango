@@ -49,11 +49,11 @@ const PROVIDERS: &[ProviderSeed] = &[
                 default_params_json: r#"{"resolution":"720P","ratio":"16:9","duration":5}"#,
             },
             ModelSeed {
-                id: "cosyvoice-v2",
-                name: "CosyVoice 2.0（语音合成）",
+                id: "cosyvoice-v3-flash",
+                name: "CosyVoice v3 Flash（语音合成）",
                 model_type: "audio",
-                capabilities_json: r#"{"task_types":["audio"],"sync_submit":true,"max_text_length":2000,"output_format":"mp3","supported_voices":true,"voices":["longxiaochun","longlaotie","longshu","longxiaoxia","longyue","longfei","longjielidou","longwan"]}"#,
-                default_params_json: r#"{"voice_id":"longxiaochun","rate":1.0,"volume":50,"pitch":0,"format":"mp3","sample_rate":24000}"#,
+                capabilities_json: r#"{"task_types":["audio"],"sync_submit":true,"max_text_length":5000,"output_format":"mp3","supported_voices":true,"voices":["longanyang","longanhuan_v3","longxiaochun_v3","longshu_v3","longfei_v3","longwan_v3","longyue_v3","longmiao_v3","longsanshu_v3","longcheng_v3","longhuhu_v3","longjielidou_v3"]}"#,
+                default_params_json: r#"{"voice_id":"longanyang","rate":1.0,"volume":50,"pitch":1.0,"format":"mp3","sample_rate":24000}"#,
             },
         ],
     },
@@ -86,6 +86,8 @@ const PROVIDERS: &[ProviderSeed] = &[
 /// every startup so old DBs converge to the new schema.
 const DEPRECATED_PROVIDERS: &[&str] = &["kling"];
 
+const DEPRECATED_MODELS: &[&str] = &["cosyvoice-v2"];
+
 /// Apply provider/model seed data idempotently. System-owned columns
 /// (`name`, `base_url`, `auth_type`, `docs_url`, `model_type`,
 /// `capabilities_json`, `default_params_json`) are FORCED to
@@ -102,6 +104,17 @@ pub fn apply(conn: &Connection) -> Result<()> {
             tracing::warn!(
                 "deleted deprecated provider '{id}' (cascade removed dependent rows)"
             );
+        }
+    }
+
+    for id in DEPRECATED_MODELS {
+        conn.execute(
+            "DELETE FROM generation_task WHERE model_id = ?1",
+            params![id],
+        )?;
+        let n = conn.execute("DELETE FROM model WHERE id = ?1", params![id])?;
+        if n > 0 {
+            tracing::warn!("deleted deprecated model '{id}' and its tasks");
         }
     }
 

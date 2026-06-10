@@ -1,9 +1,17 @@
+import { useState } from "react";
 import { Trash2, Volume2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Slider } from "@/components/ui/slider";
 import type { AudioRole, ShotAudio } from "@/lib/bindings/commands";
 import {
@@ -63,20 +71,19 @@ function RoleSection({
   audioAssets: { id: string; original_name: string }[];
 }) {
   const create = useCreateShotAudio(shotId);
+  const [picking, setPicking] = useState(false);
   const canAdd = role === "sfx" || items.length === 0;
 
-  const handleAdd = async () => {
-    const available = audioAssets.filter(
-      (a) => !items.some((b) => b.asset_id === a.id),
-    );
-    if (available.length === 0) {
-      toast.error("没有可用的音频素材，请先导入音频文件");
-      return;
-    }
+  const available = audioAssets.filter(
+    (a) => !items.some((b) => b.asset_id === a.id),
+  );
+
+  const handleSelect = async (assetId: string) => {
+    setPicking(false);
     try {
       await create.mutateAsync({
         shot_id: shotId,
-        asset_id: available[0].id,
+        asset_id: assetId,
         audio_role: role,
         volume: 1.0,
         offset_ms: 0,
@@ -92,19 +99,25 @@ function RoleSection({
         <span className="text-xs font-medium text-muted-foreground">
           {ROLE_LABELS[role]}
         </span>
-        {canAdd && (
+        {canAdd && !picking && (
           <Button
             variant="ghost"
             size="sm"
             className="h-6 text-xs"
-            onClick={handleAdd}
+            onClick={() => {
+              if (available.length === 0) {
+                toast.error("没有可用的音频素材，请先导入音频文件");
+                return;
+              }
+              setPicking(true);
+            }}
             disabled={create.isPending}
           >
             + 添加
           </Button>
         )}
       </div>
-      {items.length === 0 && (
+      {items.length === 0 && !picking && (
         <p className="text-xs text-muted-foreground">无</p>
       )}
       {items.map((item) => (
@@ -118,6 +131,30 @@ function RoleSection({
           }
         />
       ))}
+      {picking && (
+        <div className="flex items-center gap-1">
+          <Select onValueChange={handleSelect}>
+            <SelectTrigger className="h-7 text-xs flex-1">
+              <SelectValue placeholder="选择音频素材..." />
+            </SelectTrigger>
+            <SelectContent>
+              {available.map((a) => (
+                <SelectItem key={a.id} value={a.id}>
+                  {a.original_name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 text-xs"
+            onClick={() => setPicking(false)}
+          >
+            取消
+          </Button>
+        </div>
+      )}
     </div>
   );
 }

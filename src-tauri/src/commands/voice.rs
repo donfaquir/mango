@@ -14,7 +14,7 @@ pub async fn generate_shot_voice(
     account_id: String,
 ) -> Result<String, IpcError> {
     let input = with_db(&state, move |conn| {
-        generation::build_shot_voice_task(conn, &shot_id, "bailian", "cosyvoice-v2", &account_id)
+        generation::build_shot_voice_task(conn, &shot_id, "bailian", "cosyvoice-v3-flash", &account_id)
     })
     .await?
     .ok_or_else(|| {
@@ -35,7 +35,7 @@ pub async fn generate_episode_voices(
     account_id: String,
 ) -> Result<SubmitBatchOutcome, IpcError> {
     let inputs = with_db(&state, move |conn| {
-        generation::build_episode_voice_tasks(conn, &episode_id, "bailian", "cosyvoice-v2", &account_id)
+        generation::build_episode_voice_tasks(conn, &episode_id, "bailian", "cosyvoice-v3-flash", &account_id)
     })
     .await?;
 
@@ -62,7 +62,7 @@ pub async fn preview_voice(
         "voice_id": voice_id,
         "rate": 1.0,
         "volume": 50,
-        "pitch": 0,
+        "pitch": 1.0,
         "format": "mp3",
         "sample_rate": 24000,
     });
@@ -71,7 +71,7 @@ pub async fn preview_voice(
         project_id: None,
         shot_id: None,
         provider_id: "bailian".to_string(),
-        model_id: "cosyvoice-v2".to_string(),
+        model_id: "cosyvoice-v3-flash".to_string(),
         account_id,
         task_type: TaskKind::Audio,
         params_json: Some(params.to_string()),

@@ -43,7 +43,7 @@ pub fn build_shot_voice_task(
         "voice_id": voice_id,
         "rate": 1.0,
         "volume": 50,
-        "pitch": 0,
+        "pitch": 1.0,
         "format": "mp3",
         "sample_rate": 24000,
     });
@@ -173,7 +173,7 @@ mod tests {
         let cid = create_character_with_voice(&conn, &pid, Some("longxiaochun"));
         shot_queries::link_subject(&conn, &sid, &cid, SubjectKind::Character).unwrap();
 
-        let result = build_shot_voice_task(&conn, &sid, "bailian", "cosyvoice-v2", "acc1").unwrap();
+        let result = build_shot_voice_task(&conn, &sid, "bailian", "cosyvoice-v3-flash", "acc1").unwrap();
         assert!(result.is_none());
     }
 
@@ -182,7 +182,7 @@ mod tests {
         let (conn, _pid, eid) = setup();
         let sid = create_shot_with_dialogue(&conn, &eid, "Hello world");
 
-        let result = build_shot_voice_task(&conn, &sid, "bailian", "cosyvoice-v2", "acc1").unwrap();
+        let result = build_shot_voice_task(&conn, &sid, "bailian", "cosyvoice-v3-flash", "acc1").unwrap();
         assert!(result.is_none());
     }
 
@@ -193,7 +193,7 @@ mod tests {
         let cid = create_character_with_voice(&conn, &pid, None);
         shot_queries::link_subject(&conn, &sid, &cid, SubjectKind::Character).unwrap();
 
-        let result = build_shot_voice_task(&conn, &sid, "bailian", "cosyvoice-v2", "acc1").unwrap();
+        let result = build_shot_voice_task(&conn, &sid, "bailian", "cosyvoice-v3-flash", "acc1").unwrap();
         assert!(result.is_none());
     }
 
@@ -204,12 +204,12 @@ mod tests {
         let cid = create_character_with_voice(&conn, &pid, Some("longshu"));
         shot_queries::link_subject(&conn, &sid, &cid, SubjectKind::Character).unwrap();
 
-        let result = build_shot_voice_task(&conn, &sid, "bailian", "cosyvoice-v2", "acc1").unwrap();
+        let result = build_shot_voice_task(&conn, &sid, "bailian", "cosyvoice-v3-flash", "acc1").unwrap();
         assert!(result.is_some());
         let input = result.unwrap();
         assert_eq!(input.task_type, TaskKind::Audio);
         assert_eq!(input.provider_id, "bailian");
-        assert_eq!(input.model_id, "cosyvoice-v2");
+        assert_eq!(input.model_id, "cosyvoice-v3-flash");
         assert!(input.params_json.as_ref().unwrap().contains("longshu"));
         assert!(input.params_json.as_ref().unwrap().contains("Hello world"));
     }
@@ -227,7 +227,7 @@ mod tests {
         shot_queries::link_subject(&conn, &s2, &cid, SubjectKind::Character).unwrap();
         shot_queries::link_subject(&conn, &s3, &cid, SubjectKind::Character).unwrap();
 
-        let tasks = build_episode_voice_tasks(&conn, &eid, "bailian", "cosyvoice-v2", "acc1").unwrap();
+        let tasks = build_episode_voice_tasks(&conn, &eid, "bailian", "cosyvoice-v3-flash", "acc1").unwrap();
         assert_eq!(tasks.len(), 2);
     }
 }

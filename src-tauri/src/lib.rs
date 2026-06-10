@@ -110,6 +110,7 @@ fn make_builder() -> Builder<tauri::Wry> {
             commands::task::submit_tasks_batch,
             commands::video::create_video_clip,
             commands::video::delete_video_clip,
+            commands::video::export_final,
             commands::video::export_video_clips,
             commands::video::list_video_clips,
             commands::video::reorder_video_clips,

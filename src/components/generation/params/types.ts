@@ -6,6 +6,12 @@ export interface Wan27FormValues {
   enable_sequential: boolean;
 }
 
+export interface CosyVoiceFormValues {
+  text: string;
+  voice_id: string;
+  rate: number;
+}
+
 export interface HappyhorseFormValues {
   prompt: string;
   subject_ids: string[];
