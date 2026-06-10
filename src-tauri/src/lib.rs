@@ -122,6 +122,7 @@ fn make_builder() -> Builder<tauri::Wry> {
             commands::video::create_video_clip,
             commands::video::delete_video_clip,
             commands::video::export_final,
+            commands::video::export_timeline,
             commands::video::export_video_clips,
             commands::video::list_video_clips,
             commands::video::reorder_video_clips,

@@ -206,6 +206,7 @@ export const commands = {
 	createVideoClip: (input: CreateVideoClipInput) => typedError<VideoClip, IpcError_Serialize>(__TAURI_INVOKE("create_video_clip", { input })),
 	deleteVideoClip: (id: string) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("delete_video_clip", { id })),
 	exportFinal: (episodeId: string, outputPath: string, settings: FinalExportSettings) => typedError<string, IpcError_Serialize>(__TAURI_INVOKE("export_final", { episodeId, outputPath, settings })),
+	exportTimeline: (episodeId: string, outputPath: string, renderConfig: RenderConfig) => typedError<string, IpcError_Serialize>(__TAURI_INVOKE("export_timeline", { episodeId, outputPath, renderConfig })),
 	exportVideoClips: (episodeId: string, outputPath: string) => typedError<string, IpcError_Serialize>(__TAURI_INVOKE("export_video_clips", { episodeId, outputPath })),
 	listVideoClips: (episodeId: string) => typedError<VideoClip[], IpcError_Serialize>(__TAURI_INVOKE("list_video_clips", { episodeId })),
 	reorderVideoClips: (ids: string[]) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("reorder_video_clips", { ids })),
@@ -920,6 +921,17 @@ export type ProviderErrorKind =
 /**  5xx or anything we did not classify. */
 "unknown";
 
+export type RenderConfig = {
+	video_codec: string,
+	preset: string,
+	crf: number,
+	audio_bitrate: string,
+	container: string,
+	output_width: number | null,
+	output_height: number | null,
+	output_fps: number | null,
+};
+
 export type Scene = {
 	id: string,
 	project_id: string,
@@ -1261,6 +1273,7 @@ export type VideoMetadata = {
 	fps: number | null,
 	bitrate_kbps: number | null,
 	file_size_bytes: number,
+	pixel_format: string | null,
 };
 
 /**
