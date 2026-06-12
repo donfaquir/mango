@@ -22,6 +22,7 @@ pub struct VideoMetadata {
     pub bitrate_kbps: Option<u32>,
     #[specta(type = specta_typescript::Number)]
     pub file_size_bytes: u64,
+    pub pixel_format: Option<String>,
 }
 
 pub fn probe_video(config: &FfmpegConfig, path: &Path) -> Result<VideoMetadata> {
@@ -110,6 +111,10 @@ fn parse_probe_output(json_str: &str) -> Result<VideoMetadata> {
         .and_then(|s| s.parse::<u64>().ok())
         .unwrap_or(0);
 
+    let pixel_format = video_stream["pix_fmt"]
+        .as_str()
+        .map(|s| s.to_string());
+
     Ok(VideoMetadata {
         duration_ms: (duration_secs * 1000.0) as i64,
         width,
@@ -119,6 +124,7 @@ fn parse_probe_output(json_str: &str) -> Result<VideoMetadata> {
         fps,
         bitrate_kbps,
         file_size_bytes,
+        pixel_format,
     })
 }
 

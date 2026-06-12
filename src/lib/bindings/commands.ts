@@ -123,6 +123,7 @@ export const commands = {
 	 *  frontend keeps a single picker pattern across the app.
 	 */
 	pickImageFile: () => typedError<string | null, IpcError_Serialize>(__TAURI_INVOKE("pick_image_file")),
+	pickMediaFile: (mediaType: string) => typedError<string | null, IpcError_Serialize>(__TAURI_INVOKE("pick_media_file", { mediaType })),
 	/**
 	 *  Open a native directory picker. Returns `None` if the user cancelled.
 	 * 
@@ -184,6 +185,18 @@ export const commands = {
 	unadoptShot: (shotId: string) => typedError<Shot, IpcError_Serialize>(__TAURI_INVOKE("unadopt_shot", { shotId })),
 	unlinkShotSubject: (shotId: string, subjectId: string, subjectKind: SubjectKind) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("unlink_shot_subject", { shotId, subjectId, subjectKind })),
 	updateShot: (id: string, input: UpdateShotInput_Deserialize) => typedError<Shot, IpcError_Serialize>(__TAURI_INVOKE("update_shot", { id, input })),
+	createDefaultTracks: (episodeId: string) => typedError<TimelineTrack[], IpcError_Serialize>(__TAURI_INVOKE("create_default_tracks", { episodeId })),
+	createTimelineItem: (input: CreateTimelineItemInput) => typedError<TimelineItem, IpcError_Serialize>(__TAURI_INVOKE("create_timeline_item", { input })),
+	createTimelineTrack: (input: CreateTimelineTrackInput) => typedError<TimelineTrack, IpcError_Serialize>(__TAURI_INVOKE("create_timeline_track", { input })),
+	deleteTimelineItem: (id: string) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("delete_timeline_item", { id })),
+	deleteTimelineTrack: (id: string) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("delete_timeline_track", { id })),
+	importAudioFromShots: (episodeId: string) => typedError<TimelineItem[], IpcError_Serialize>(__TAURI_INVOKE("import_audio_from_shots", { episodeId })),
+	importVideoFromClips: (episodeId: string) => typedError<TimelineItem[], IpcError_Serialize>(__TAURI_INVOKE("import_video_from_clips", { episodeId })),
+	listTimelineItems: (trackId: string) => typedError<TimelineItem[], IpcError_Serialize>(__TAURI_INVOKE("list_timeline_items", { trackId })),
+	listTimelineTracks: (episodeId: string) => typedError<TimelineTrack[], IpcError_Serialize>(__TAURI_INVOKE("list_timeline_tracks", { episodeId })),
+	moveTimelineItem: (id: string, input: MoveTimelineItemInput) => typedError<TimelineItem, IpcError_Serialize>(__TAURI_INVOKE("move_timeline_item", { id, input })),
+	reorderTimelineTracks: (ids: string[]) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("reorder_timeline_tracks", { ids })),
+	updateTimelineItem: (id: string, input: UpdateTimelineItemInput) => typedError<TimelineItem, IpcError_Serialize>(__TAURI_INVOKE("update_timeline_item", { id, input })),
 	cancelTask: (taskId: string) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("cancel_task", { taskId })),
 	getTask: (taskId: string) => typedError<GenerationTask, IpcError_Serialize>(__TAURI_INVOKE("get_task", { taskId })),
 	getTaskMaxConcurrency: () => typedError<number, IpcError_Serialize>(__TAURI_INVOKE("get_task_max_concurrency")),
@@ -195,6 +208,7 @@ export const commands = {
 	createVideoClip: (input: CreateVideoClipInput) => typedError<VideoClip, IpcError_Serialize>(__TAURI_INVOKE("create_video_clip", { input })),
 	deleteVideoClip: (id: string) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("delete_video_clip", { id })),
 	exportFinal: (episodeId: string, outputPath: string, settings: FinalExportSettings) => typedError<string, IpcError_Serialize>(__TAURI_INVOKE("export_final", { episodeId, outputPath, settings })),
+	exportTimeline: (episodeId: string, outputPath: string, renderConfig: RenderConfig) => typedError<string, IpcError_Serialize>(__TAURI_INVOKE("export_timeline", { episodeId, outputPath, renderConfig })),
 	exportVideoClips: (episodeId: string, outputPath: string) => typedError<string, IpcError_Serialize>(__TAURI_INVOKE("export_video_clips", { episodeId, outputPath })),
 	listVideoClips: (episodeId: string) => typedError<VideoClip[], IpcError_Serialize>(__TAURI_INVOKE("list_video_clips", { episodeId })),
 	reorderVideoClips: (ids: string[]) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("reorder_video_clips", { ids })),
@@ -523,6 +537,23 @@ export type CreateShotInput = {
 	summary?: string | null,
 };
 
+export type CreateTimelineItemInput = {
+	track_id: string,
+	asset_id: string | null,
+	item_type: ItemType,
+	position_ms: number,
+	duration_ms: number,
+	in_point_ms: number | null,
+	out_point_ms: number,
+	params_json: string | null,
+};
+
+export type CreateTimelineTrackInput = {
+	episode_id: string,
+	track_type: TrackType,
+	label: string,
+};
+
 export type CreateVideoClipInput = {
 	project_id: string,
 	episode_id: string | null,
@@ -699,6 +730,8 @@ export type IpcError_Serialize = {
 	kind?: ProviderErrorKind | null,
 };
 
+export type ItemType = "clip" | "text" | "sticker" | "transition" | "effect";
+
 export type ListAssetsOptions = {
 	project_id: string,
 	asset_type?: AssetType | null,
@@ -770,6 +803,11 @@ export type Model = {
 	capabilities_json: string | null,
 	/**  JSON defaults used to prefill provider params. */
 	default_params_json: string | null,
+};
+
+export type MoveTimelineItemInput = {
+	track_id: string,
+	position_ms: number,
 };
 
 export type OssConfigInput = {
@@ -885,6 +923,17 @@ export type ProviderErrorKind =
 /**  5xx or anything we did not classify. */
 "unknown";
 
+export type RenderConfig = {
+	video_codec: string,
+	preset: string,
+	crf: number,
+	audio_bitrate: string,
+	container: string,
+	output_width: number | null,
+	output_height: number | null,
+	output_fps: number | null,
+};
+
 export type Scene = {
 	id: string,
 	project_id: string,
@@ -986,6 +1035,33 @@ export type ThumbnailStripResult = {
 	interval_ms: number,
 	count: number,
 };
+
+export type TimelineItem = {
+	id: string,
+	track_id: string,
+	asset_id: string | null,
+	item_type: ItemType,
+	position_ms: number,
+	duration_ms: number,
+	in_point_ms: number,
+	out_point_ms: number,
+	params_json: string,
+	order_index: number,
+	created_at: string,
+};
+
+export type TimelineTrack = {
+	id: string,
+	episode_id: string,
+	track_type: TrackType,
+	label: string,
+	order_index: number,
+	muted: boolean,
+	locked: boolean,
+	created_at: string,
+};
+
+export type TrackType = "video" | "audio" | "text" | "overlay";
 
 export type TrimMode = "Copy" | "Reencode";
 
@@ -1157,6 +1233,14 @@ export type UpdateShotInput_Serialize = {
 	status?: ShotStatus | null,
 };
 
+export type UpdateTimelineItemInput = {
+	position_ms: number | null,
+	duration_ms: number | null,
+	in_point_ms: number | null,
+	out_point_ms: number | null,
+	params_json: string | null,
+};
+
 export type UpdateVideoClipInput = {
 	label: string | null,
 	trim_start_ms: number | null,
@@ -1191,6 +1275,7 @@ export type VideoMetadata = {
 	fps: number | null,
 	bitrate_kbps: number | null,
 	file_size_bytes: number,
+	pixel_format: string | null,
 };
 
 /**

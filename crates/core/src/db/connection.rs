@@ -79,8 +79,8 @@ mod tests {
             .collect::<Result<_, _>>()
             .unwrap();
 
-        // Bumped from 21 to 22 when spec-39 added `shot_audio`.
-        assert_eq!(tables.len(), 22, "expected 22 tables, got: {tables:?}");
+        // Bumped to 25: spec-43 added timeline_track, timeline_item, timeline_keyframe.
+        assert_eq!(tables.len(), 25, "expected 25 tables, got: {tables:?}");
     }
 
     #[test]

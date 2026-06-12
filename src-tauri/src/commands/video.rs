@@ -153,3 +153,60 @@ pub async fn export_final(
     .await
     .map_err(|e| IpcError::internal(format!("task join error: {e}")))?
 }
+
+#[tauri::command]
+#[specta::specta]
+pub async fn export_timeline(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    episode_id: String,
+    output_path: String,
+    render_config: mango_core::ffmpeg::render::RenderConfig,
+) -> Result<String, IpcError> {
+    let mounted = require_mount(&state)?;
+    let db = mounted.db.clone();
+    let workspace_root = mounted.workspace_root.clone();
+
+    let (timeline, mode) = db
+        .call(move |conn| {
+            let ffcfg = mango_core::ffmpeg::FfmpegConfig::from_env();
+            Ok(mango_core::export::resolve_timeline(
+                conn, &episode_id, &workspace_root, &ffcfg,
+            ))
+        })
+        .await
+        .map_err(IpcError::from)?
+        .map_err(IpcError::from)?;
+
+    tokio::task::spawn_blocking(move || {
+        let ffcfg = mango_core::ffmpeg::FfmpegConfig::from_env();
+        let mut cb = |p: FfmpegProgress| {
+            let _ = FfmpegProgressTick {
+                progress_pct: p.progress_pct,
+                current_time_ms: p.current_time_ms,
+                total_duration_ms: p.total_duration_ms,
+                speed: p.speed,
+            }
+            .emit(&app);
+        };
+        match mode {
+            mango_core::export::ExportMode::Copy => {
+                let resolved: Vec<mango_core::export::ResolvedClip> = timeline.clips.iter().map(|c| {
+                    mango_core::export::ResolvedClip {
+                        source_path: c.source_path.clone(),
+                        trim_start_ms: if c.in_point_ms > 0 { Some(c.in_point_ms) } else { None },
+                        trim_end_ms: if c.out_point_ms < c.duration_ms { Some(c.out_point_ms) } else { None },
+                    }
+                }).collect();
+                mango_core::export::export_resolved_clips(&ffcfg, &resolved, Path::new(&output_path), Some(&mut cb))
+            }
+            mango_core::export::ExportMode::Render => {
+                mango_core::ffmpeg::render::render_timeline(&render_config, &ffcfg, &timeline, Path::new(&output_path), Some(&mut cb))
+            }
+        }
+        .map(|p| p.to_string_lossy().into_owned())
+        .map_err(IpcError::from)
+    })
+    .await
+    .map_err(|e| IpcError::internal(format!("task join error: {e}")))?
+}

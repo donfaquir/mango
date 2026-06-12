@@ -288,6 +288,230 @@ pub fn export_final(
     Ok(output_path.to_path_buf())
 }
 
+// ─── timeline export (multi-track) ───────────────────────────────────────────
+
+#[derive(Debug, Clone)]
+pub enum ExportMode {
+    Copy,
+    Render,
+}
+
+pub fn resolve_timeline(
+    conn: &Connection,
+    episode_id: &str,
+    workspace_root: &Path,
+    config: &FfmpegConfig,
+) -> Result<(crate::ffmpeg::render::ResolvedTimeline, ExportMode)> {
+    use crate::db::queries::{timeline_item, timeline_track};
+    use crate::ffmpeg::render::*;
+    use crate::models::timeline::TrackType;
+
+    let tracks = timeline_track::list_by_episode(conn, episode_id)?;
+    if tracks.is_empty() {
+        return Err(CoreError::Validation(
+            "no timeline tracks for this episode".into(),
+        ));
+    }
+
+    let all_items = timeline_item::list_by_episode(conn, episode_id)?;
+    let video_items: Vec<_> = all_items
+        .iter()
+        .filter(|i| {
+            tracks
+                .iter()
+                .find(|t| t.id == i.track_id)
+                .is_some_and(|t| t.track_type == TrackType::Video)
+        })
+        .collect();
+
+    if video_items.is_empty() {
+        return Err(CoreError::Validation("no video clips in timeline".into()));
+    }
+
+    let mut clips = Vec::new();
+    let mut has_effects = false;
+
+    for item in &video_items {
+        if item.item_type != crate::models::timeline::ItemType::Clip {
+            has_effects = true;
+            continue;
+        }
+        let asset_id = item
+            .asset_id
+            .as_deref()
+            .ok_or_else(|| CoreError::Validation("video clip item missing asset_id".into()))?;
+        let a = asset::get_by_id(conn, asset_id)?;
+        let abs_path = workspace_root.join(&a.file_path);
+        if !abs_path.exists() {
+            return Err(CoreError::Validation(format!(
+                "asset file not found: {}",
+                abs_path.display()
+            )));
+        }
+
+        clips.push(ResolvedTimelineClip {
+            source_path: abs_path,
+            position_ms: item.position_ms,
+            duration_ms: item.duration_ms,
+            in_point_ms: item.in_point_ms,
+            out_point_ms: item.out_point_ms,
+            ken_burns: None,
+            color_effect: None,
+        });
+    }
+
+    let transitions: Vec<ResolvedTransition> = all_items
+        .iter()
+        .filter(|i| i.item_type == crate::models::timeline::ItemType::Transition)
+        .map(|i| {
+            has_effects = true;
+            let tt = serde_json::from_str::<serde_json::Value>(&i.params_json)
+                .ok()
+                .and_then(|v| v["transition_type"].as_str().map(|s| s.to_string()))
+                .unwrap_or_else(|| "dissolve".into());
+            ResolvedTransition {
+                transition_type: tt,
+                duration_ms: i.duration_ms,
+                position_ms: i.position_ms,
+            }
+        })
+        .collect();
+
+    let text_overlays: Vec<ResolvedTextOverlay> = all_items
+        .iter()
+        .filter(|i| {
+            i.item_type == crate::models::timeline::ItemType::Text
+                && tracks
+                    .iter()
+                    .find(|t| t.id == i.track_id)
+                    .is_some_and(|t| t.track_type == TrackType::Text)
+        })
+        .map(|i| {
+            has_effects = true;
+            let v = serde_json::from_str::<serde_json::Value>(&i.params_json).unwrap_or_default();
+            ResolvedTextOverlay {
+                text: v["content"].as_str().unwrap_or("").to_string(),
+                fontfile: None,
+                fontsize: v["fontsize"].as_u64().unwrap_or(48) as u32,
+                fontcolor: v["fontcolor"].as_str().unwrap_or("white").to_string(),
+                x: v["x"].as_str().unwrap_or("(w-text_w)/2").to_string(),
+                y: v["y"].as_str().unwrap_or("h-80").to_string(),
+                start_ms: i.position_ms,
+                end_ms: i.position_ms + i.duration_ms,
+            }
+        })
+        .collect();
+
+    let audio_tracks: Vec<AudioMixInput> = all_items
+        .iter()
+        .filter(|i| {
+            tracks
+                .iter()
+                .find(|t| t.id == i.track_id)
+                .is_some_and(|t| t.track_type == TrackType::Audio && !t.muted)
+        })
+        .filter_map(|i| {
+            let aid = i.asset_id.as_deref()?;
+            let a = asset::get_by_id(conn, aid).ok()?;
+            let abs_path = workspace_root.join(&a.file_path);
+            if abs_path.exists() {
+                Some(AudioMixInput {
+                    path: abs_path,
+                    volume: 1.0,
+                    offset_ms: i.position_ms,
+                })
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    let total_duration_ms = clips
+        .iter()
+        .map(|c| c.position_ms + c.duration_ms)
+        .max()
+        .unwrap_or(0);
+
+    let mode = if has_effects || !transitions.is_empty() || !text_overlays.is_empty() {
+        ExportMode::Render
+    } else {
+        let first = &clips[0];
+        let all_same = clips.iter().skip(1).all(|c| {
+            let fa = crate::ffmpeg::probe::probe_video(config, &first.source_path).ok();
+            let ca = crate::ffmpeg::probe::probe_video(config, &c.source_path).ok();
+            match (fa, ca) {
+                (Some(fm), Some(cm)) => {
+                    fm.width == cm.width
+                        && fm.height == cm.height
+                        && (fm.fps - cm.fps).abs() < 0.01
+                        && fm.video_codec == cm.video_codec
+                }
+                _ => false,
+            }
+        });
+        if all_same {
+            ExportMode::Copy
+        } else {
+            ExportMode::Render
+        }
+    };
+
+    let timeline = crate::ffmpeg::render::ResolvedTimeline {
+        clips,
+        transitions,
+        text_overlays,
+        sticker_overlays: vec![],
+        audio_tracks,
+        total_duration_ms,
+    };
+
+    Ok((timeline, mode))
+}
+
+pub fn export_timeline(
+    conn: &Connection,
+    episode_id: &str,
+    workspace_root: &Path,
+    output_path: &Path,
+    render_config: &crate::ffmpeg::render::RenderConfig,
+    ffmpeg_config: &FfmpegConfig,
+    on_progress: Option<&mut dyn FnMut(FfmpegProgress)>,
+) -> Result<PathBuf> {
+    let (timeline, mode) = resolve_timeline(conn, episode_id, workspace_root, ffmpeg_config)?;
+
+    match mode {
+        ExportMode::Copy => {
+            let resolved: Vec<ResolvedClip> = timeline
+                .clips
+                .iter()
+                .map(|c| ResolvedClip {
+                    source_path: c.source_path.clone(),
+                    trim_start_ms: if c.in_point_ms > 0 {
+                        Some(c.in_point_ms)
+                    } else {
+                        None
+                    },
+                    trim_end_ms: if c.out_point_ms < c.duration_ms {
+                        Some(c.out_point_ms)
+                    } else {
+                        None
+                    },
+                })
+                .collect();
+            export_resolved_clips(ffmpeg_config, &resolved, output_path, on_progress)
+        }
+        ExportMode::Render => {
+            crate::ffmpeg::render::render_timeline(
+                render_config,
+                ffmpeg_config,
+                &timeline,
+                output_path,
+                on_progress,
+            )
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

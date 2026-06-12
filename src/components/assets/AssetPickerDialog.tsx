@@ -20,7 +20,7 @@ interface AssetPickerDialogProps {
   onOpenChange: (open: boolean) => void;
   projectId: string;
   projectRoot: string | undefined;
-  assetType?: "image" | "video";
+  assetType?: "image" | "video" | "audio";
   onSelect: (asset: Asset) => void;
 }
 
@@ -137,7 +137,9 @@ export function AssetPickerDialog({
   const handleImportLocal = useCallback(async () => {
     try {
       // Use native file picker
-      const picked = await unwrap(commands.pickImageFile());
+      const picked = assetType && assetType !== "image"
+        ? await unwrap(commands.pickMediaFile(assetType))
+        : await unwrap(commands.pickImageFile());
       if (!picked) return;
 
       const imported = await importAsset.mutateAsync({

@@ -10,17 +10,33 @@ use uuid::Uuid;
 use crate::asset::thumbnail;
 use crate::db::queries::asset as queries;
 use crate::error::{CoreError, Result};
-use crate::models::asset::{Asset, AssetSource, ImportAssetInput};
+use crate::models::asset::{Asset, AssetSource, AssetType, ImportAssetInput};
 use crate::paths;
 
-pub const MAX_FILE_SIZE_BYTES: u64 = 50 * 1024 * 1024;
+pub const MAX_IMAGE_SIZE_BYTES: u64 = 50 * 1024 * 1024;
+pub const MAX_MEDIA_SIZE_BYTES: u64 = 500 * 1024 * 1024;
 pub const ALLOWED_IMAGE_EXTS: &[&str] = &["jpg", "jpeg", "png", "webp"];
+pub const ALLOWED_VIDEO_EXTS: &[&str] = &["mp4", "mov", "webm", "avi", "mkv"];
+pub const ALLOWED_AUDIO_EXTS: &[&str] = &["mp3", "wav", "aac", "ogg", "flac", "m4a"];
+
+fn detect_asset_type(ext: &str) -> Option<AssetType> {
+    if ALLOWED_IMAGE_EXTS.contains(&ext) {
+        Some(AssetType::Image)
+    } else if ALLOWED_VIDEO_EXTS.contains(&ext) {
+        Some(AssetType::Video)
+    } else if ALLOWED_AUDIO_EXTS.contains(&ext) {
+        Some(AssetType::Audio)
+    } else {
+        None
+    }
+}
 
 /// Artifacts produced by the filesystem stage of the import pipeline.
 /// They are kept in memory until the DB stage inserts them (or replaces
 /// them via content-hash dedupe).
 pub struct ImportArtifacts {
     pub asset_id: String,
+    pub asset_type: AssetType,
     pub original_name: String,
     pub file_relative: String,
     pub thumb_relative: Option<String>,
@@ -70,18 +86,23 @@ pub fn prepare_artifacts(project_root: &Path, source_path: &str) -> Result<Impor
         .map(|s| s.to_ascii_lowercase())
         .unwrap_or_default();
 
-    if !ALLOWED_IMAGE_EXTS.contains(&ext.as_str()) {
-        return Err(CoreError::Validation(format!(
-            "unsupported file extension: .{ext}; allowed: jpg, jpeg, png, webp"
-        )));
-    }
+    let asset_type = detect_asset_type(&ext).ok_or_else(|| {
+        CoreError::Validation(format!(
+            "unsupported file extension: .{ext}; allowed: image(jpg/jpeg/png/webp), video(mp4/mov/webm/avi/mkv), audio(mp3/wav/aac/ogg/flac/m4a)"
+        ))
+    })?;
 
+    let max_size = if asset_type == AssetType::Image {
+        MAX_IMAGE_SIZE_BYTES
+    } else {
+        MAX_MEDIA_SIZE_BYTES
+    };
     let metadata = fs::metadata(&source)?;
-    if metadata.len() > MAX_FILE_SIZE_BYTES {
+    if metadata.len() > max_size {
         return Err(CoreError::Validation(format!(
-            "file too large: {} bytes > {} bytes (max 50 MiB)",
+            "file too large: {} bytes > {} bytes",
             metadata.len(),
-            MAX_FILE_SIZE_BYTES
+            max_size
         )));
     }
 
@@ -93,9 +114,9 @@ pub fn prepare_artifacts(project_root: &Path, source_path: &str) -> Result<Impor
 
     let hash = copy_with_hash(&source, &dest)?;
 
-    let thumb_name = format!("{asset_id}_thumb.webp");
-    let thumb_dest = paths::thumbnails_dir(project_root).join(&thumb_name);
-    let (thumb_relative, metadata_json) =
+    let (thumb_relative, metadata_json) = if asset_type == AssetType::Image {
+        let thumb_name = format!("{asset_id}_thumb.webp");
+        let thumb_dest = paths::thumbnails_dir(project_root).join(&thumb_name);
         match thumbnail::generate_with_metadata(&dest, &thumb_dest) {
             Ok((w, h)) => (
                 Some(format!("{}/{}", paths::THUMBNAILS_SUBDIR, thumb_name)),
@@ -105,7 +126,10 @@ pub fn prepare_artifacts(project_root: &Path, source_path: &str) -> Result<Impor
                 tracing::warn!("thumbnail generation failed for {asset_id}: {e}");
                 (None, None)
             }
-        };
+        }
+    } else {
+        (None, None)
+    };
 
     let original_name = source
         .file_name()
@@ -116,6 +140,7 @@ pub fn prepare_artifacts(project_root: &Path, source_path: &str) -> Result<Impor
 
     Ok(ImportArtifacts {
         asset_id,
+        asset_type,
         original_name,
         file_relative,
         thumb_relative,
@@ -152,11 +177,12 @@ pub fn persist_artifacts(
         "INSERT INTO asset \
             (id, project_id, shot_id, asset_type, original_name, \
              file_path, thumbnail_path, file_size, content_hash, metadata_json, source) \
-         VALUES (?1, ?2, ?3, 'image', ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
         params![
             artifacts.asset_id,
             project_id,
             shot_id,
+            artifacts.asset_type.as_db_str(),
             artifacts.original_name,
             artifacts.file_relative,
             artifacts.thumb_relative,
@@ -307,7 +333,7 @@ mod tests {
         let src = src_dir.path().join("big.png");
         // Allocate slightly over the cap; content does not need to be a real PNG
         // because the size check runs before image decoding.
-        std::fs::write(&src, vec![0u8; (MAX_FILE_SIZE_BYTES as usize) + 1]).unwrap();
+        std::fs::write(&src, vec![0u8; (MAX_IMAGE_SIZE_BYTES as usize) + 1]).unwrap();
         let r = prepare_artifacts(&root, src.to_str().unwrap());
         assert!(matches!(r, Err(CoreError::Validation(msg)) if msg.contains("too large")));
     }
