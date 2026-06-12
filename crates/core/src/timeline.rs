@@ -6,6 +6,51 @@ use crate::ffmpeg::sidecar::FfmpegConfig;
 use crate::models::shot_audio::AudioRole;
 use crate::models::timeline::{CreateTimelineItemInput, ItemType, TimelineItem};
 
+pub fn import_video_from_clips(
+    conn: &Connection,
+    episode_id: &str,
+    workspace_root: &std::path::Path,
+    config: &FfmpegConfig,
+) -> Result<Vec<TimelineItem>> {
+    let tracks = timeline_track::list_by_episode(conn, episode_id)?;
+    let video_track = match tracks.iter().find(|t| t.label == "视频") {
+        Some(t) => t,
+        None => return Ok(vec![]),
+    };
+
+    let clips = video_clip::list(conn, episode_id)?;
+    if clips.is_empty() {
+        return Ok(vec![]);
+    }
+
+    let mut inputs: Vec<CreateTimelineItemInput> = Vec::with_capacity(clips.len());
+    let mut timeline_offset: i64 = 0;
+
+    for clip in &clips {
+        let a = asset::get_by_id(conn, &clip.source_asset_id)?;
+        let abs_path = workspace_root.join(&a.file_path);
+        let meta = crate::ffmpeg::probe::probe_video(config, &abs_path)?;
+        let start = clip.trim_start_ms.unwrap_or(0);
+        let end = clip.trim_end_ms.unwrap_or(meta.duration_ms);
+        let duration = end - start;
+
+        inputs.push(CreateTimelineItemInput {
+            track_id: video_track.id.clone(),
+            asset_id: Some(clip.source_asset_id.clone()),
+            item_type: ItemType::Clip,
+            position_ms: timeline_offset,
+            duration_ms: duration,
+            in_point_ms: Some(start),
+            out_point_ms: end,
+            params_json: Some("{}".into()),
+        });
+
+        timeline_offset += duration;
+    }
+
+    timeline_item::batch_create(conn, inputs)
+}
+
 pub fn import_audio_from_shots(
     conn: &Connection,
     episode_id: &str,

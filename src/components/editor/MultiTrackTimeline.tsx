@@ -1,5 +1,14 @@
 import { useCallback, useRef } from "react";
+import { Plus, Film, Music, Type, Layers } from "lucide-react";
+import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { msToPixel, pixelToMs } from "./timelineUtils";
 import { useMultiTrackStore } from "@/stores/multiTrackStore";
 import { TimeScale } from "./TimeScale";
@@ -8,12 +17,25 @@ import { TrackHeader } from "./TrackHeader";
 import { TimelineItemBlock } from "./TimelineItemBlock";
 import { commands } from "@/lib/bindings/commands";
 import { unwrap } from "@/lib/ipc";
+import type { TrackType } from "@/lib/bindings/commands";
 
 const TRACK_HEIGHT = 64;
 const HEADER_WIDTH = 160;
 
-export function MultiTrackTimeline() {
-  const { tracks, items, playhead, zoom, totalDuration, setPlayhead, setZoom } =
+const ADD_TRACK_OPTIONS: { type: TrackType; label: string; icon: React.ElementType }[] = [
+  { type: "video", label: "Video", icon: Film },
+  { type: "audio", label: "Audio", icon: Music },
+  { type: "text", label: "Text", icon: Type },
+  { type: "overlay", label: "Overlay", icon: Layers },
+];
+
+interface MultiTrackTimelineProps {
+  episodeId: string;
+  projectRoot: string | undefined;
+}
+
+export function MultiTrackTimeline({ episodeId, projectRoot }: MultiTrackTimelineProps) {
+  const { tracks, items, playhead, zoom, totalDuration, setPlayhead, setZoom, addTrack, removeTrack } =
     useMultiTrackStore();
   const scrollRef = useRef<HTMLDivElement>(null);
   const duration = Math.max(totalDuration, 10_000);
@@ -53,6 +75,23 @@ export function MultiTrackTimeline() {
     }));
   }, []);
 
+  const handleDeleteTrack = useCallback(async (trackId: string, label: string) => {
+    if (!window.confirm(`Delete track "${label}"? All items on this track will be removed.`)) return;
+    try {
+      await removeTrack(trackId);
+    } catch (err) {
+      toast.error(`Failed to delete track: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }, [removeTrack]);
+
+  const handleAddTrack = useCallback(async (trackType: TrackType) => {
+    try {
+      await addTrack({ episode_id: episodeId, track_type: trackType, label: trackType });
+    } catch (err) {
+      toast.error(`Failed to add track: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }, [episodeId, addTrack]);
+
   const itemsByTrack = new Map<string, typeof items[string][]>();
   for (const item of Object.values(items)) {
     const arr = itemsByTrack.get(item.track_id) ?? [];
@@ -71,8 +110,27 @@ export function MultiTrackTimeline() {
             track={track}
             onToggleMute={() => handleToggleMute(track.id, track.muted)}
             onToggleLock={() => handleToggleLock(track.id, track.locked)}
+            onDelete={() => handleDeleteTrack(track.id, track.label)}
           />
         ))}
+        <div className="flex items-center justify-center py-1">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="sm" className="h-6 text-xs gap-1 text-muted-foreground">
+                <Plus className="size-3" />
+                Add Track
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent>
+              {ADD_TRACK_OPTIONS.map(({ type, label, icon: Icon }) => (
+                <DropdownMenuItem key={type} onClick={() => handleAddTrack(type)}>
+                  <Icon className="size-4" />
+                  {label}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
       </div>
 
       {/* Scrollable timeline area */}
@@ -100,6 +158,8 @@ export function MultiTrackTimeline() {
                     item={item}
                     zoom={zoom}
                     trackLocked={track.locked}
+                    trackType={track.track_type}
+                    projectRoot={projectRoot}
                   />
                 ))}
               </div>

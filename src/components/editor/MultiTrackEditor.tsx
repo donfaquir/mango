@@ -7,10 +7,12 @@ import { cn } from "@/lib/utils";
 
 interface MultiTrackEditorProps {
   episodeId: string;
+  projectId: string;
+  projectRoot: string | undefined;
   className?: string;
 }
 
-export function MultiTrackEditor({ episodeId, className }: MultiTrackEditorProps) {
+export function MultiTrackEditor({ episodeId, projectId, projectRoot, className }: MultiTrackEditorProps) {
   const reset = useMultiTrackStore((s) => s.reset);
   const init = useMultiTrackStore((s) => s.init);
 
@@ -25,8 +27,8 @@ export function MultiTrackEditor({ episodeId, className }: MultiTrackEditorProps
 
   return (
     <div className={cn("flex flex-col gap-0", className)}>
-      <MultiTrackTimeline />
-      <MultiTrackControls />
+      <MultiTrackTimeline episodeId={episodeId} projectRoot={projectRoot} />
+      <MultiTrackControls episodeId={episodeId} projectId={projectId} projectRoot={projectRoot} />
     </div>
   );
 }

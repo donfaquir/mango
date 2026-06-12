@@ -123,6 +123,7 @@ export const commands = {
 	 *  frontend keeps a single picker pattern across the app.
 	 */
 	pickImageFile: () => typedError<string | null, IpcError_Serialize>(__TAURI_INVOKE("pick_image_file")),
+	pickMediaFile: (mediaType: string) => typedError<string | null, IpcError_Serialize>(__TAURI_INVOKE("pick_media_file", { mediaType })),
 	/**
 	 *  Open a native directory picker. Returns `None` if the user cancelled.
 	 * 
@@ -190,6 +191,7 @@ export const commands = {
 	deleteTimelineItem: (id: string) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("delete_timeline_item", { id })),
 	deleteTimelineTrack: (id: string) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("delete_timeline_track", { id })),
 	importAudioFromShots: (episodeId: string) => typedError<TimelineItem[], IpcError_Serialize>(__TAURI_INVOKE("import_audio_from_shots", { episodeId })),
+	importVideoFromClips: (episodeId: string) => typedError<TimelineItem[], IpcError_Serialize>(__TAURI_INVOKE("import_video_from_clips", { episodeId })),
 	listTimelineItems: (trackId: string) => typedError<TimelineItem[], IpcError_Serialize>(__TAURI_INVOKE("list_timeline_items", { trackId })),
 	listTimelineTracks: (episodeId: string) => typedError<TimelineTrack[], IpcError_Serialize>(__TAURI_INVOKE("list_timeline_tracks", { episodeId })),
 	moveTimelineItem: (id: string, input: MoveTimelineItemInput) => typedError<TimelineItem, IpcError_Serialize>(__TAURI_INVOKE("move_timeline_item", { id, input })),

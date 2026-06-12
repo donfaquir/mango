@@ -7,6 +7,7 @@ import { MultiTrackEditor } from "@/components/editor/MultiTrackEditor";
 import { ExportSettingsSheet } from "@/components/editor/ExportSettingsSheet";
 import { useProject } from "@/hooks/useProjects";
 import { useResolvedPath } from "@/hooks/useResolvedPath";
+import { useWorkspaceStatus } from "@/hooks/useWorkspace";
 
 export default function VideoEditorPage() {
   const { projectId, episodeId } = useParams<{
@@ -17,7 +18,9 @@ export default function VideoEditorPage() {
   const [exportOpen, setExportOpen] = useState(false);
 
   const { data: project, isLoading } = useProject(projectId);
+  const { data: workspace } = useWorkspaceStatus();
   const projectRoot = project?.root_path;
+  const absProjectRoot = useResolvedPath(workspace?.workspace_root, projectRoot);
   const defaultExportPath = useResolvedPath(projectRoot, `exports/${episodeId}_export.mp4`);
 
   if (!projectId || !episodeId) return <Navigate to="/" replace />;
@@ -39,7 +42,7 @@ export default function VideoEditorPage() {
           Export
         </Button>
       </header>
-      <MultiTrackEditor episodeId={episodeId} />
+      <MultiTrackEditor episodeId={episodeId} projectId={projectId} projectRoot={absProjectRoot ?? projectRoot} />
       <ExportSettingsSheet
         open={exportOpen}
         onOpenChange={setExportOpen}

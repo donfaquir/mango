@@ -17,8 +17,12 @@ export function ThumbnailStrip({
   zoom,
   className,
 }: ThumbnailStripProps) {
-  const { data, isLoading } = useThumbnailStrip(videoPath);
+  const { data, isLoading, error } = useThumbnailStrip(videoPath);
   const totalWidth = msToPixel(duration, zoom);
+
+  if (error) {
+    console.error("[ThumbnailStrip] extraction failed", { videoPath, error });
+  }
 
   if (isLoading || !data) {
     return (

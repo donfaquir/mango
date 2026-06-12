@@ -99,6 +99,33 @@ pub async fn delete_timeline_item(
 
 #[tauri::command]
 #[specta::specta]
+pub async fn import_video_from_clips(
+    state: State<'_, AppState>,
+    episode_id: String,
+) -> Result<Vec<TimelineItem>, IpcError> {
+    let mounted = require_mount(&state)?;
+    let db = mounted.db.clone();
+    let workspace_root = mounted.workspace_root.clone();
+
+    let items = db
+        .call(move |conn| {
+            let config = mango_core::ffmpeg::FfmpegConfig::from_env();
+            Ok(mango_core::timeline::import_video_from_clips(
+                conn,
+                &episode_id,
+                &workspace_root,
+                &config,
+            ))
+        })
+        .await
+        .map_err(IpcError::from)?
+        .map_err(IpcError::from)?;
+
+    Ok(items)
+}
+
+#[tauri::command]
+#[specta::specta]
 pub async fn import_audio_from_shots(
     state: State<'_, AppState>,
     episode_id: String,

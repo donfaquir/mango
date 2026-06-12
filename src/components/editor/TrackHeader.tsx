@@ -1,4 +1,4 @@
-import { Volume2, VolumeX, Lock, Unlock, Film, Music, Type, Layers } from "lucide-react";
+import { Volume2, VolumeX, Lock, Unlock, Film, Music, Type, Layers, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { TimelineTrack } from "@/lib/bindings/commands";
@@ -7,6 +7,7 @@ interface TrackHeaderProps {
   track: TimelineTrack;
   onToggleMute: () => void;
   onToggleLock: () => void;
+  onDelete: () => void;
 }
 
 const TRACK_ICONS: Record<string, React.ElementType> = {
@@ -16,7 +17,7 @@ const TRACK_ICONS: Record<string, React.ElementType> = {
   overlay: Layers,
 };
 
-export function TrackHeader({ track, onToggleMute, onToggleLock }: TrackHeaderProps) {
+export function TrackHeader({ track, onToggleMute, onToggleLock, onDelete }: TrackHeaderProps) {
   const Icon = TRACK_ICONS[track.track_type] ?? Layers;
 
   return (
@@ -38,6 +39,14 @@ export function TrackHeader({ track, onToggleMute, onToggleLock }: TrackHeaderPr
         onClick={onToggleLock}
       >
         {track.locked ? <Lock className="h-3 w-3" /> : <Unlock className="h-3 w-3" />}
+      </Button>
+      <Button
+        variant="ghost"
+        size="icon"
+        className="h-6 w-6 text-muted-foreground hover:text-destructive"
+        onClick={onDelete}
+      >
+        <Trash2 className="h-3 w-3" />
       </Button>
     </div>
   );

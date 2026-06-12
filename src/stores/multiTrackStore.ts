@@ -5,6 +5,7 @@ import type {
   TimelineTrack,
   TimelineItem,
   CreateTimelineItemInput,
+  CreateTimelineTrackInput,
   UpdateTimelineItemInput,
   MoveTimelineItemInput,
 } from "@/lib/bindings/commands";
@@ -21,16 +22,20 @@ export interface MultiTrackState {
   zoom: number;
   scrollX: number;
   totalDuration: number;
+  importing: boolean;
   proxyState: ProxyState;
   proxyPath: string | null;
 
   init: (episodeId: string) => Promise<void>;
   reset: () => void;
 
+  addTrack: (input: CreateTimelineTrackInput) => Promise<void>;
+  removeTrack: (id: string) => Promise<void>;
   addItem: (input: CreateTimelineItemInput) => Promise<void>;
   updateItem: (id: string, input: UpdateTimelineItemInput) => Promise<void>;
   moveItem: (id: string, input: MoveTimelineItemInput) => Promise<void>;
   removeItem: (id: string) => Promise<void>;
+  importFromShots: (episodeId: string) => Promise<void>;
 
   selectItem: (id: string, multi?: boolean) => void;
   deselectAll: () => void;
@@ -63,6 +68,7 @@ export const useMultiTrackStore = create<MultiTrackState>()(
       zoom: 1,
       scrollX: 0,
       totalDuration: 0,
+      importing: false,
       proxyState: "idle" as ProxyState,
       proxyPath: null,
 
@@ -106,11 +112,33 @@ export const useMultiTrackStore = create<MultiTrackState>()(
           zoom: 1,
           scrollX: 0,
           totalDuration: 0,
+          importing: false,
           proxyState: "idle",
           proxyPath: null,
         });
         t.resume();
         t.clear();
+      },
+
+      addTrack: async (input: CreateTimelineTrackInput) => {
+        const track = await unwrap(commands.createTimelineTrack(input));
+        set((s) => ({ tracks: [...s.tracks, track] }));
+      },
+
+      removeTrack: async (id: string) => {
+        await unwrap(commands.deleteTimelineTrack(id));
+        set((s) => {
+          const tracks = s.tracks.filter((t) => t.id !== id);
+          const next = { ...s.items };
+          const sel = new Set(s.selection);
+          for (const [itemId, item] of Object.entries(next)) {
+            if (item.track_id === id) {
+              delete next[itemId];
+              sel.delete(itemId);
+            }
+          }
+          return { tracks, items: next, selection: sel, totalDuration: computeTotalDuration(next) };
+        });
       },
 
       addItem: async (input: CreateTimelineItemInput) => {
@@ -146,6 +174,27 @@ export const useMultiTrackStore = create<MultiTrackState>()(
           sel.delete(id);
           return { items: next, selection: sel, totalDuration: computeTotalDuration(next), proxyState: "stale" as ProxyState };
         });
+      },
+
+      importFromShots: async (episodeId: string) => {
+        set({ importing: true });
+        const t = useMultiTrackStore.temporal.getState();
+        t.pause();
+        try {
+          const videoItems = await unwrap(commands.importVideoFromClips(episodeId));
+          const audioItems = await unwrap(commands.importAudioFromShots(episodeId));
+          set((s) => {
+            const next = { ...s.items };
+            for (const item of [...videoItems, ...audioItems]) {
+              next[item.id] = item;
+            }
+            return { items: next, totalDuration: computeTotalDuration(next), proxyState: "stale" as ProxyState };
+          });
+        } finally {
+          t.resume();
+          t.clear();
+          set({ importing: false });
+        }
       },
 
       selectItem: (id: string, multi = false) => {
