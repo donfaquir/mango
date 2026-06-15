@@ -177,6 +177,33 @@ pub async fn extract_thumbnail_strip(
 
 #[tauri::command]
 #[specta::specta]
+pub async fn extract_waveform(
+    state: tauri::State<'_, crate::state::AppState>,
+    input: String,
+    height: u32,
+    px_per_sec: u32,
+) -> Result<ffmpeg::WaveformResult, IpcError> {
+    let mounted = super::require_mount(&state)?;
+    let workspace_root = mounted.workspace_root.clone();
+
+    tokio::task::spawn_blocking(move || {
+        let config = ffmpeg::FfmpegConfig::from_env();
+        let input_path = Path::new(&input);
+        let cache_key = ffmpeg::waveform_cache_key(input_path, height, px_per_sec);
+        let output_dir = workspace_root
+            .join("thumbnails")
+            .join("waveforms")
+            .join(&cache_key);
+
+        ffmpeg::extract_waveform(&config, input_path, height, px_per_sec, &output_dir)
+            .map_err(IpcError::from)
+    })
+    .await
+    .map_err(|e| IpcError::internal(format!("task join error: {e}")))?
+}
+
+#[tauri::command]
+#[specta::specta]
 pub async fn probe_audio_duration(path: String) -> Result<AudioDuration, IpcError> {
     tokio::task::spawn_blocking(move || {
         let config = ffmpeg::FfmpegConfig::from_env();

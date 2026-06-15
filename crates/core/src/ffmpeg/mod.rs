@@ -7,6 +7,7 @@ pub mod progress;
 pub mod render;
 pub mod sidecar;
 pub mod thumbnail;
+pub mod waveform;
 
 pub use alignment::{calculate_alignment, calculate_alignment_default, AlignmentStrategy};
 pub use audio::{
@@ -22,3 +23,4 @@ pub use progress::{FfmpegProgress, FfmpegProgressParser};
 pub use render::{render_timeline, RenderConfig, ResolvedTimeline};
 pub use sidecar::{check_ffmpeg, FfmpegConfig, FfmpegStatus};
 pub use thumbnail::{extract_thumbnail_strip, thumbnail_strip_cache_key, ThumbnailStripResult};
+pub use waveform::{extract_waveform, waveform_cache_key, WaveformResult};

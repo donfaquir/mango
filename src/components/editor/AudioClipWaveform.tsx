@@ -1,12 +1,12 @@
 import { useState } from "react";
-import { Film } from "lucide-react";
+import { Music } from "lucide-react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAsset } from "@/hooks/useAssets";
-import { useThumbnailStrip } from "@/hooks/useThumbnailStrip";
+import { useWaveform } from "@/hooks/useWaveform";
 import { cn } from "@/lib/utils";
 
-interface VideoClipThumbnailsProps {
+interface AudioClipWaveformProps {
   assetId: string;
   projectRoot: string | undefined;
   className?: string;
@@ -20,43 +20,36 @@ function FallbackIcon({ className }: { className?: string }) {
         className,
       )}
     >
-      <Film className="size-4 text-muted-foreground" />
+      <Music className="size-4 text-muted-foreground" />
     </div>
   );
 }
 
-export function VideoClipThumbnails({
+export function AudioClipWaveform({
   assetId,
   projectRoot,
   className,
-}: VideoClipThumbnailsProps) {
+}: AudioClipWaveformProps) {
   const {
     data: asset,
     error: assetError,
     isLoading: assetLoading,
   } = useAsset(assetId);
 
-  const videoPath =
+  const audioPath =
     projectRoot && asset?.file_path
       ? `${projectRoot}/${asset.file_path}`
       : null;
 
   const {
     data,
-    isLoading: thumbLoading,
-    error: thumbError,
-  } = useThumbnailStrip(videoPath);
+    isLoading: waveformLoading,
+    error: waveformError,
+  } = useWaveform(audioPath);
 
   const [imgFailed, setImgFailed] = useState(false);
 
-  if (assetError || thumbError) {
-    console.error("[VideoClipThumbnails] failed", {
-      assetId,
-      projectRoot,
-      videoPath,
-      assetError,
-      thumbError,
-    });
+  if (assetError || waveformError) {
     return <FallbackIcon className={className} />;
   }
 
@@ -64,7 +57,7 @@ export function VideoClipThumbnails({
     return <FallbackIcon className={className} />;
   }
 
-  if (assetLoading || thumbLoading) {
+  if (assetLoading || waveformLoading) {
     return <Skeleton className={cn("h-full w-full rounded-none", className)} />;
   }
 
@@ -72,22 +65,19 @@ export function VideoClipThumbnails({
     return <FallbackIcon className={className} />;
   }
 
-  if (data.thumbnails.length === 0 || imgFailed) {
+  if (imgFailed) {
     return <FallbackIcon className={className} />;
   }
 
   return (
-    <div className={cn("flex h-full w-full overflow-hidden", className)}>
-      {data.thumbnails.map((path, i) => (
-        <img
-          key={i}
-          src={convertFileSrc(path)}
-          alt=""
-          className="h-full object-cover flex-1 min-w-0"
-          draggable={false}
-          onError={() => setImgFailed(true)}
-        />
-      ))}
+    <div className={cn("h-full w-full overflow-hidden", className)}>
+      <img
+        src={convertFileSrc(data.path)}
+        alt=""
+        className="h-full w-full object-fill"
+        draggable={false}
+        onError={() => setImgFailed(true)}
+      />
     </div>
   );
 }

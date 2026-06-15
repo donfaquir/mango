@@ -20,7 +20,12 @@ export default function VideoEditorPage() {
   const { data: project, isLoading } = useProject(projectId);
   const { data: workspace } = useWorkspaceStatus();
   const projectRoot = project?.root_path;
-  const absProjectRoot = useResolvedPath(workspace?.workspace_root, projectRoot);
+  const isAbsoluteRoot = projectRoot?.startsWith("/");
+  const resolvedRoot = useResolvedPath(
+    isAbsoluteRoot ? undefined : workspace?.workspace_root,
+    isAbsoluteRoot ? undefined : projectRoot,
+  );
+  const absProjectRoot = isAbsoluteRoot ? projectRoot : resolvedRoot;
   const defaultExportPath = useResolvedPath(projectRoot, `exports/${episodeId}_export.mp4`);
 
   if (!projectId || !episodeId) return <Navigate to="/" replace />;
