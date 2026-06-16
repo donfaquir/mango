@@ -32,7 +32,7 @@ interface MultiTrackControlsProps {
 export function MultiTrackControls({ episodeId, projectId, projectRoot }: MultiTrackControlsProps) {
   const {
     playhead, zoom, setZoom, totalDuration, importing, items, tracks,
-    addItem, importFromShots, isPlaying, togglePlay, pause, setPlayhead,
+    addItem, addTrack, importFromShots, isPlaying, togglePlay, pause, setPlayhead,
   } = useMultiTrackStore();
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerType, setPickerType] = useState<"video" | "audio">("video");
@@ -59,10 +59,11 @@ export function MultiTrackControls({ episodeId, projectId, projectRoot }: MultiT
   }, []);
 
   const handleAddText = useCallback(async (content: string, textType: TextType) => {
-    const textTrack = tracks.find((t) => t.track_type === "text");
+    let textTrack = tracks.find((t) => t.track_type === "text");
     if (!textTrack) {
-      toast.error("No text track found. Add a text track first.");
-      return;
+      await addTrack({ episode_id: episodeId, track_type: "text", label: "Text" });
+      textTrack = useMultiTrackStore.getState().tracks.find((t) => t.track_type === "text");
+      if (!textTrack) return;
     }
     try {
       await addItem({
@@ -79,7 +80,7 @@ export function MultiTrackControls({ episodeId, projectId, projectRoot }: MultiT
     } catch (err) {
       toast.error(`Failed to add text: ${err instanceof Error ? err.message : String(err)}`);
     }
-  }, [tracks, playhead, addItem]);
+  }, [tracks, playhead, addItem, addTrack, episodeId]);
 
   const handleAssetSelected = useCallback(async (asset: Asset) => {
     const targetTrack = tracks.find((t) =>
