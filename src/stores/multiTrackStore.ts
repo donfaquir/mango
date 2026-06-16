@@ -19,6 +19,7 @@ export interface MultiTrackState {
 
   selection: Set<string>;
   playhead: number;
+  isPlaying: boolean;
   zoom: number;
   scrollX: number;
   totalDuration: number;
@@ -40,6 +41,9 @@ export interface MultiTrackState {
   selectItem: (id: string, multi?: boolean) => void;
   deselectAll: () => void;
 
+  play: () => void;
+  pause: () => void;
+  togglePlay: () => void;
   setPlayhead: (ms: number) => void;
   setZoom: (zoom: number) => void;
   setScrollX: (x: number) => void;
@@ -65,6 +69,7 @@ export const useMultiTrackStore = create<MultiTrackState>()(
 
       selection: new Set<string>(),
       playhead: 0,
+      isPlaying: false,
       zoom: 1,
       scrollX: 0,
       totalDuration: 0,
@@ -94,6 +99,7 @@ export const useMultiTrackStore = create<MultiTrackState>()(
           totalDuration: computeTotalDuration(items),
           selection: new Set(),
           playhead: 0,
+          isPlaying: false,
           proxyState: "idle",
           proxyPath: null,
         });
@@ -109,6 +115,7 @@ export const useMultiTrackStore = create<MultiTrackState>()(
           items: {},
           selection: new Set(),
           playhead: 0,
+          isPlaying: false,
           zoom: 1,
           scrollX: 0,
           totalDuration: 0,
@@ -210,6 +217,9 @@ export const useMultiTrackStore = create<MultiTrackState>()(
       },
 
       deselectAll: () => set({ selection: new Set() }),
+      play: () => set({ isPlaying: true }),
+      pause: () => set({ isPlaying: false }),
+      togglePlay: () => set((s) => ({ isPlaying: !s.isPlaying })),
       setPlayhead: (ms: number) => set({ playhead: Math.max(0, ms) }),
       setZoom: (zoom: number) => set({ zoom: Math.max(0.1, Math.min(20, zoom)) }),
       setScrollX: (x: number) => set({ scrollX: Math.max(0, x) }),

@@ -1,6 +1,6 @@
 import { useState, useCallback } from "react";
 import { join } from "@tauri-apps/api/path";
-import { Download, Plus, Video, Music } from "lucide-react";
+import { Download, Plus, Video, Music, Play, Pause, SkipBack, SkipForward } from "lucide-react";
 import { toast } from "sonner";
 import { Slider } from "@/components/ui/slider";
 import { Button } from "@/components/ui/button";
@@ -29,8 +29,10 @@ interface MultiTrackControlsProps {
 }
 
 export function MultiTrackControls({ episodeId, projectId, projectRoot }: MultiTrackControlsProps) {
-  const { playhead, zoom, setZoom, totalDuration, importing, items, tracks, addItem, importFromShots } =
-    useMultiTrackStore();
+  const {
+    playhead, zoom, setZoom, totalDuration, importing, items, tracks,
+    addItem, importFromShots, isPlaying, togglePlay, pause, setPlayhead,
+  } = useMultiTrackStore();
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerType, setPickerType] = useState<"video" | "audio">("video");
 
@@ -129,7 +131,34 @@ export function MultiTrackControls({ episodeId, projectId, projectRoot }: MultiT
           </DropdownMenuContent>
         </DropdownMenu>
 
-        <span className="font-mono text-muted-foreground ml-2">
+        <div className="flex items-center gap-0.5 ml-2">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-6 w-6"
+            onClick={() => { setPlayhead(0); pause(); }}
+          >
+            <SkipBack className="size-3.5" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-6 w-6"
+            onClick={togglePlay}
+          >
+            {isPlaying ? <Pause className="size-3.5" /> : <Play className="size-3.5" />}
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-6 w-6"
+            onClick={() => { setPlayhead(totalDuration); pause(); }}
+          >
+            <SkipForward className="size-3.5" />
+          </Button>
+        </div>
+
+        <span className="font-mono text-muted-foreground ml-1">
           {formatTime(playhead)} / {formatTime(totalDuration)}
         </span>
 

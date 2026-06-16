@@ -1,7 +1,6 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useEffect } from "react";
 import { toast } from "sonner";
 import { useTimelineStore } from "@/stores/timelineStore";
-import { VideoPreview, type VideoPreviewHandle } from "./VideoPreview";
 import { Timeline } from "./Timeline";
 import { TimelineControls } from "./TimelineControls";
 import { cn } from "@/lib/utils";
@@ -10,12 +9,11 @@ import { unwrap } from "@/lib/ipc";
 
 interface VideoEditorLayoutProps {
   videoPath: string;
-  videoSrcUrl: string | null;
   className?: string;
 }
 
-export function VideoEditorLayout({ videoPath, videoSrcUrl, className }: VideoEditorLayoutProps) {
-  const previewRef = useRef<VideoPreviewHandle>(null);
+/** @deprecated Legacy single-clip layout. Use MultiTrackEditor instead. */
+export function VideoEditorLayout({ videoPath, className }: VideoEditorLayoutProps) {
   const {
     zoom,
     setZoom,
@@ -45,14 +43,9 @@ export function VideoEditorLayout({ videoPath, videoSrcUrl, className }: VideoEd
     };
   }, [videoPath, setVideoSrc, reset]);
 
-  const handleSeek = useCallback((ms: number) => {
-    previewRef.current?.seekTo(ms);
-  }, []);
-
   return (
     <div className={cn("flex flex-col gap-0", className)}>
-      <VideoPreview ref={previewRef} videoSrcUrl={videoSrcUrl} />
-      <Timeline videoPath={videoPath} onSeek={handleSeek} />
+      <Timeline videoPath={videoPath} onSeek={() => {}} />
       <TimelineControls
         zoom={zoom}
         onZoomChange={setZoom}
