@@ -30,9 +30,6 @@ export function ExportSettingsSheet({
 }: ExportSettingsSheetProps) {
   const [outputPath, setOutputPath] = useState(defaultOutputPath);
   const [exporting, setExporting] = useState(false);
-  const [includeVoice, setIncludeVoice] = useState(true);
-  const [includeSfx, setIncludeSfx] = useState(true);
-  const [includeBgm, setIncludeBgm] = useState(true);
 
   useEffect(() => {
     setOutputPath(defaultOutputPath);
@@ -44,10 +41,15 @@ export function ExportSettingsSheet({
     resetProgress();
     try {
       const result = await unwrap(
-        commands.exportFinal(episodeId, outputPath, {
-          include_voice: includeVoice,
-          include_sfx: includeSfx,
-          include_bgm: includeBgm,
+        commands.exportTimeline(episodeId, outputPath, {
+          video_codec: "libx264",
+          preset: "fast",
+          crf: 18,
+          audio_bitrate: "128k",
+          container: "mp4",
+          output_width: null,
+          output_height: null,
+          output_fps: null,
         }),
       );
       toast.success(`导出完成：${result}`);
@@ -77,43 +79,7 @@ export function ExportSettingsSheet({
             />
           </div>
           <div className="text-xs text-muted-foreground">
-            格式：MP4 (H.264)，保持原始分辨率
-          </div>
-
-          <div className="space-y-2">
-            <Label className="text-sm font-medium">音频轨</Label>
-            <div className="flex flex-col gap-2">
-              <label className="flex items-center gap-2 text-sm cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={includeVoice}
-                  onChange={(e) => setIncludeVoice(e.target.checked)}
-                  disabled={exporting}
-                  className="rounded border-input"
-                />
-                配音
-              </label>
-              <label className="flex items-center gap-2 text-sm cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={includeSfx}
-                  onChange={(e) => setIncludeSfx(e.target.checked)}
-                  disabled={exporting}
-                  className="rounded border-input"
-                />
-                音效
-              </label>
-              <label className="flex items-center gap-2 text-sm cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={includeBgm}
-                  onChange={(e) => setIncludeBgm(e.target.checked)}
-                  disabled={exporting}
-                  className="rounded border-input"
-                />
-                背景音乐
-              </label>
-            </div>
+            格式：MP4 (H.264)，导出时间轴上的视频和音频轨道
           </div>
 
           {exporting && progress && (

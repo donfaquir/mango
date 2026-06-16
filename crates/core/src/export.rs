@@ -5,13 +5,28 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 use uuid::Uuid;
 
-use crate::db::queries::{asset, shot_audio, video_clip};
+use crate::db::queries::{asset, episode, project, shot_audio, video_clip};
 use crate::error::{CoreError, Result};
 use crate::ffmpeg::audio::AudioMixInput;
 use crate::ffmpeg::commands::TrimMode;
 use crate::ffmpeg::progress::FfmpegProgress;
 use crate::ffmpeg::sidecar::FfmpegConfig;
 use crate::models::shot_audio::AudioRole;
+
+fn resolve_project_root(
+    conn: &Connection,
+    episode_id: &str,
+    workspace_root: &Path,
+) -> Result<PathBuf> {
+    let ep = episode::get_by_id(conn, episode_id)?;
+    let proj = project::get_by_id(conn, &ep.project_id)?;
+    let root = Path::new(&proj.root_path);
+    if root.is_absolute() {
+        Ok(root.to_path_buf())
+    } else {
+        Ok(workspace_root.join(root))
+    }
+}
 
 #[derive(Debug)]
 pub struct ResolvedClip {
@@ -25,6 +40,7 @@ pub fn resolve_clips(
     episode_id: &str,
     workspace_root: &Path,
 ) -> Result<Vec<ResolvedClip>> {
+    let project_root = resolve_project_root(conn, episode_id, workspace_root)?;
     let clips = video_clip::list(conn, episode_id)?;
     if clips.is_empty() {
         return Err(CoreError::Validation(
@@ -36,7 +52,7 @@ pub fn resolve_clips(
         .into_iter()
         .map(|clip| {
             let a = asset::get_by_id(conn, &clip.source_asset_id)?;
-            let abs_path = workspace_root.join(&a.file_path);
+            let abs_path = project_root.join(&a.file_path);
             if !abs_path.exists() {
                 return Err(CoreError::Validation(format!(
                     "asset file not found: {}",
@@ -176,6 +192,7 @@ pub fn resolve_final_export(
     settings: &FinalExportSettings,
     config: &FfmpegConfig,
 ) -> Result<ResolvedFinalExport> {
+    let project_root = resolve_project_root(conn, episode_id, workspace_root)?;
     let clips = resolve_clips(conn, episode_id, workspace_root)?;
 
     let mut clip_durations: Vec<i64> = Vec::with_capacity(clips.len());
@@ -214,7 +231,7 @@ pub fn resolve_final_export(
             }
 
             let audio_asset = asset::get_by_id(conn, &binding.asset_id)?;
-            let audio_path = workspace_root.join(&audio_asset.file_path);
+            let audio_path = project_root.join(&audio_asset.file_path);
             if !audio_path.exists() {
                 tracing::warn!(
                     "skipping shot_audio {}: file not found at {}",
@@ -306,6 +323,7 @@ pub fn resolve_timeline(
     use crate::ffmpeg::render::*;
     use crate::models::timeline::TrackType;
 
+    let project_root = resolve_project_root(conn, episode_id, workspace_root)?;
     let tracks = timeline_track::list_by_episode(conn, episode_id)?;
     if tracks.is_empty() {
         return Err(CoreError::Validation(
@@ -341,7 +359,7 @@ pub fn resolve_timeline(
             .as_deref()
             .ok_or_else(|| CoreError::Validation("video clip item missing asset_id".into()))?;
         let a = asset::get_by_id(conn, asset_id)?;
-        let abs_path = workspace_root.join(&a.file_path);
+        let abs_path = project_root.join(&a.file_path);
         if !abs_path.exists() {
             return Err(CoreError::Validation(format!(
                 "asset file not found: {}",
@@ -413,7 +431,7 @@ pub fn resolve_timeline(
         .filter_map(|i| {
             let aid = i.asset_id.as_deref()?;
             let a = asset::get_by_id(conn, aid).ok()?;
-            let abs_path = workspace_root.join(&a.file_path);
+            let abs_path = project_root.join(&a.file_path);
             if abs_path.exists() {
                 Some(AudioMixInput {
                     path: abs_path,
@@ -524,7 +542,7 @@ mod tests {
     fn setup() -> Connection {
         let conn = open_sync(Path::new(":memory:")).unwrap();
         conn.execute(
-            "INSERT INTO project (id, name) VALUES ('p1', 'Test Project')",
+            "INSERT INTO project (id, name, root_path) VALUES ('p1', 'Test Project', 'projects/test')",
             [],
         )
         .unwrap();
@@ -583,7 +601,7 @@ mod tests {
     fn resolve_clips_with_real_files() {
         let tmp = TempDir::new().unwrap();
         let video_path = "assets/v1.mp4";
-        let abs = tmp.path().join(video_path);
+        let abs = tmp.path().join("projects/test").join(video_path);
         std::fs::create_dir_all(abs.parent().unwrap()).unwrap();
         std::fs::write(&abs, b"fake video content").unwrap();
 
