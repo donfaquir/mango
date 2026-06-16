@@ -1,6 +1,6 @@
 import { useState, useCallback } from "react";
 import { join } from "@tauri-apps/api/path";
-import { Download, Plus, Video, Music, Play, Pause, SkipBack, SkipForward } from "lucide-react";
+import { Download, Plus, Video, Music, Type, Play, Pause, SkipBack, SkipForward } from "lucide-react";
 import { toast } from "sonner";
 import { Slider } from "@/components/ui/slider";
 import { Button } from "@/components/ui/button";
@@ -11,6 +11,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { AssetPickerDialog } from "@/components/assets/AssetPickerDialog";
+import { AddTextDialog, type TextType } from "./AddTextDialog";
 import { useMultiTrackStore } from "@/stores/multiTrackStore";
 import { commands, type Asset } from "@/lib/bindings/commands";
 import { unwrap } from "@/lib/ipc";
@@ -35,6 +36,7 @@ export function MultiTrackControls({ episodeId, projectId, projectRoot }: MultiT
   } = useMultiTrackStore();
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerType, setPickerType] = useState<"video" | "audio">("video");
+  const [textDialogOpen, setTextDialogOpen] = useState(false);
 
   const itemCount = Object.keys(items).length;
 
@@ -55,6 +57,29 @@ export function MultiTrackControls({ episodeId, projectId, projectRoot }: MultiT
     setPickerType(type);
     setPickerOpen(true);
   }, []);
+
+  const handleAddText = useCallback(async (content: string, textType: TextType) => {
+    const textTrack = tracks.find((t) => t.track_type === "text");
+    if (!textTrack) {
+      toast.error("No text track found. Add a text track first.");
+      return;
+    }
+    try {
+      await addItem({
+        track_id: textTrack.id,
+        asset_id: null,
+        item_type: "text",
+        position_ms: playhead,
+        duration_ms: 5000,
+        in_point_ms: null,
+        out_point_ms: 5000,
+        params_json: JSON.stringify({ content, text_type: textType }),
+      });
+      toast.success("Text added to timeline");
+    } catch (err) {
+      toast.error(`Failed to add text: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }, [tracks, playhead, addItem]);
 
   const handleAssetSelected = useCallback(async (asset: Asset) => {
     const targetTrack = tracks.find((t) =>
@@ -128,6 +153,10 @@ export function MultiTrackControls({ episodeId, projectId, projectRoot }: MultiT
               <Music className="size-4" />
               Add Audio
             </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setTextDialogOpen(true)}>
+              <Type className="size-4" />
+              Add Text
+            </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
 
@@ -183,6 +212,12 @@ export function MultiTrackControls({ episodeId, projectId, projectRoot }: MultiT
         projectRoot={projectRoot}
         assetType={pickerType}
         onSelect={handleAssetSelected}
+      />
+
+      <AddTextDialog
+        open={textDialogOpen}
+        onOpenChange={setTextDialogOpen}
+        onSubmit={handleAddText}
       />
     </>
   );
