@@ -42,14 +42,14 @@ export function MultiTrackControls({ episodeId, projectId, projectRoot }: MultiT
 
   const handleImportFromShots = useCallback(async () => {
     if (itemCount > 0) {
-      const ok = window.confirm(`Timeline already has ${itemCount} items. Import will add clips without removing existing items. Continue?`);
+      const ok = window.confirm(`时间轴已有 ${itemCount} 个片段，导入会在现有片段基础上追加。是否继续？`);
       if (!ok) return;
     }
     try {
       await importFromShots(episodeId);
-      toast.success("Import from shots completed");
+      toast.success("镜头导入完成");
     } catch (err) {
-      toast.error(`Import failed: ${err instanceof Error ? err.message : String(err)}`);
+      toast.error(`导入失败：${err instanceof Error ? err.message : String(err)}`);
     }
   }, [episodeId, itemCount, importFromShots]);
 
@@ -61,7 +61,7 @@ export function MultiTrackControls({ episodeId, projectId, projectRoot }: MultiT
   const handleAddText = useCallback(async (content: string, textType: TextType) => {
     let textTrack = tracks.find((t) => t.track_type === "text");
     if (!textTrack) {
-      await addTrack({ episode_id: episodeId, track_type: "text", label: "Text" });
+      await addTrack({ episode_id: episodeId, track_type: "text", label: "文本" });
       textTrack = useMultiTrackStore.getState().tracks.find((t) => t.track_type === "text");
       if (!textTrack) return;
     }
@@ -76,9 +76,9 @@ export function MultiTrackControls({ episodeId, projectId, projectRoot }: MultiT
         out_point_ms: 5000,
         params_json: JSON.stringify({ content, text_type: textType }),
       });
-      toast.success("Text added to timeline");
+      toast.success("文本已添加到时间轴");
     } catch (err) {
-      toast.error(`Failed to add text: ${err instanceof Error ? err.message : String(err)}`);
+      toast.error(`添加文本失败：${err instanceof Error ? err.message : String(err)}`);
     }
   }, [tracks, playhead, addItem, addTrack, episodeId]);
 
@@ -87,7 +87,7 @@ export function MultiTrackControls({ episodeId, projectId, projectRoot }: MultiT
       pickerType === "video" ? t.track_type === "video" : t.track_type === "audio",
     );
     if (!targetTrack) {
-      toast.error("No matching track found");
+      toast.error("未找到匹配的轨道");
       return;
     }
 
@@ -118,9 +118,9 @@ export function MultiTrackControls({ episodeId, projectId, projectRoot }: MultiT
         out_point_ms: durationMs,
         params_json: "{}",
       });
-      toast.success("Media added to timeline");
+      toast.success("媒体已添加到时间轴");
     } catch (err) {
-      toast.error(`Failed to add media: ${err instanceof Error ? err.message : String(err)}`);
+      toast.error(`添加媒体失败：${err instanceof Error ? err.message : String(err)}`);
     }
   }, [tracks, pickerType, playhead, addItem, projectRoot]);
 
@@ -135,28 +135,28 @@ export function MultiTrackControls({ episodeId, projectId, projectRoot }: MultiT
           className="h-6 text-xs"
         >
           <Download className="size-3.5" />
-          {importing ? "Importing..." : "Import Shots"}
+          {importing ? "导入中..." : "导入镜头"}
         </Button>
 
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="outline" size="sm" className="h-6 text-xs">
               <Plus className="size-3.5" />
-              Add Media
+              添加媒体
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent>
             <DropdownMenuItem onClick={() => openPicker("video")}>
               <Video className="size-4" />
-              Add Video
+              添加视频
             </DropdownMenuItem>
             <DropdownMenuItem onClick={() => openPicker("audio")}>
               <Music className="size-4" />
-              Add Audio
+              添加音频
             </DropdownMenuItem>
             <DropdownMenuItem onClick={() => setTextDialogOpen(true)}>
               <Type className="size-4" />
-              Add Text
+              添加文本
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -193,7 +193,7 @@ export function MultiTrackControls({ episodeId, projectId, projectRoot }: MultiT
         </span>
 
         <div className="flex items-center gap-2 ml-auto">
-          <span className="text-muted-foreground">Zoom</span>
+          <span className="text-muted-foreground">缩放</span>
           <Slider
             className="w-28"
             min={0.1}

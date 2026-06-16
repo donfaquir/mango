@@ -23,10 +23,10 @@ const TRACK_HEIGHT = 64;
 const HEADER_WIDTH = 160;
 
 const ADD_TRACK_OPTIONS: { type: TrackType; label: string; icon: React.ElementType }[] = [
-  { type: "video", label: "Video", icon: Film },
-  { type: "audio", label: "Audio", icon: Music },
-  { type: "text", label: "Text", icon: Type },
-  { type: "overlay", label: "Overlay", icon: Layers },
+  { type: "video", label: "视频", icon: Film },
+  { type: "audio", label: "音频", icon: Music },
+  { type: "text", label: "文本", icon: Type },
+  { type: "overlay", label: "叠加层", icon: Layers },
 ];
 
 interface MultiTrackTimelineProps {
@@ -80,7 +80,7 @@ export function MultiTrackTimeline({ episodeId, projectRoot }: MultiTrackTimelin
     try {
       await removeTrack(trackId);
     } catch (err) {
-      toast.error(`Failed to delete track: ${err instanceof Error ? err.message : String(err)}`);
+      toast.error(`删除轨道失败：${err instanceof Error ? err.message : String(err)}`);
     }
   }, [removeTrack]);
 
@@ -88,7 +88,7 @@ export function MultiTrackTimeline({ episodeId, projectRoot }: MultiTrackTimelin
     try {
       await addTrack({ episode_id: episodeId, track_type: trackType, label: trackType });
     } catch (err) {
-      toast.error(`Failed to add track: ${err instanceof Error ? err.message : String(err)}`);
+      toast.error(`添加轨道失败：${err instanceof Error ? err.message : String(err)}`);
     }
   }, [episodeId, addTrack]);
 
@@ -118,7 +118,7 @@ export function MultiTrackTimeline({ episodeId, projectRoot }: MultiTrackTimelin
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" size="sm" className="h-6 text-xs gap-1 text-muted-foreground">
                 <Plus className="size-3" />
-                Add Track
+                添加轨道
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent>

@@ -18,10 +18,10 @@ import {
 } from "@/components/ui/select";
 
 const TEXT_TYPES = [
-  { value: "subtitle", label: "Subtitle" },
-  { value: "bubble", label: "Bubble" },
-  { value: "fancy", label: "Fancy" },
-  { value: "onomatopoeia", label: "Onomatopoeia" },
+  { value: "subtitle", label: "字幕" },
+  { value: "bubble", label: "对话气泡" },
+  { value: "fancy", label: "花字" },
+  { value: "onomatopoeia", label: "拟声词" },
 ] as const;
 
 export type TextType = (typeof TEXT_TYPES)[number]["value"];
@@ -49,11 +49,11 @@ export function AddTextDialog({ open, onOpenChange, onSubmit }: AddTextDialogPro
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Add Text</DialogTitle>
+          <DialogTitle>添加文本</DialogTitle>
         </DialogHeader>
         <div className="flex flex-col gap-4 py-2">
           <div className="space-y-2">
-            <Label>Type</Label>
+            <Label>类型</Label>
             <Select value={textType} onValueChange={(v) => setTextType(v as TextType)}>
               <SelectTrigger>
                 <SelectValue />
@@ -68,11 +68,11 @@ export function AddTextDialog({ open, onOpenChange, onSubmit }: AddTextDialogPro
             </Select>
           </div>
           <div className="space-y-2">
-            <Label>Content</Label>
+            <Label>内容</Label>
             <Textarea
               value={content}
               onChange={(e) => setContent(e.target.value)}
-              placeholder="Enter text content..."
+              placeholder="请输入文本内容..."
               rows={3}
               autoFocus
               onKeyDown={(e) => {
@@ -86,10 +86,10 @@ export function AddTextDialog({ open, onOpenChange, onSubmit }: AddTextDialogPro
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Cancel
+            取消
           </Button>
           <Button onClick={handleSubmit} disabled={!content.trim()}>
-            Add
+            添加
           </Button>
         </DialogFooter>
       </DialogContent>

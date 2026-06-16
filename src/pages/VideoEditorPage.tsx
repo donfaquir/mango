@@ -37,14 +37,14 @@ export default function VideoEditorPage() {
         <Button variant="ghost" size="icon" onClick={() => navigate(-1)}>
           <ArrowLeft className="h-4 w-4" />
         </Button>
-        <span className="text-sm font-medium">Timeline Editor</span>
+        <span className="text-sm font-medium">时间轴编辑器</span>
         <Button
           variant="outline"
           size="sm"
           className="ml-auto"
           onClick={() => setExportOpen(true)}
         >
-          Export
+          导出
         </Button>
       </header>
       <MultiTrackEditor episodeId={episodeId} projectId={projectId} projectRoot={absProjectRoot ?? projectRoot} />

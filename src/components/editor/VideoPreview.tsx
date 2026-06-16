@@ -85,7 +85,7 @@ export function VideoPreview({ projectRoot, className }: VideoPreviewProps) {
         </>
       ) : (
         <span className="text-sm text-muted-foreground">
-          No clip at playhead
+          播放头处无片段
         </span>
       )}
     </div>

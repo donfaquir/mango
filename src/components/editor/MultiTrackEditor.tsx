@@ -20,7 +20,7 @@ export function MultiTrackEditor({ episodeId, projectId, projectRoot, className 
 
   useEffect(() => {
     init(episodeId).catch((e) => {
-      toast.error(`Timeline load failed: ${e instanceof Error ? e.message : String(e)}`);
+      toast.error(`时间轴加载失败：${e instanceof Error ? e.message : String(e)}`);
     });
     return () => {
       reset();
