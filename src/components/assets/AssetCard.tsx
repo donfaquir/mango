@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Film, Image, Sparkles, Import, Trash2, Eye } from "lucide-react";
+import { Film, Image, Music, Sparkles, Import, Trash2, Eye } from "lucide-react";
 import type { Asset } from "@/lib/bindings/commands";
 import { useResolvedAssetUrl } from "@/hooks/useResolvedAssetUrl";
 import { cn } from "@/lib/utils";
@@ -12,19 +12,20 @@ interface AssetCardProps {
 }
 
 // Badge for asset type
+const TYPE_CONFIG: Record<Asset["asset_type"], { icon: typeof Film; label: string; className: string }> = {
+  video: { icon: Film, label: "视频", className: "bg-purple-500/80 text-white" },
+  image: { icon: Image, label: "图片", className: "bg-blue-500/80 text-white" },
+  audio: { icon: Music, label: "音频", className: "bg-emerald-500/80 text-white" },
+  script: { icon: Image, label: "脚本", className: "bg-gray-500/80 text-white" },
+};
+
 function TypeBadge({ type }: { type: Asset["asset_type"] }) {
-  const isVideo = type === "video";
+  const cfg = TYPE_CONFIG[type] ?? TYPE_CONFIG.image;
+  const Icon = cfg.icon;
   return (
-    <span
-      className={cn(
-        "inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-medium",
-        isVideo
-          ? "bg-purple-500/80 text-white"
-          : "bg-blue-500/80 text-white",
-      )}
-    >
-      {isVideo ? <Film className="h-3 w-3" /> : <Image className="h-3 w-3" />}
-      {isVideo ? "视频" : "图片"}
+    <span className={cn("inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-medium", cfg.className)}>
+      <Icon className="h-3 w-3" />
+      {cfg.label}
     </span>
   );
 }
@@ -61,7 +62,21 @@ export function AssetCard({ asset, projectRoot, onPreview, onDelete }: AssetCard
     >
       {/* Thumbnail area */}
       <div className="relative aspect-square overflow-hidden bg-muted">
-        {resolvedUrl && !imgError ? (
+        {asset.asset_type === "audio" ? (
+          <div className="flex h-full w-full items-center justify-center px-3">
+            {resolvedUrl ? (
+              <audio
+                src={resolvedUrl}
+                controls
+                preload="metadata"
+                className="w-full"
+                onClick={(e) => e.stopPropagation()}
+              />
+            ) : (
+              <Music className="h-8 w-8 text-muted-foreground/50" />
+            )}
+          </div>
+        ) : resolvedUrl && !imgError ? (
           asset.asset_type === "video" ? (
             <video
               src={resolvedUrl}
@@ -81,11 +96,10 @@ export function AssetCard({ asset, projectRoot, onPreview, onDelete }: AssetCard
           )
         ) : (
           <div className="flex h-full w-full items-center justify-center">
-            {asset.asset_type === "video" ? (
-              <Film className="h-8 w-8 text-muted-foreground/50" />
-            ) : (
-              <Image className="h-8 w-8 text-muted-foreground/50" />
-            )}
+            {(() => {
+              const Icon = TYPE_CONFIG[asset.asset_type]?.icon ?? Image;
+              return <Icon className="h-8 w-8 text-muted-foreground/50" />;
+            })()}
           </div>
         )}
 

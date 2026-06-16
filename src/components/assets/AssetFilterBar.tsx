@@ -92,6 +92,7 @@ export function AssetFilterBar({ value, labels, onChange }: AssetFilterBarProps)
           <SelectItem value="all">全部类型</SelectItem>
           <SelectItem value="image">图片</SelectItem>
           <SelectItem value="video">视频</SelectItem>
+          <SelectItem value="audio">音频</SelectItem>
         </SelectContent>
       </Select>
 

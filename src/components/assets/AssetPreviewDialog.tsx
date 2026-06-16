@@ -166,6 +166,10 @@ export function AssetPreviewDialog({
                 controls
                 className="max-h-[400px] w-full object-contain"
               />
+            ) : asset.asset_type === "audio" ? (
+              <div className="flex w-full flex-col items-center justify-center gap-4 py-8">
+                <audio src={resolvedUrl} controls autoPlay className="w-full max-w-md" />
+              </div>
             ) : (
               <img
                 src={resolvedUrl}
