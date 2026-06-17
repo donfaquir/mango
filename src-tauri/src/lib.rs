@@ -114,6 +114,8 @@ fn make_builder() -> Builder<tauri::Wry> {
             commands::timeline::move_timeline_item,
             commands::timeline::reorder_timeline_tracks,
             commands::timeline::update_timeline_item,
+            commands::timeline::update_track_locked,
+            commands::timeline::update_track_muted,
             commands::task::cancel_task,
             commands::task::get_task,
             commands::task::get_task_max_concurrency,

@@ -38,6 +38,11 @@ export interface MultiTrackState {
   removeItem: (id: string) => Promise<void>;
   importFromShots: (episodeId: string) => Promise<void>;
 
+  splitItem: (id: string, atMs: number) => Promise<void>;
+  duplicateItem: (id: string) => Promise<void>;
+  toggleMuted: (trackId: string) => Promise<void>;
+  toggleLocked: (trackId: string) => Promise<void>;
+
   selectItem: (id: string, multi?: boolean) => void;
   deselectAll: () => void;
 
@@ -202,6 +207,81 @@ export const useMultiTrackStore = create<MultiTrackState>()(
           t.clear();
           set({ importing: false });
         }
+      },
+
+      splitItem: async (id: string, atMs: number) => {
+        const item = useMultiTrackStore.getState().items[id];
+        if (!item) return;
+        const start = item.position_ms;
+        const end = start + item.duration_ms;
+        if (atMs <= start || atMs >= end) return;
+
+        const splitSourceMs = item.in_point_ms + (atMs - start);
+        const updated = await unwrap(commands.updateTimelineItem(id, {
+          position_ms: null,
+          duration_ms: atMs - start,
+          in_point_ms: null,
+          out_point_ms: splitSourceMs,
+          params_json: null,
+        }));
+        const created = await unwrap(commands.createTimelineItem({
+          track_id: item.track_id,
+          item_type: item.item_type,
+          position_ms: atMs,
+          duration_ms: end - atMs,
+          in_point_ms: splitSourceMs,
+          out_point_ms: item.out_point_ms,
+          asset_id: item.asset_id ?? null,
+          params_json: item.params_json,
+        }));
+        set((s) => {
+          const next = { ...s.items, [updated.id]: updated, [created.id]: created };
+          return { items: next, totalDuration: computeTotalDuration(next), proxyState: "stale" as ProxyState };
+        });
+      },
+
+      duplicateItem: async (id: string) => {
+        const item = useMultiTrackStore.getState().items[id];
+        if (!item) return;
+        const created = await unwrap(commands.createTimelineItem({
+          track_id: item.track_id,
+          item_type: item.item_type,
+          position_ms: item.position_ms + item.duration_ms,
+          duration_ms: item.duration_ms,
+          in_point_ms: item.in_point_ms,
+          out_point_ms: item.out_point_ms,
+          asset_id: item.asset_id ?? null,
+          params_json: item.params_json,
+        }));
+        set((s) => {
+          const next = { ...s.items, [created.id]: created };
+          return {
+            items: next,
+            selection: new Set([created.id]),
+            totalDuration: computeTotalDuration(next),
+            proxyState: "stale" as ProxyState,
+          };
+        });
+      },
+
+      toggleMuted: async (trackId: string) => {
+        const track = useMultiTrackStore.getState().tracks.find((t) => t.id === trackId);
+        if (!track) return;
+        const newMuted = !track.muted;
+        await unwrap(commands.updateTrackMuted(trackId, newMuted));
+        set((s) => ({
+          tracks: s.tracks.map((t) => (t.id === trackId ? { ...t, muted: newMuted } : t)),
+        }));
+      },
+
+      toggleLocked: async (trackId: string) => {
+        const track = useMultiTrackStore.getState().tracks.find((t) => t.id === trackId);
+        if (!track) return;
+        const newLocked = !track.locked;
+        await unwrap(commands.updateTrackLocked(trackId, newLocked));
+        set((s) => ({
+          tracks: s.tracks.map((t) => (t.id === trackId ? { ...t, locked: newLocked } : t)),
+        }));
       },
 
       selectItem: (id: string, multi = false) => {

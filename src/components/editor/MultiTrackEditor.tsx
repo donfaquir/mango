@@ -33,9 +33,54 @@ export function MultiTrackEditor({ episodeId, projectId, projectRoot, className 
     const handler = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement).tagName;
       if (tag === "INPUT" || tag === "TEXTAREA") return;
+
+      const store = useMultiTrackStore.getState();
+      const mod = e.metaKey || e.ctrlKey;
+
       if (e.code === "Space") {
         e.preventDefault();
-        useMultiTrackStore.getState().togglePlay();
+        store.togglePlay();
+        return;
+      }
+
+      if (e.code === "Delete" || e.code === "Backspace") {
+        if (store.selection.size === 0) return;
+        e.preventDefault();
+        const lockedTrackIds = new Set(store.tracks.filter((t) => t.locked).map((t) => t.id));
+        for (const id of store.selection) {
+          const item = store.items[id];
+          if (item && !lockedTrackIds.has(item.track_id)) {
+            store.removeItem(id);
+          }
+        }
+        return;
+      }
+
+      if (e.code === "KeyS" && !mod) {
+        if (store.selection.size === 0) return;
+        e.preventDefault();
+        for (const id of store.selection) {
+          store.splitItem(id, store.playhead);
+        }
+        return;
+      }
+
+      if (e.code === "KeyD" && mod && !e.shiftKey) {
+        e.preventDefault();
+        const first = store.selection.values().next().value;
+        if (first) store.duplicateItem(first);
+        return;
+      }
+
+      if (e.code === "KeyZ" && mod) {
+        e.preventDefault();
+        const temporal = useMultiTrackStore.temporal.getState();
+        if (e.shiftKey) {
+          temporal.redo();
+        } else {
+          temporal.undo();
+        }
+        return;
       }
     };
     document.addEventListener("keydown", handler);

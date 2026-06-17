@@ -150,3 +150,23 @@ pub async fn import_audio_from_shots(
 
     Ok(items)
 }
+
+#[tauri::command]
+#[specta::specta]
+pub async fn update_track_muted(
+    state: State<'_, AppState>,
+    id: String,
+    muted: bool,
+) -> Result<(), IpcError> {
+    with_db(&state, move |conn| timeline_track::update_muted(conn, &id, muted)).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn update_track_locked(
+    state: State<'_, AppState>,
+    id: String,
+    locked: bool,
+) -> Result<(), IpcError> {
+    with_db(&state, move |conn| timeline_track::update_locked(conn, &id, locked)).await
+}

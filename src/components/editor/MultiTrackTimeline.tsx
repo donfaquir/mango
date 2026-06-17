@@ -15,8 +15,6 @@ import { TimeScale } from "./TimeScale";
 import { PlaybackHead } from "./PlaybackHead";
 import { TrackHeader } from "./TrackHeader";
 import { TimelineItemBlock } from "./TimelineItemBlock";
-import { commands } from "@/lib/bindings/commands";
-import { unwrap } from "@/lib/ipc";
 import type { TrackType } from "@/lib/bindings/commands";
 
 const TRACK_HEIGHT = 64;
@@ -35,8 +33,10 @@ interface MultiTrackTimelineProps {
 }
 
 export function MultiTrackTimeline({ episodeId, projectRoot }: MultiTrackTimelineProps) {
-  const { tracks, items, playhead, zoom, totalDuration, setPlayhead, setZoom, addTrack, removeTrack } =
-    useMultiTrackStore();
+  const {
+    tracks, items, playhead, zoom, totalDuration, setPlayhead, setZoom,
+    addTrack, removeTrack, toggleMuted, toggleLocked,
+  } = useMultiTrackStore();
   const scrollRef = useRef<HTMLDivElement>(null);
   const duration = Math.max(totalDuration, 10_000);
   const timelineWidth = msToPixel(duration, zoom);
@@ -62,18 +62,15 @@ export function MultiTrackTimeline({ episodeId, projectRoot }: MultiTrackTimelin
     [zoom, setZoom],
   );
 
-  const handleToggleMute = useCallback(async (trackId: string, muted: boolean) => {
-    await unwrap(commands.reorderTimelineTracks([]));
-    useMultiTrackStore.setState((s) => ({
-      tracks: s.tracks.map((t) => (t.id === trackId ? { ...t, muted: !muted } : t)),
-    }));
-  }, []);
+  const handleToggleMute = useCallback(
+    (trackId: string) => { toggleMuted(trackId); },
+    [toggleMuted],
+  );
 
-  const handleToggleLock = useCallback(async (trackId: string, locked: boolean) => {
-    useMultiTrackStore.setState((s) => ({
-      tracks: s.tracks.map((t) => (t.id === trackId ? { ...t, locked: !locked } : t)),
-    }));
-  }, []);
+  const handleToggleLock = useCallback(
+    (trackId: string) => { toggleLocked(trackId); },
+    [toggleLocked],
+  );
 
   const handleDeleteTrack = useCallback(async (trackId: string, label: string) => {
     if (!window.confirm(`Delete track "${label}"? All items on this track will be removed.`)) return;
@@ -108,8 +105,8 @@ export function MultiTrackTimeline({ episodeId, projectRoot }: MultiTrackTimelin
           <TrackHeader
             key={track.id}
             track={track}
-            onToggleMute={() => handleToggleMute(track.id, track.muted)}
-            onToggleLock={() => handleToggleLock(track.id, track.locked)}
+            onToggleMute={() => handleToggleMute(track.id)}
+            onToggleLock={() => handleToggleLock(track.id)}
             onDelete={() => handleDeleteTrack(track.id, track.label)}
           />
         ))}
@@ -143,7 +140,7 @@ export function MultiTrackTimeline({ episodeId, projectRoot }: MultiTrackTimelin
           <TimeScale duration={duration} zoom={zoom} />
 
           <div onClick={handleTimelineClick}>
-            {tracks.map((track) => (
+            {tracks.map((track, trackIdx) => (
               <div
                 key={track.id}
                 className={cn(
@@ -160,6 +157,8 @@ export function MultiTrackTimeline({ episodeId, projectRoot }: MultiTrackTimelin
                     trackLocked={track.locked}
                     trackType={track.track_type}
                     projectRoot={projectRoot}
+                    tracks={tracks}
+                    trackIndex={trackIdx}
                   />
                 ))}
               </div>

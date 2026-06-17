@@ -1,6 +1,6 @@
 import { useState, useCallback } from "react";
 import { join } from "@tauri-apps/api/path";
-import { Download, Plus, Video, Music, Type, Play, Pause, SkipBack, SkipForward } from "lucide-react";
+import { Download, Plus, Video, Music, Type, Play, Pause, SkipBack, SkipForward, Undo2, Redo2 } from "lucide-react";
 import { toast } from "sonner";
 import { Slider } from "@/components/ui/slider";
 import { Button } from "@/components/ui/button";
@@ -162,6 +162,25 @@ export function MultiTrackControls({ episodeId, projectId, projectRoot }: MultiT
         </DropdownMenu>
 
         <div className="flex items-center gap-0.5 ml-2">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-6 w-6"
+            disabled={useMultiTrackStore.temporal.getState().pastStates.length === 0}
+            onClick={() => useMultiTrackStore.temporal.getState().undo()}
+          >
+            <Undo2 className="size-3.5" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-6 w-6"
+            disabled={useMultiTrackStore.temporal.getState().futureStates.length === 0}
+            onClick={() => useMultiTrackStore.temporal.getState().redo()}
+          >
+            <Redo2 className="size-3.5" />
+          </Button>
+
           <Button
             variant="ghost"
             size="icon"
