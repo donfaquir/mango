@@ -196,6 +196,7 @@ export const commands = {
 	importAudioFromShots: (episodeId: string) => typedError<TimelineItem[], IpcError_Serialize>(__TAURI_INVOKE("import_audio_from_shots", { episodeId })),
 	importVideoFromClips: (episodeId: string) => typedError<TimelineItem[], IpcError_Serialize>(__TAURI_INVOKE("import_video_from_clips", { episodeId })),
 	listKenBurnsPresets: () => typedError<KenBurnsPresetInfo[], IpcError_Serialize>(__TAURI_INVOKE("list_ken_burns_presets")),
+	listTransitionPresets: () => typedError<TransitionPresetInfo[], IpcError_Serialize>(__TAURI_INVOKE("list_transition_presets")),
 	listKeyframes: (itemId: string) => typedError<TimelineKeyframe[], IpcError_Serialize>(__TAURI_INVOKE("list_keyframes", { itemId })),
 	listTimelineItems: (trackId: string) => typedError<TimelineItem[], IpcError_Serialize>(__TAURI_INVOKE("list_timeline_items", { trackId })),
 	listTimelineTracks: (episodeId: string) => typedError<TimelineTrack[], IpcError_Serialize>(__TAURI_INVOKE("list_timeline_tracks", { episodeId })),
@@ -1093,6 +1094,12 @@ export type TimelineTrack = {
 };
 
 export type TrackType = "video" | "audio" | "text" | "overlay";
+
+export type TransitionPresetInfo = {
+	id: string,
+	label: string,
+	xfade_name: string,
+};
 
 export type TrimMode = "Copy" | "Reencode";
 

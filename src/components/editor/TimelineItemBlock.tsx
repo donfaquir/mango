@@ -56,7 +56,7 @@ export function TimelineItemBlock({
     : ITEM_COLORS[item.item_type] ?? "bg-gray-500/70 border-gray-600";
 
   return (
-    <ItemContextMenu itemId={item.id} trackLocked={trackLocked}>
+    <ItemContextMenu itemId={item.id} itemType={item.item_type} trackType={trackType} trackLocked={trackLocked}>
       <div
         className={cn(
           "absolute top-1 bottom-1 rounded-sm border cursor-grab active:cursor-grabbing",

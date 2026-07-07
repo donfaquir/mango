@@ -112,6 +112,7 @@ fn make_builder() -> Builder<tauri::Wry> {
             commands::timeline::import_audio_from_shots,
             commands::timeline::import_video_from_clips,
             commands::timeline::list_ken_burns_presets,
+            commands::timeline::list_transition_presets,
             commands::timeline::list_keyframes,
             commands::timeline::list_timeline_items,
             commands::timeline::list_timeline_tracks,

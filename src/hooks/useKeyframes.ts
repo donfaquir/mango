@@ -17,3 +17,11 @@ export function useKenBurnsPresets() {
     staleTime: Infinity,
   });
 }
+
+export function useTransitionPresets() {
+  return useQuery({
+    queryKey: ["transitionPresets"],
+    queryFn: () => unwrap(commands.listTransitionPresets()),
+    staleTime: Infinity,
+  });
+}

@@ -15,6 +15,13 @@ pub struct KenBurnsPresetInfo {
     pub description: String,
 }
 
+#[derive(Debug, Clone, Serialize, Type)]
+pub struct TransitionPresetInfo {
+    pub id: String,
+    pub label: String,
+    pub xfade_name: String,
+}
+
 #[tauri::command]
 #[specta::specta]
 pub async fn list_timeline_tracks(
@@ -217,6 +224,20 @@ pub async fn list_ken_burns_presets() -> Result<Vec<KenBurnsPresetInfo>, IpcErro
             id: p.id.to_string(),
             label: p.label.to_string(),
             description: p.description.to_string(),
+        })
+        .collect();
+    Ok(presets)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn list_transition_presets() -> Result<Vec<TransitionPresetInfo>, IpcError> {
+    let presets = mango_core::transitions::list_presets()
+        .iter()
+        .map(|p| TransitionPresetInfo {
+            id: p.id.to_string(),
+            label: p.label.to_string(),
+            xfade_name: p.xfade_name.to_string(),
         })
         .collect();
     Ok(presets)

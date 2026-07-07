@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useMemo } from "react";
 import { join } from "@tauri-apps/api/path";
 import { Download, Plus, Video, Music, Type, Play, Pause, SkipBack, SkipForward, Undo2, Redo2 } from "lucide-react";
 import { toast } from "sonner";
@@ -31,14 +31,21 @@ interface MultiTrackControlsProps {
 
 export function MultiTrackControls({ episodeId, projectId, projectRoot }: MultiTrackControlsProps) {
   const {
-    playhead, zoom, setZoom, totalDuration, importing, items, tracks,
-    addItem, addTrack, importFromShots, isPlaying, togglePlay, pause, setPlayhead,
+    playhead, zoom, setZoom, totalDuration, importing, items, tracks, selection,
+    addItem, addTrack, updateItem, importFromShots, isPlaying, togglePlay, pause, setPlayhead,
   } = useMultiTrackStore();
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerType, setPickerType] = useState<"video" | "audio">("video");
   const [textDialogOpen, setTextDialogOpen] = useState(false);
 
   const itemCount = Object.keys(items).length;
+
+  const selectedTransition = useMemo(() => {
+    if (selection.size !== 1) return null;
+    const id = [...selection][0];
+    const item = items[id];
+    return item?.item_type === "transition" ? item : null;
+  }, [selection, items]);
 
   const handleImportFromShots = useCallback(async () => {
     if (itemCount > 0) {
@@ -210,6 +217,31 @@ export function MultiTrackControls({ episodeId, projectId, projectRoot }: MultiT
         <span className="font-mono text-muted-foreground ml-1">
           {formatTime(playhead)} / {formatTime(totalDuration)}
         </span>
+
+        {selectedTransition && (
+          <div className="flex items-center gap-2 ml-2 border-l pl-2 border-border">
+            <span className="text-muted-foreground">转场时长</span>
+            <Slider
+              className="w-24"
+              min={100}
+              max={2000}
+              step={50}
+              value={[selectedTransition.duration_ms]}
+              onValueChange={([v]) => {
+                const params = JSON.parse(selectedTransition.params_json);
+                params.duration_ms = v;
+                updateItem(selectedTransition.id, {
+                  position_ms: null,
+                  duration_ms: v,
+                  in_point_ms: null,
+                  out_point_ms: v,
+                  params_json: JSON.stringify(params),
+                });
+              }}
+            />
+            <span className="font-mono w-12 text-right">{selectedTransition.duration_ms}ms</span>
+          </div>
+        )}
 
         <div className="flex items-center gap-2 ml-auto">
           <span className="text-muted-foreground">缩放</span>

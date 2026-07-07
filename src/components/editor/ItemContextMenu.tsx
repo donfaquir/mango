@@ -1,22 +1,30 @@
 import { type ReactNode } from "react";
-import { Trash2, Scissors, Copy } from "lucide-react";
+import { Trash2, Scissors, Copy, ArrowRightLeft } from "lucide-react";
 import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuItem,
   ContextMenuShortcut,
+  ContextMenuSub,
+  ContextMenuSubContent,
+  ContextMenuSubTrigger,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import { useMultiTrackStore } from "@/stores/multiTrackStore";
+import { useTransitionPresets } from "@/hooks/useKeyframes";
 
 interface ItemContextMenuProps {
   itemId: string;
+  itemType: string;
+  trackType: string;
   trackLocked: boolean;
   children: ReactNode;
 }
 
-export function ItemContextMenu({ itemId, trackLocked, children }: ItemContextMenuProps) {
-  const { removeItem, splitItem, duplicateItem, playhead } = useMultiTrackStore();
+export function ItemContextMenu({ itemId, itemType, trackType, trackLocked, children }: ItemContextMenuProps) {
+  const { removeItem, splitItem, duplicateItem, addTransition, playhead } = useMultiTrackStore();
+  const { data: presets } = useTransitionPresets();
+  const showTransition = itemType === "clip" && trackType === "video";
 
   return (
     <ContextMenu>
@@ -27,7 +35,7 @@ export function ItemContextMenu({ itemId, trackLocked, children }: ItemContextMe
           onClick={() => removeItem(itemId)}
         >
           <Trash2 className="size-4" />
-          Delete
+          删除
           <ContextMenuShortcut>Del</ContextMenuShortcut>
         </ContextMenuItem>
         <ContextMenuItem
@@ -35,7 +43,7 @@ export function ItemContextMenu({ itemId, trackLocked, children }: ItemContextMe
           onClick={() => splitItem(itemId, playhead)}
         >
           <Scissors className="size-4" />
-          Split
+          分割
           <ContextMenuShortcut>S</ContextMenuShortcut>
         </ContextMenuItem>
         <ContextMenuItem
@@ -43,9 +51,27 @@ export function ItemContextMenu({ itemId, trackLocked, children }: ItemContextMe
           onClick={() => duplicateItem(itemId)}
         >
           <Copy className="size-4" />
-          Duplicate
+          复制
           <ContextMenuShortcut>⌘D</ContextMenuShortcut>
         </ContextMenuItem>
+        {showTransition && presets && (
+          <ContextMenuSub>
+            <ContextMenuSubTrigger disabled={trackLocked}>
+              <ArrowRightLeft className="size-4" />
+              添加转场
+            </ContextMenuSubTrigger>
+            <ContextMenuSubContent className="w-36">
+              {presets.map((p) => (
+                <ContextMenuItem
+                  key={p.id}
+                  onClick={() => addTransition(itemId, p.id, 500)}
+                >
+                  {p.label}
+                </ContextMenuItem>
+              ))}
+            </ContextMenuSubContent>
+          </ContextMenuSub>
+        )}
       </ContextMenuContent>
     </ContextMenu>
   );

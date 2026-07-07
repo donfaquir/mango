@@ -38,6 +38,7 @@ export interface MultiTrackState {
   removeItem: (id: string) => Promise<void>;
   importFromShots: (episodeId: string) => Promise<void>;
 
+  addTransition: (afterClipId: string, transitionType: string, durationMs: number) => Promise<void>;
   splitItem: (id: string, atMs: number) => Promise<void>;
   duplicateItem: (id: string) => Promise<void>;
   toggleMuted: (trackId: string) => Promise<void>;
@@ -207,6 +208,48 @@ export const useMultiTrackStore = create<MultiTrackState>()(
           t.clear();
           set({ importing: false });
         }
+      },
+
+      addTransition: async (afterClipId: string, transitionType: string, durationMs: number) => {
+        const state = useMultiTrackStore.getState();
+        const afterClip = state.items[afterClipId];
+        if (!afterClip || afterClip.item_type !== "clip") return;
+
+        const sameTrackClips = Object.values(state.items)
+          .filter((i) => i.track_id === afterClip.track_id && i.item_type === "clip")
+          .sort((a, b) => a.position_ms - b.position_ms);
+        const idx = sameTrackClips.findIndex((c) => c.id === afterClipId);
+        if (idx < 0 || idx >= sameTrackClips.length - 1) return;
+
+        const overlayTrack = state.tracks.find((t) => t.track_type === "overlay");
+        if (!overlayTrack) return;
+
+        const positionMs = afterClip.position_ms + afterClip.duration_ms;
+        const paramsJson = JSON.stringify({
+          type: "Transition",
+          transition_type: transitionType,
+          duration_ms: durationMs,
+        });
+
+        const item = await unwrap(commands.createTimelineItem({
+          track_id: overlayTrack.id,
+          item_type: "transition",
+          position_ms: positionMs,
+          duration_ms: durationMs,
+          in_point_ms: 0,
+          out_point_ms: durationMs,
+          asset_id: null,
+          params_json: paramsJson,
+        }));
+        set((s) => {
+          const next = { ...s.items, [item.id]: item };
+          return {
+            items: next,
+            selection: new Set([item.id]),
+            totalDuration: computeTotalDuration(next),
+            proxyState: "stale" as ProxyState,
+          };
+        });
       },
 
       splitItem: async (id: string, atMs: number) => {
