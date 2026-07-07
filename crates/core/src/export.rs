@@ -323,6 +323,9 @@ pub fn resolve_timeline(
     use crate::db::queries::{timeline_item, timeline_track};
     use crate::ffmpeg::render::*;
     use crate::models::timeline::TrackType;
+    use crate::models::timeline_params::{
+        default_text_style, BubbleStyle, TextStyle, TextType,
+    };
 
     let project_root = resolve_project_root(conn, episode_id, workspace_root)?;
     let tracks = timeline_track::list_by_episode(conn, episode_id)?;
@@ -419,15 +422,84 @@ pub fn resolve_timeline(
         .map(|i| {
             has_effects = true;
             let v = serde_json::from_str::<serde_json::Value>(&i.params_json).unwrap_or_default();
+            let content = v["content"].as_str().unwrap_or("").to_string();
+            let text_type = match v["text_type"].as_str().unwrap_or("subtitle") {
+                "bubble" => TextType::Bubble,
+                "fancy" => TextType::Fancy,
+                "onomatopoeia" => TextType::Onomatopoeia,
+                _ => TextType::Subtitle,
+            };
+            let defaults = default_text_style(&text_type);
+            let style: TextStyle = v
+                .get("style")
+                .and_then(|s| serde_json::from_value(s.clone()).ok())
+                .unwrap_or_default();
+
+            let font_size = style.font_size.or(defaults.font_size).unwrap_or(48);
+            let color = style
+                .color
+                .as_deref()
+                .or(defaults.color.as_deref())
+                .unwrap_or("white")
+                .to_string();
+            let pos_x = style.position_x.or(defaults.position_x);
+            let pos_y = style.position_y.or(defaults.position_y);
+            let alignment = style
+                .alignment
+                .as_deref()
+                .or(defaults.alignment.as_deref())
+                .unwrap_or("center");
+
+            let x_expr = match (pos_x, alignment) {
+                (Some(px), "left") => format!("{px}*w"),
+                (Some(px), "right") => format!("{px}*w-text_w"),
+                (Some(px), _) => format!("{px}*w-text_w/2"),
+                (None, _) => "(w-text_w)/2".to_string(),
+            };
+            let y_expr = pos_y
+                .map(|py| format!("{py}*h"))
+                .unwrap_or_else(|| "h-80".to_string());
+
+            let borderw = style.outline_width.or(defaults.outline_width);
+            let bordercolor = style
+                .outline_color
+                .clone()
+                .or(defaults.outline_color.clone());
+            let (shadowx, shadowy, shadowcolor) = if style.shadow.unwrap_or(false) {
+                (Some(2), Some(2), Some("black@0.6".to_string()))
+            } else {
+                (None, None, None)
+            };
+
+            let bubble: Option<BubbleStyle> = v
+                .get("bubble")
+                .and_then(|b| serde_json::from_value(b.clone()).ok());
+            let (boxcolor, boxborderw) = if matches!(text_type, TextType::Bubble) {
+                let fill = bubble
+                    .as_ref()
+                    .and_then(|b| b.fill_color.as_deref())
+                    .unwrap_or("white@0.9");
+                (Some(fill.to_string()), Some(10u32))
+            } else {
+                (None, None)
+            };
+
             ResolvedTextOverlay {
-                text: v["content"].as_str().unwrap_or("").to_string(),
-                fontfile: None,
-                fontsize: v["fontsize"].as_u64().unwrap_or(48) as u32,
-                fontcolor: v["fontcolor"].as_str().unwrap_or("white").to_string(),
-                x: v["x"].as_str().unwrap_or("(w-text_w)/2").to_string(),
-                y: v["y"].as_str().unwrap_or("h-80").to_string(),
+                text: content,
+                fontfile: style.font_family.clone(),
+                fontsize: font_size,
+                fontcolor: color,
+                x: x_expr,
+                y: y_expr,
                 start_ms: i.position_ms,
                 end_ms: i.position_ms + i.duration_ms,
+                borderw,
+                bordercolor,
+                shadowx,
+                shadowy,
+                shadowcolor,
+                boxcolor,
+                boxborderw,
             }
         })
         .collect();

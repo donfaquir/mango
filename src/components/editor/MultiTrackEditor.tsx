@@ -6,6 +6,7 @@ import { VideoPreview } from "./VideoPreview";
 import { MultiTrackTimeline } from "./MultiTrackTimeline";
 import { MultiTrackControls } from "./MultiTrackControls";
 import { KenBurnsSelector } from "./KenBurnsSelector";
+import { TextEditorPanel } from "./TextEditorPanel";
 import { cn } from "@/lib/utils";
 
 interface MultiTrackEditorProps {
@@ -41,6 +42,13 @@ export function MultiTrackEditor({ episodeId, projectId, projectRoot, className 
       return item && item.item_type === "clip" && videoTrackIds.has(item.track_id);
     });
   }, [selection, items, tracks]);
+
+  const selectedTextItemId = useMemo(() => {
+    if (selection.size !== 1) return null;
+    const id = [...selection][0];
+    const item = items[id];
+    return item?.item_type === "text" ? id : null;
+  }, [selection, items]);
 
   const currentPresetId = useMemo(() => {
     if (selectedClipIds.length !== 1) return null;
@@ -113,13 +121,16 @@ export function MultiTrackEditor({ episodeId, projectId, projectRoot, className 
   }, []);
 
   return (
-    <div className={cn("flex flex-col gap-0", className)}>
-      <VideoPreview projectRoot={projectRoot} className="h-80" />
-      <MultiTrackTimeline episodeId={episodeId} projectRoot={projectRoot} />
-      <MultiTrackControls episodeId={episodeId} projectId={projectId} projectRoot={projectRoot} />
-      {selectedClipIds.length > 0 && (
-        <KenBurnsSelector selectedClipIds={selectedClipIds} currentPresetId={currentPresetId} />
-      )}
+    <div className={cn("flex flex-row", className)}>
+      <div className="flex flex-col gap-0 flex-1 min-w-0">
+        <VideoPreview projectRoot={projectRoot} className="h-80" />
+        <MultiTrackTimeline episodeId={episodeId} projectRoot={projectRoot} />
+        <MultiTrackControls episodeId={episodeId} projectId={projectId} projectRoot={projectRoot} />
+        {selectedClipIds.length > 0 && (
+          <KenBurnsSelector selectedClipIds={selectedClipIds} currentPresetId={currentPresetId} />
+        )}
+      </div>
+      {selectedTextItemId && <TextEditorPanel itemId={selectedTextItemId} />}
     </div>
   );
 }

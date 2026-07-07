@@ -1,9 +1,21 @@
 import { useMemo } from "react";
 import { useMultiTrackStore } from "@/stores/multiTrackStore";
 
+export interface PlayheadTextStyle {
+  font_size?: number; font_weight?: string; color?: string;
+  outline_color?: string; outline_width?: number; shadow?: boolean;
+  position_x?: number; position_y?: number; alignment?: string;
+}
+
+export interface PlayheadBubbleStyle {
+  shape?: string; fill_color?: string; border_color?: string;
+}
+
 export interface PlayheadTextInfo {
   content: string;
   textType: string;
+  style?: PlayheadTextStyle;
+  bubble?: PlayheadBubbleStyle;
 }
 
 export function usePlayheadTextItems(): PlayheadTextInfo[] {
@@ -31,6 +43,10 @@ export function usePlayheadTextItems(): PlayheadTextInfo[] {
             result.push({
               content: typeof params.content === "string" ? params.content : "",
               textType: typeof params.text_type === "string" ? params.text_type : "subtitle",
+              style: typeof params.style === "object" && params.style !== null
+                ? params.style as PlayheadTextStyle : undefined,
+              bubble: typeof params.bubble === "object" && params.bubble !== null
+                ? params.bubble as PlayheadBubbleStyle : undefined,
             });
           } catch {
             // skip malformed params

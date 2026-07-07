@@ -16,6 +16,13 @@ import { useMultiTrackStore } from "@/stores/multiTrackStore";
 import { commands, type Asset } from "@/lib/bindings/commands";
 import { unwrap } from "@/lib/ipc";
 
+const DEFAULT_TEXT_STYLES: Record<TextType, Record<string, unknown>> = {
+  subtitle: { font_size: 36, color: "#FFFFFF", outline_color: "#000000", outline_width: 2, position_y: 0.9, alignment: "center" },
+  bubble: { font_size: 28, color: "#000000", position_x: 0.5, position_y: 0.5 },
+  fancy: { font_size: 72, font_weight: "bold", color: "#FFD700", outline_color: "#FF4500", outline_width: 3, position_y: 0.3, alignment: "center" },
+  onomatopoeia: { font_size: 96, font_weight: "bold", color: "#FF0000", outline_color: "#000000", outline_width: 4, position_x: 0.5, position_y: 0.4 },
+};
+
 function formatTime(ms: number): string {
   const min = Math.floor(ms / 60_000);
   const sec = Math.floor((ms % 60_000) / 1000);
@@ -81,7 +88,12 @@ export function MultiTrackControls({ episodeId, projectId, projectRoot }: MultiT
         duration_ms: 5000,
         in_point_ms: null,
         out_point_ms: 5000,
-        params_json: JSON.stringify({ content, text_type: textType }),
+        params_json: JSON.stringify({
+          content,
+          text_type: textType,
+          style: DEFAULT_TEXT_STYLES[textType],
+          ...(textType === "bubble" ? { bubble: { shape: "rect", fill_color: "#FFFFFF", border_color: "#000000" } } : {}),
+        }),
       });
       toast.success("文本已添加到时间轴");
     } catch (err) {

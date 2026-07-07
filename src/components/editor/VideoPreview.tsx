@@ -4,7 +4,7 @@ import { cn } from "@/lib/utils";
 import { useMultiTrackStore } from "@/stores/multiTrackStore";
 import { usePlayheadClip } from "@/hooks/usePlayheadClip";
 import { usePlayheadAudioClips, type PlayheadAudioClipInfo } from "@/hooks/usePlayheadAudioClips";
-import { usePlayheadTextItems } from "@/hooks/usePlayheadTextItems";
+import { usePlayheadTextItems, type PlayheadTextInfo } from "@/hooks/usePlayheadTextItems";
 import { useAsset } from "@/hooks/useAssets";
 import { useResolvedAssetUrl } from "@/hooks/useResolvedAssetUrl";
 
@@ -56,12 +56,33 @@ function AudioElement({ clip, projectRoot, isPlaying }: {
   return <audio ref={audioRef} className="hidden" />;
 }
 
-const TEXT_STYLES: Record<string, string> = {
-  subtitle: "absolute bottom-4 left-0 right-0 text-center text-white text-lg font-medium [text-shadow:_1px_1px_2px_#000,_-1px_-1px_2px_#000]",
-  bubble: "absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-white/90 text-black rounded-xl px-4 py-2 text-sm font-medium",
-  fancy: "absolute top-1/3 left-0 right-0 text-center text-amber-400 text-2xl font-bold [text-shadow:_2px_2px_4px_#000]",
-  onomatopoeia: "absolute top-1/3 left-0 right-0 text-center text-red-500 text-3xl font-black italic [text-shadow:_2px_2px_4px_#000]",
-};
+function textOverlayStyle(t: PlayheadTextInfo): React.CSSProperties {
+  const s = t.style;
+  const outline = s?.outline_color;
+  const shadow = outline
+    ? `1px 1px 0 ${outline}, -1px -1px 0 ${outline}, 1px -1px 0 ${outline}, -1px 1px 0 ${outline}`
+    : undefined;
+  const isBubble = t.textType === "bubble";
+  return {
+    position: "absolute",
+    left: s?.position_x != null ? `${s.position_x * 100}%` : (s?.alignment === "left" ? "0" : s?.alignment === "right" ? undefined : "0"),
+    right: s?.alignment === "right" ? "0" : (s?.position_x != null ? undefined : "0"),
+    top: s?.position_y != null ? `${s.position_y * 100}%` : undefined,
+    bottom: s?.position_y == null && t.textType === "subtitle" ? "1rem" : undefined,
+    transform: s?.position_x != null ? "translateX(-50%)" : undefined,
+    fontSize: s?.font_size ? `${Math.round(s.font_size * 0.4)}px` : undefined,
+    color: s?.color ?? "white",
+    fontWeight: s?.font_weight === "bold" ? "bold" : "normal",
+    textShadow: shadow,
+    textAlign: (s?.alignment as "left" | "center" | "right") ?? "center",
+    ...(isBubble ? {
+      backgroundColor: t.bubble?.fill_color ?? "rgba(255,255,255,0.9)",
+      borderRadius: "0.75rem",
+      padding: "0.5rem 1rem",
+      border: t.bubble?.border_color ? `2px solid ${t.bubble.border_color}` : undefined,
+    } : {}),
+  };
+}
 
 export function VideoPreview({ projectRoot, className }: VideoPreviewProps) {
   const clipInfo = usePlayheadClip(projectRoot);
@@ -129,7 +150,7 @@ export function VideoPreview({ projectRoot, className }: VideoPreviewProps) {
             onClick={handleClick}
           />
           {textItems.map((t, i) => (
-            <div key={i} className={TEXT_STYLES[t.textType] ?? TEXT_STYLES.subtitle}>
+            <div key={i} style={textOverlayStyle(t)}>
               {t.content}
             </div>
           ))}

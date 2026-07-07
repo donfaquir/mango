@@ -94,6 +94,13 @@ pub struct ResolvedTextOverlay {
     pub y: String,
     pub start_ms: i64,
     pub end_ms: i64,
+    pub borderw: Option<u32>,
+    pub bordercolor: Option<String>,
+    pub shadowx: Option<i32>,
+    pub shadowy: Option<i32>,
+    pub shadowcolor: Option<String>,
+    pub boxcolor: Option<String>,
+    pub boxborderw: Option<u32>,
 }
 
 #[derive(Debug)]
@@ -254,15 +261,24 @@ pub fn build_filter_graph(
         let start_s = text.start_ms as f64 / 1000.0;
         let end_s = text.end_ms as f64 / 1000.0;
         let enable = format!("between(t,{start_s},{end_s})");
-        graph.drawtext(
+        graph.drawtext_styled(
             &video_out,
-            &text.text,
-            text.fontfile.as_deref(),
-            text.fontsize,
-            &text.fontcolor,
-            &text.x,
-            &text.y,
-            Some(&enable),
+            &super::filter_graph::DrawTextParams {
+                text: &text.text,
+                fontfile: text.fontfile.as_deref(),
+                fontsize: text.fontsize,
+                fontcolor: &text.fontcolor,
+                x: &text.x,
+                y: &text.y,
+                borderw: text.borderw,
+                bordercolor: text.bordercolor.as_deref(),
+                shadowx: text.shadowx,
+                shadowy: text.shadowy,
+                shadowcolor: text.shadowcolor.as_deref(),
+                boxcolor: text.boxcolor.as_deref(),
+                boxborderw: text.boxborderw,
+                enable_expr: Some(&enable),
+            },
             &out,
         );
         video_out = out;
@@ -480,6 +496,13 @@ mod tests {
             y: "h-80".into(),
             start_ms: 1000,
             end_ms: 5000,
+            borderw: None,
+            bordercolor: None,
+            shadowx: None,
+            shadowy: None,
+            shadowcolor: None,
+            boxcolor: None,
+            boxborderw: None,
         });
         let config = RenderConfig {
             output_width: Some(1920),

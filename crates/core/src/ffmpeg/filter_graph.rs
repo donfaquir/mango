@@ -34,6 +34,24 @@ impl AmixDuration {
     }
 }
 
+#[derive(Debug)]
+pub struct DrawTextParams<'a> {
+    pub text: &'a str,
+    pub fontfile: Option<&'a str>,
+    pub fontsize: u32,
+    pub fontcolor: &'a str,
+    pub x: &'a str,
+    pub y: &'a str,
+    pub borderw: Option<u32>,
+    pub bordercolor: Option<&'a str>,
+    pub shadowx: Option<i32>,
+    pub shadowy: Option<i32>,
+    pub shadowcolor: Option<&'a str>,
+    pub boxcolor: Option<&'a str>,
+    pub boxborderw: Option<u32>,
+    pub enable_expr: Option<&'a str>,
+}
+
 fn escape_drawtext(text: &str) -> String {
     text.replace('\\', "\\\\")
         .replace(':', "\\:")
@@ -227,6 +245,53 @@ impl FilterGraph {
             let _ = write!(f, ":fontfile='{ff}'");
         }
         if let Some(expr) = enable_expr {
+            let _ = write!(f, ":enable='{expr}'");
+        }
+        self.nodes.push(FilterNode {
+            inputs: vec![input.to_string()],
+            filter: f,
+            outputs: vec![output.to_string()],
+        });
+        self
+    }
+
+    pub fn drawtext_styled(
+        &mut self,
+        input: &str,
+        params: &DrawTextParams<'_>,
+        output: &str,
+    ) -> &mut Self {
+        let escaped = escape_drawtext(params.text);
+        let mut f = format!(
+            "drawtext=text='{escaped}':fontsize={}:fontcolor={}:x={}:y={}",
+            params.fontsize, params.fontcolor, params.x, params.y,
+        );
+        if let Some(ff) = params.fontfile {
+            let _ = write!(f, ":fontfile='{ff}'");
+        }
+        if let Some(bw) = params.borderw {
+            let _ = write!(f, ":borderw={bw}");
+        }
+        if let Some(bc) = params.bordercolor {
+            let _ = write!(f, ":bordercolor={bc}");
+        }
+        if let Some(sx) = params.shadowx {
+            let _ = write!(f, ":shadowx={sx}");
+        }
+        if let Some(sy) = params.shadowy {
+            let _ = write!(f, ":shadowy={sy}");
+        }
+        if let Some(sc) = params.shadowcolor {
+            let _ = write!(f, ":shadowcolor={sc}");
+        }
+        if let Some(bc) = params.boxcolor {
+            let _ = write!(
+                f,
+                ":box=1:boxcolor={bc}:boxborderw={}",
+                params.boxborderw.unwrap_or(10)
+            );
+        }
+        if let Some(expr) = params.enable_expr {
             let _ = write!(f, ":enable='{expr}'");
         }
         self.nodes.push(FilterNode {
