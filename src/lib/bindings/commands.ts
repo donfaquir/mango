@@ -186,6 +186,8 @@ export const commands = {
 	unadoptShot: (shotId: string) => typedError<Shot, IpcError_Serialize>(__TAURI_INVOKE("unadopt_shot", { shotId })),
 	unlinkShotSubject: (shotId: string, subjectId: string, subjectKind: SubjectKind) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("unlink_shot_subject", { shotId, subjectId, subjectKind })),
 	updateShot: (id: string, input: UpdateShotInput_Deserialize) => typedError<Shot, IpcError_Serialize>(__TAURI_INVOKE("update_shot", { id, input })),
+	listAspectRatioPresets: () => typedError<AspectRatioPresetInfo[], IpcError_Serialize>(__TAURI_INVOKE("list_aspect_ratio_presets")),
+	listPlatformPresets: () => typedError<PlatformPresetInfo[], IpcError_Serialize>(__TAURI_INVOKE("list_platform_presets")),
 	createDefaultTracks: (episodeId: string) => typedError<TimelineTrack[], IpcError_Serialize>(__TAURI_INVOKE("create_default_tracks", { episodeId })),
 	createKeyframe: (input: CreateTimelineKeyframeInput) => typedError<TimelineKeyframe, IpcError_Serialize>(__TAURI_INVOKE("create_keyframe", { input })),
 	createTimelineItem: (input: CreateTimelineItemInput) => typedError<TimelineItem, IpcError_Serialize>(__TAURI_INVOKE("create_timeline_item", { input })),
@@ -342,6 +344,13 @@ export type ApiAccount_Serialize = {
 	usage_used: number,
 	last_used_at: string | null,
 	created_at: string,
+};
+
+export type AspectRatioPresetInfo = {
+	id: string,
+	label: string,
+	width: number,
+	height: number,
 };
 
 export type Asset = {
@@ -898,6 +907,16 @@ export type OssConfigPublic_Serialize = {
 	url_expires_seconds: number,
 };
 
+export type PlatformPresetInfo = {
+	id: string,
+	label: string,
+	width: number,
+	height: number,
+	codec: string,
+	preset: string,
+	crf: number,
+};
+
 export type Project = {
 	id: string,
 	name: string,
@@ -961,6 +980,7 @@ export type RenderConfig = {
 	output_width: number | null,
 	output_height: number | null,
 	output_fps: number | null,
+	fit_mode: string | null,
 };
 
 export type Scene = {

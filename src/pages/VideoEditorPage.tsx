@@ -8,6 +8,7 @@ import { ExportSettingsSheet } from "@/components/editor/ExportSettingsSheet";
 import { useProject } from "@/hooks/useProjects";
 import { useResolvedPath } from "@/hooks/useResolvedPath";
 import { useWorkspaceStatus } from "@/hooks/useWorkspace";
+import { useMultiTrackStore } from "@/stores/multiTrackStore";
 
 export default function VideoEditorPage() {
   const { projectId, episodeId } = useParams<{
@@ -27,6 +28,7 @@ export default function VideoEditorPage() {
   );
   const absProjectRoot = isAbsoluteRoot ? projectRoot : resolvedRoot;
   const defaultExportPath = useResolvedPath(projectRoot, `exports/${episodeId}_export.mp4`);
+  const totalDurationMs = useMultiTrackStore((s) => s.totalDuration);
 
   if (!projectId || !episodeId) return <Navigate to="/" replace />;
   if (isLoading) return <Skeleton className="h-96 w-full" />;
@@ -53,6 +55,7 @@ export default function VideoEditorPage() {
         onOpenChange={setExportOpen}
         episodeId={episodeId}
         defaultOutputPath={defaultExportPath ?? ""}
+        totalDurationMs={totalDurationMs}
       />
     </div>
   );

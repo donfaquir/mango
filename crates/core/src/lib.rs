@@ -1,5 +1,6 @@
 pub mod account;
 pub mod app_config;
+pub mod aspect_ratio;
 pub mod asset;
 pub mod color_presets;
 pub mod db;

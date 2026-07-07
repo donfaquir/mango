@@ -4,6 +4,8 @@ import { render, screen } from "@testing-library/react";
 vi.mock("@/lib/bindings/commands", () => ({
   commands: {
     exportVideoClips: vi.fn(),
+    listPlatformPresets: vi.fn(() => Promise.resolve({ status: "ok", data: [] })),
+    listAspectRatioPresets: vi.fn(() => Promise.resolve({ status: "ok", data: [] })),
   },
 }));
 
@@ -25,10 +27,11 @@ describe("ExportSettingsSheet", () => {
         onOpenChange={vi.fn()}
         episodeId="e1"
         defaultOutputPath="/tmp/output.mp4"
+        totalDurationMs={10000}
       />,
     );
 
-    expect(screen.getByText("导出视频")).toBeInTheDocument();
+    expect(screen.getByText("导出成片")).toBeInTheDocument();
     expect(screen.getByLabelText("输出路径")).toBeInTheDocument();
     expect(screen.getByText("开始导出")).toBeInTheDocument();
   });
@@ -40,6 +43,7 @@ describe("ExportSettingsSheet", () => {
         onOpenChange={vi.fn()}
         episodeId="e1"
         defaultOutputPath="/home/user/video.mp4"
+        totalDurationMs={10000}
       />,
     );
 
@@ -54,6 +58,7 @@ describe("ExportSettingsSheet", () => {
         onOpenChange={vi.fn()}
         episodeId="e1"
         defaultOutputPath=""
+        totalDurationMs={10000}
       />,
     );
 

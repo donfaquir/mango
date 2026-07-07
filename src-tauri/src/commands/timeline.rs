@@ -36,6 +36,25 @@ pub struct ColorEffectPresetInfo {
     pub label: String,
 }
 
+#[derive(Debug, Clone, Serialize, Type)]
+pub struct AspectRatioPresetInfo {
+    pub id: String,
+    pub label: String,
+    pub width: u32,
+    pub height: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Type)]
+pub struct PlatformPresetInfo {
+    pub id: String,
+    pub label: String,
+    pub width: u32,
+    pub height: u32,
+    pub codec: String,
+    pub preset: String,
+    pub crf: u32,
+}
+
 #[tauri::command]
 #[specta::specta]
 pub async fn list_timeline_tracks(
@@ -280,6 +299,39 @@ pub async fn list_color_effect_presets() -> Result<Vec<ColorEffectPresetInfo>, I
         .map(|p| ColorEffectPresetInfo {
             id: p.id.to_string(),
             label: p.label.to_string(),
+        })
+        .collect();
+    Ok(presets)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn list_aspect_ratio_presets() -> Result<Vec<AspectRatioPresetInfo>, IpcError> {
+    let presets = mango_core::aspect_ratio::list_aspect_ratios()
+        .iter()
+        .map(|p| AspectRatioPresetInfo {
+            id: p.id.to_string(),
+            label: p.label.to_string(),
+            width: p.width,
+            height: p.height,
+        })
+        .collect();
+    Ok(presets)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn list_platform_presets() -> Result<Vec<PlatformPresetInfo>, IpcError> {
+    let presets = mango_core::aspect_ratio::list_platform_presets()
+        .iter()
+        .map(|p| PlatformPresetInfo {
+            id: p.id.to_string(),
+            label: p.label.to_string(),
+            width: p.width,
+            height: p.height,
+            codec: p.codec.to_string(),
+            preset: p.preset.to_string(),
+            crf: p.crf,
         })
         .collect();
     Ok(presets)

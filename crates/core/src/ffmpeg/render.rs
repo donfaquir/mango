@@ -21,6 +21,7 @@ pub struct RenderConfig {
     pub output_width: Option<i32>,
     pub output_height: Option<i32>,
     pub output_fps: Option<f64>,
+    pub fit_mode: Option<String>,
 }
 
 impl Default for RenderConfig {
@@ -34,6 +35,7 @@ impl Default for RenderConfig {
             output_width: None,
             output_height: None,
             output_fps: None,
+            fit_mode: None,
         }
     }
 }
@@ -145,7 +147,7 @@ pub fn build_filter_graph(
     let mut normalized: Vec<String> = Vec::with_capacity(clip_count);
     for i in 0..clip_count {
         let label = format!("n{i}");
-        graph.normalize(&format!("{i}:v"), width, height, fps, "yuv420p", &label);
+        graph.normalize_with_fit(&format!("{i}:v"), width, height, fps, "yuv420p", config.fit_mode.as_deref(), &label);
         normalized.push(label);
     }
 
@@ -391,6 +393,7 @@ mod tests {
         assert!(c.output_width.is_none());
         assert!(c.output_height.is_none());
         assert!(c.output_fps.is_none());
+        assert!(c.fit_mode.is_none());
     }
 
     fn make_clip(path: &str, duration_ms: i64) -> ResolvedTimelineClip {
@@ -538,6 +541,22 @@ mod tests {
         assert!(fc.contains("zoompan=z='1+0.001*in'"), "got: {fc}");
         assert!(fc.contains("s=1920x1080"), "got: {fc}");
         assert_eq!(out_label, "kb0");
+    }
+
+    #[test]
+    fn build_graph_with_pad_fit_mode() {
+        let timeline = empty_timeline(vec![make_clip("/v0.mp4", 5000)]);
+        let config = RenderConfig {
+            output_width: Some(1080),
+            output_height: Some(1920),
+            fit_mode: Some("pad".into()),
+            ..Default::default()
+        };
+
+        let (graph, _) = build_filter_graph(&timeline, &config).unwrap();
+        let fc = graph.build();
+        assert!(fc.contains("force_original_aspect_ratio=decrease"), "got: {fc}");
+        assert!(fc.contains("pad=1080:1920"), "got: {fc}");
     }
 
     #[test]

@@ -102,6 +102,8 @@ fn make_builder() -> Builder<tauri::Wry> {
             commands::shot::unadopt_shot,
             commands::shot::unlink_shot_subject,
             commands::shot::update_shot,
+            commands::timeline::list_aspect_ratio_presets,
+            commands::timeline::list_platform_presets,
             commands::timeline::create_default_tracks,
             commands::timeline::create_keyframe,
             commands::timeline::create_timeline_item,

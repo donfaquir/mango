@@ -167,6 +167,34 @@ impl FilterGraph {
         self
     }
 
+    #[allow(clippy::too_many_arguments)]
+    pub fn normalize_with_fit(
+        &mut self,
+        input: &str,
+        width: i32,
+        height: i32,
+        fps: f64,
+        pix_fmt: &str,
+        fit_mode: Option<&str>,
+        output: &str,
+    ) -> &mut Self {
+        let filter = match fit_mode {
+            Some("crop") => format!(
+                "scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height},fps={fps},format={pix_fmt}"
+            ),
+            Some("pad") => format!(
+                "scale={width}:{height}:force_original_aspect_ratio=decrease,pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:black,fps={fps},format={pix_fmt}"
+            ),
+            _ => format!("scale={width}:{height},fps={fps},format={pix_fmt}"),
+        };
+        self.nodes.push(FilterNode {
+            inputs: vec![input.to_string()],
+            filter,
+            outputs: vec![output.to_string()],
+        });
+        self
+    }
+
     pub fn normalize(
         &mut self,
         input: &str,
@@ -605,6 +633,32 @@ mod tests {
             g.build(),
             "[v0][v1][v2]concat=n=3:v=1:a=0[vout]"
         );
+    }
+
+    #[test]
+    fn normalize_with_fit_stretch() {
+        let mut g = FilterGraph::new();
+        g.normalize_with_fit("0:v", 1920, 1080, 30.0, "yuv420p", None, "n0");
+        assert_eq!(g.build(), "[0:v]scale=1920:1080,fps=30,format=yuv420p[n0]");
+    }
+
+    #[test]
+    fn normalize_with_fit_crop() {
+        let mut g = FilterGraph::new();
+        g.normalize_with_fit("0:v", 1080, 1920, 30.0, "yuv420p", Some("crop"), "n0");
+        let result = g.build();
+        assert!(result.contains("force_original_aspect_ratio=increase"), "got: {result}");
+        assert!(result.contains("crop=1080:1920"), "got: {result}");
+    }
+
+    #[test]
+    fn normalize_with_fit_pad() {
+        let mut g = FilterGraph::new();
+        g.normalize_with_fit("0:v", 1080, 1080, 24.0, "yuv420p", Some("pad"), "n0");
+        let result = g.build();
+        assert!(result.contains("force_original_aspect_ratio=decrease"), "got: {result}");
+        assert!(result.contains("pad=1080:1080:(ow-iw)/2:(oh-ih)/2:black"), "got: {result}");
+        assert!(result.contains("fps=24"), "got: {result}");
     }
 
     #[test]
