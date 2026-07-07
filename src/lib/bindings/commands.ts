@@ -187,12 +187,16 @@ export const commands = {
 	unlinkShotSubject: (shotId: string, subjectId: string, subjectKind: SubjectKind) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("unlink_shot_subject", { shotId, subjectId, subjectKind })),
 	updateShot: (id: string, input: UpdateShotInput_Deserialize) => typedError<Shot, IpcError_Serialize>(__TAURI_INVOKE("update_shot", { id, input })),
 	createDefaultTracks: (episodeId: string) => typedError<TimelineTrack[], IpcError_Serialize>(__TAURI_INVOKE("create_default_tracks", { episodeId })),
+	createKeyframe: (input: CreateTimelineKeyframeInput) => typedError<TimelineKeyframe, IpcError_Serialize>(__TAURI_INVOKE("create_keyframe", { input })),
 	createTimelineItem: (input: CreateTimelineItemInput) => typedError<TimelineItem, IpcError_Serialize>(__TAURI_INVOKE("create_timeline_item", { input })),
 	createTimelineTrack: (input: CreateTimelineTrackInput) => typedError<TimelineTrack, IpcError_Serialize>(__TAURI_INVOKE("create_timeline_track", { input })),
+	deleteKeyframe: (id: string) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("delete_keyframe", { id })),
 	deleteTimelineItem: (id: string) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("delete_timeline_item", { id })),
 	deleteTimelineTrack: (id: string) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("delete_timeline_track", { id })),
 	importAudioFromShots: (episodeId: string) => typedError<TimelineItem[], IpcError_Serialize>(__TAURI_INVOKE("import_audio_from_shots", { episodeId })),
 	importVideoFromClips: (episodeId: string) => typedError<TimelineItem[], IpcError_Serialize>(__TAURI_INVOKE("import_video_from_clips", { episodeId })),
+	listKenBurnsPresets: () => typedError<KenBurnsPresetInfo[], IpcError_Serialize>(__TAURI_INVOKE("list_ken_burns_presets")),
+	listKeyframes: (itemId: string) => typedError<TimelineKeyframe[], IpcError_Serialize>(__TAURI_INVOKE("list_keyframes", { itemId })),
 	listTimelineItems: (trackId: string) => typedError<TimelineItem[], IpcError_Serialize>(__TAURI_INVOKE("list_timeline_items", { trackId })),
 	listTimelineTracks: (episodeId: string) => typedError<TimelineTrack[], IpcError_Serialize>(__TAURI_INVOKE("list_timeline_tracks", { episodeId })),
 	moveTimelineItem: (id: string, input: MoveTimelineItemInput) => typedError<TimelineItem, IpcError_Serialize>(__TAURI_INVOKE("move_timeline_item", { id, input })),
@@ -551,6 +555,14 @@ export type CreateTimelineItemInput = {
 	params_json: string | null,
 };
 
+export type CreateTimelineKeyframeInput = {
+	item_id: string,
+	property: string,
+	time_ms: number,
+	value: number | null,
+	easing?: string,
+};
+
 export type CreateTimelineTrackInput = {
 	episode_id: string,
 	track_type: TrackType,
@@ -734,6 +746,12 @@ export type IpcError_Serialize = {
 };
 
 export type ItemType = "clip" | "text" | "sticker" | "transition" | "effect";
+
+export type KenBurnsPresetInfo = {
+	id: string,
+	label: string,
+	description: string,
+};
 
 export type ListAssetsOptions = {
 	project_id: string,
@@ -1050,6 +1068,16 @@ export type TimelineItem = {
 	out_point_ms: number,
 	params_json: string,
 	order_index: number,
+	created_at: string,
+};
+
+export type TimelineKeyframe = {
+	id: string,
+	item_id: string,
+	property: string,
+	time_ms: number,
+	value: number | null,
+	easing: string,
 	created_at: string,
 };
 

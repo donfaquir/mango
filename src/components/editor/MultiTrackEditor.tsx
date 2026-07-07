@@ -1,10 +1,11 @@
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import { toast } from "sonner";
 import { useMultiTrackStore } from "@/stores/multiTrackStore";
 import { usePlaybackLoop } from "@/hooks/usePlaybackLoop";
 import { VideoPreview } from "./VideoPreview";
 import { MultiTrackTimeline } from "./MultiTrackTimeline";
 import { MultiTrackControls } from "./MultiTrackControls";
+import { KenBurnsSelector } from "./KenBurnsSelector";
 import { cn } from "@/lib/utils";
 
 interface MultiTrackEditorProps {
@@ -28,6 +29,30 @@ export function MultiTrackEditor({ episodeId, projectId, projectRoot, className 
   }, [episodeId, init, reset]);
 
   usePlaybackLoop();
+
+  const selection = useMultiTrackStore((s) => s.selection);
+  const items = useMultiTrackStore((s) => s.items);
+  const tracks = useMultiTrackStore((s) => s.tracks);
+
+  const selectedClipIds = useMemo(() => {
+    const videoTrackIds = new Set(tracks.filter((t) => t.track_type === "video").map((t) => t.id));
+    return [...selection].filter((id) => {
+      const item = items[id];
+      return item && item.item_type === "clip" && videoTrackIds.has(item.track_id);
+    });
+  }, [selection, items, tracks]);
+
+  const currentPresetId = useMemo(() => {
+    if (selectedClipIds.length !== 1) return null;
+    const item = items[selectedClipIds[0]];
+    if (!item) return null;
+    try {
+      const params = JSON.parse(item.params_json) as Record<string, unknown>;
+      return typeof params.ken_burns_preset === "string" ? params.ken_burns_preset : null;
+    } catch {
+      return null;
+    }
+  }, [selectedClipIds, items]);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -92,6 +117,9 @@ export function MultiTrackEditor({ episodeId, projectId, projectRoot, className 
       <VideoPreview projectRoot={projectRoot} className="h-80" />
       <MultiTrackTimeline episodeId={episodeId} projectRoot={projectRoot} />
       <MultiTrackControls episodeId={episodeId} projectId={projectId} projectRoot={projectRoot} />
+      {selectedClipIds.length > 0 && (
+        <KenBurnsSelector selectedClipIds={selectedClipIds} currentPresetId={currentPresetId} />
+      )}
     </div>
   );
 }

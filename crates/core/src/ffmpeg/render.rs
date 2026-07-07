@@ -73,6 +73,7 @@ pub struct ResolvedTimelineClip {
     pub in_point_ms: i64,
     pub out_point_ms: i64,
     pub ken_burns: Option<KenBurnsParams>,
+    pub ken_burns_preset_id: Option<String>,
     pub color_effect: Option<ColorEffectParams>,
 }
 
@@ -146,7 +147,12 @@ pub fn build_filter_graph(
     for (i, clip) in timeline.clips.iter().enumerate() {
         let mut current = normalized[i].clone();
 
-        if let Some(kb) = &clip.ken_burns {
+        let kb_resolved = clip.ken_burns_preset_id.as_ref().and_then(|pid| {
+            let frames = ((clip.out_point_ms - clip.in_point_ms) as f64 / 1000.0 * fps) as u32;
+            crate::ken_burns::preset_to_zoompan(pid, frames).ok()
+        });
+        let kb = kb_resolved.as_ref().or(clip.ken_burns.as_ref());
+        if let Some(kb) = kb {
             let out = format!("kb{i}");
             let frames = ((clip.out_point_ms - clip.in_point_ms) as f64 / 1000.0 * fps) as u32;
             graph.zoompan(
@@ -379,6 +385,7 @@ mod tests {
             in_point_ms: 0,
             out_point_ms: duration_ms,
             ken_burns: None,
+            ken_burns_preset_id: None,
             color_effect: None,
         }
     }

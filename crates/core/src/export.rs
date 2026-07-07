@@ -7,6 +7,7 @@ use uuid::Uuid;
 
 use crate::db::queries::{asset, episode, project, shot_audio, video_clip};
 use crate::error::{CoreError, Result};
+use crate::ken_burns;
 use crate::ffmpeg::audio::AudioMixInput;
 use crate::ffmpeg::commands::TrimMode;
 use crate::ffmpeg::progress::FfmpegProgress;
@@ -367,6 +368,16 @@ pub fn resolve_timeline(
             )));
         }
 
+        let ken_burns_preset_id = match crate::models::timeline_params::parse_params(&item.params_json) {
+            Ok(crate::models::timeline_params::TimelineItemParams::Clip {
+                ken_burns_preset: Some(ref preset_id),
+            }) if ken_burns::get_preset(preset_id).is_some() => {
+                has_effects = true;
+                Some(preset_id.clone())
+            }
+            _ => None,
+        };
+
         clips.push(ResolvedTimelineClip {
             source_path: abs_path,
             position_ms: item.position_ms,
@@ -374,6 +385,7 @@ pub fn resolve_timeline(
             in_point_ms: item.in_point_ms,
             out_point_ms: item.out_point_ms,
             ken_burns: None,
+            ken_burns_preset_id,
             color_effect: None,
         });
     }

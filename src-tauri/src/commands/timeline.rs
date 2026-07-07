@@ -1,9 +1,19 @@
+use serde::Serialize;
+use specta::Type;
+
 use super::{require_mount, with_db};
 use crate::error::IpcError;
 use crate::state::AppState;
-use mango_core::db::queries::{timeline_item, timeline_track};
+use mango_core::db::queries::{timeline_item, timeline_keyframe, timeline_track};
 use mango_core::models::timeline::*;
 use tauri::State;
+
+#[derive(Debug, Clone, Serialize, Type)]
+pub struct KenBurnsPresetInfo {
+    pub id: String,
+    pub label: String,
+    pub description: String,
+}
 
 #[tauri::command]
 #[specta::specta]
@@ -169,4 +179,45 @@ pub async fn update_track_locked(
     locked: bool,
 ) -> Result<(), IpcError> {
     with_db(&state, move |conn| timeline_track::update_locked(conn, &id, locked)).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn list_keyframes(
+    state: State<'_, AppState>,
+    item_id: String,
+) -> Result<Vec<TimelineKeyframe>, IpcError> {
+    with_db(&state, move |conn| timeline_keyframe::list_by_item(conn, &item_id)).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn create_keyframe(
+    state: State<'_, AppState>,
+    input: CreateTimelineKeyframeInput,
+) -> Result<TimelineKeyframe, IpcError> {
+    with_db(&state, move |conn| timeline_keyframe::create(conn, input)).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn delete_keyframe(
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<(), IpcError> {
+    with_db(&state, move |conn| timeline_keyframe::delete(conn, &id)).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn list_ken_burns_presets() -> Result<Vec<KenBurnsPresetInfo>, IpcError> {
+    let presets = mango_core::ken_burns::list_presets()
+        .iter()
+        .map(|p| KenBurnsPresetInfo {
+            id: p.id.to_string(),
+            label: p.label.to_string(),
+            description: p.description.to_string(),
+        })
+        .collect();
+    Ok(presets)
 }

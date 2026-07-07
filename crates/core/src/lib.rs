@@ -5,6 +5,7 @@ pub mod db;
 pub mod error;
 pub mod export;
 pub mod ffmpeg;
+pub mod ken_burns;
 pub mod models;
 pub mod paths;
 pub mod provider;
