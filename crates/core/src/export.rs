@@ -504,6 +504,64 @@ pub fn resolve_timeline(
         })
         .collect();
 
+    let sticker_overlays: Vec<ResolvedStickerOverlay> = all_items
+        .iter()
+        .filter(|i| {
+            i.item_type == crate::models::timeline::ItemType::Sticker
+                && tracks
+                    .iter()
+                    .find(|t| t.id == i.track_id)
+                    .is_some_and(|t| t.track_type == TrackType::Overlay)
+        })
+        .filter_map(|i| {
+            let v = serde_json::from_str::<serde_json::Value>(&i.params_json).ok()?;
+            let image_path = if let Some(sid) = v["sticker_id"].as_str() {
+                crate::stickers::resolve_sticker_path(sid, &project_root.join("assets")).ok()?
+            } else if let Some(cp) = v["custom_path"].as_str() {
+                let p = project_root.join(cp);
+                if !p.exists() { return None; }
+                p
+            } else {
+                return None;
+            };
+            has_effects = true;
+            let px = v["position_x"].as_f64().unwrap_or(0.5);
+            let py = v["position_y"].as_f64().unwrap_or(0.5);
+            Some(ResolvedStickerOverlay {
+                image_path,
+                x: format!("(W-w)*{px}"),
+                y: format!("(H-h)*{py}"),
+                start_ms: i.position_ms,
+                end_ms: i.position_ms + i.duration_ms,
+            })
+        })
+        .collect();
+
+    for item in all_items.iter().filter(|i| {
+        i.item_type == crate::models::timeline::ItemType::Effect
+            && tracks
+                .iter()
+                .find(|t| t.id == i.track_id)
+                .is_some_and(|t| t.track_type == TrackType::Overlay)
+    }) {
+        let v = serde_json::from_str::<serde_json::Value>(&item.params_json).unwrap_or_default();
+        if v["effect_type"].as_str() == Some("color_preset")
+            && let Some(preset_id) = v["params"]["preset_id"].as_str()
+            && let Some(preset) = crate::color_presets::get_preset(preset_id)
+        {
+            let eff_start = item.position_ms;
+            let eff_end = item.position_ms + item.duration_ms;
+            for clip in &mut clips {
+                let clip_start = clip.position_ms;
+                let clip_end = clip.position_ms + clip.duration_ms;
+                if clip_start < eff_end && clip_end > eff_start && clip.color_effect.is_none() {
+                    clip.color_effect = Some(preset.effect.clone());
+                    has_effects = true;
+                }
+            }
+        }
+    }
+
     let audio_tracks: Vec<AudioMixInput> = all_items
         .iter()
         .filter(|i| {
@@ -534,7 +592,7 @@ pub fn resolve_timeline(
         .max()
         .unwrap_or(0);
 
-    let mode = if has_effects || !transitions.is_empty() || !text_overlays.is_empty() {
+    let mode = if has_effects || !transitions.is_empty() || !text_overlays.is_empty() || !sticker_overlays.is_empty() {
         ExportMode::Render
     } else {
         let first = &clips[0];
@@ -562,7 +620,7 @@ pub fn resolve_timeline(
         clips,
         transitions,
         text_overlays,
-        sticker_overlays: vec![],
+        sticker_overlays,
         audio_tracks,
         total_duration_ms,
     };

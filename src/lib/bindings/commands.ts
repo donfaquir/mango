@@ -195,7 +195,9 @@ export const commands = {
 	deleteTimelineTrack: (id: string) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("delete_timeline_track", { id })),
 	importAudioFromShots: (episodeId: string) => typedError<TimelineItem[], IpcError_Serialize>(__TAURI_INVOKE("import_audio_from_shots", { episodeId })),
 	importVideoFromClips: (episodeId: string) => typedError<TimelineItem[], IpcError_Serialize>(__TAURI_INVOKE("import_video_from_clips", { episodeId })),
+	listColorEffectPresets: () => typedError<ColorEffectPresetInfo[], IpcError_Serialize>(__TAURI_INVOKE("list_color_effect_presets")),
 	listKenBurnsPresets: () => typedError<KenBurnsPresetInfo[], IpcError_Serialize>(__TAURI_INVOKE("list_ken_burns_presets")),
+	listStickerPresets: () => typedError<StickerPresetInfo[], IpcError_Serialize>(__TAURI_INVOKE("list_sticker_presets")),
 	listTransitionPresets: () => typedError<TransitionPresetInfo[], IpcError_Serialize>(__TAURI_INVOKE("list_transition_presets")),
 	listKeyframes: (itemId: string) => typedError<TimelineKeyframe[], IpcError_Serialize>(__TAURI_INVOKE("list_keyframes", { itemId })),
 	listTimelineItems: (trackId: string) => typedError<TimelineItem[], IpcError_Serialize>(__TAURI_INVOKE("list_timeline_items", { trackId })),
@@ -410,6 +412,11 @@ export type CliStatus = {
 	installed: boolean,
 	symlink_target: string | null,
 	points_to_current_app: boolean,
+};
+
+export type ColorEffectPresetInfo = {
+	id: string,
+	label: string,
 };
 
 export type Costume = {
@@ -1003,6 +1010,13 @@ export type ShotLinks = {
 };
 
 export type ShotStatus = "draft" | "ready" | "generating" | "done";
+
+export type StickerPresetInfo = {
+	id: string,
+	label: string,
+	category: string,
+	filename: string,
+};
 
 /**
  *  Which side-table a subject points to. Used by `link_shot_subject` /

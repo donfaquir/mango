@@ -22,6 +22,20 @@ pub struct TransitionPresetInfo {
     pub xfade_name: String,
 }
 
+#[derive(Debug, Clone, Serialize, Type)]
+pub struct StickerPresetInfo {
+    pub id: String,
+    pub label: String,
+    pub category: String,
+    pub filename: String,
+}
+
+#[derive(Debug, Clone, Serialize, Type)]
+pub struct ColorEffectPresetInfo {
+    pub id: String,
+    pub label: String,
+}
+
 #[tauri::command]
 #[specta::specta]
 pub async fn list_timeline_tracks(
@@ -238,6 +252,34 @@ pub async fn list_transition_presets() -> Result<Vec<TransitionPresetInfo>, IpcE
             id: p.id.to_string(),
             label: p.label.to_string(),
             xfade_name: p.xfade_name.to_string(),
+        })
+        .collect();
+    Ok(presets)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn list_sticker_presets() -> Result<Vec<StickerPresetInfo>, IpcError> {
+    let presets = mango_core::stickers::list_presets()
+        .iter()
+        .map(|p| StickerPresetInfo {
+            id: p.id.to_string(),
+            label: p.label.to_string(),
+            category: p.category.to_string(),
+            filename: p.filename.to_string(),
+        })
+        .collect();
+    Ok(presets)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn list_color_effect_presets() -> Result<Vec<ColorEffectPresetInfo>, IpcError> {
+    let presets = mango_core::color_presets::list_presets()
+        .iter()
+        .map(|p| ColorEffectPresetInfo {
+            id: p.id.to_string(),
+            label: p.label.to_string(),
         })
         .collect();
     Ok(presets)

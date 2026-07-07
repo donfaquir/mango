@@ -288,7 +288,7 @@ pub fn build_filter_graph(
     // Sticker overlays are referenced by label but their input indices must be offset
     // by the number of video clip inputs. For now, track the labels.
     for (i, _sticker) in timeline.sticker_overlays.iter().enumerate() {
-        let sticker_input = format!("stk_in{i}");
+        let sticker_input = format!("{}:v", timeline.clips.len() + i);
         let out = format!("stk{i}");
         let start_s = timeline.sticker_overlays[i].start_ms as f64 / 1000.0;
         let end_s = timeline.sticker_overlays[i].end_ms as f64 / 1000.0;

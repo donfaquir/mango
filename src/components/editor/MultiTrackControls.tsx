@@ -1,6 +1,6 @@
 import { useState, useCallback, useMemo } from "react";
 import { join } from "@tauri-apps/api/path";
-import { Download, Plus, Video, Music, Type, Play, Pause, SkipBack, SkipForward, Undo2, Redo2 } from "lucide-react";
+import { Download, Plus, Video, Music, Type, Play, Pause, SkipBack, SkipForward, Undo2, Redo2, Smile, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { Slider } from "@/components/ui/slider";
 import { Button } from "@/components/ui/button";
@@ -12,6 +12,8 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { AssetPickerDialog } from "@/components/assets/AssetPickerDialog";
 import { AddTextDialog, type TextType } from "./AddTextDialog";
+import { StickerPicker } from "./StickerPicker";
+import { ColorPresetPicker } from "./ColorPresetPicker";
 import { useMultiTrackStore } from "@/stores/multiTrackStore";
 import { commands, type Asset } from "@/lib/bindings/commands";
 import { unwrap } from "@/lib/ipc";
@@ -44,6 +46,8 @@ export function MultiTrackControls({ episodeId, projectId, projectRoot }: MultiT
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerType, setPickerType] = useState<"video" | "audio">("video");
   const [textDialogOpen, setTextDialogOpen] = useState(false);
+  const [stickerPickerOpen, setStickerPickerOpen] = useState(false);
+  const [colorPresetPickerOpen, setColorPresetPickerOpen] = useState(false);
 
   const itemCount = Object.keys(items).length;
 
@@ -52,6 +56,13 @@ export function MultiTrackControls({ episodeId, projectId, projectRoot }: MultiT
     const id = [...selection][0];
     const item = items[id];
     return item?.item_type === "transition" ? item : null;
+  }, [selection, items]);
+
+  const selectedStickerItem = useMemo(() => {
+    if (selection.size !== 1) return null;
+    const id = [...selection][0];
+    const item = items[id];
+    return item?.item_type === "sticker" ? item : null;
   }, [selection, items]);
 
   const handleImportFromShots = useCallback(async () => {
@@ -98,6 +109,25 @@ export function MultiTrackControls({ episodeId, projectId, projectRoot }: MultiT
       toast.success("文本已添加到时间轴");
     } catch (err) {
       toast.error(`添加文本失败：${err instanceof Error ? err.message : String(err)}`);
+    }
+  }, [tracks, playhead, addItem, addTrack, episodeId]);
+
+  const addOverlayItem = useCallback(async (itemType: "sticker" | "effect", durationMs: number, paramsJson: string, label: string) => {
+    let overlayTrack = tracks.find((t) => t.track_type === "overlay");
+    if (!overlayTrack) {
+      await addTrack({ episode_id: episodeId, track_type: "overlay", label: "贴片/特效" });
+      overlayTrack = useMultiTrackStore.getState().tracks.find((t) => t.track_type === "overlay");
+      if (!overlayTrack) return;
+    }
+    try {
+      await addItem({
+        track_id: overlayTrack.id, asset_id: null, item_type: itemType,
+        position_ms: playhead, duration_ms: durationMs,
+        in_point_ms: null, out_point_ms: durationMs, params_json: paramsJson,
+      });
+      toast.success(`${label}已添加到时间轴`);
+    } catch (err) {
+      toast.error(`添加${label}失败：${err instanceof Error ? err.message : String(err)}`);
     }
   }, [tracks, playhead, addItem, addTrack, episodeId]);
 
@@ -177,6 +207,14 @@ export function MultiTrackControls({ episodeId, projectId, projectRoot }: MultiT
               <Type className="size-4" />
               添加文本
             </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setStickerPickerOpen(true)}>
+              <Smile className="size-4" />
+              添加贴纸
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setColorPresetPickerOpen(true)}>
+              <Sparkles className="size-4" />
+              添加调色
+            </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
 
@@ -255,6 +293,30 @@ export function MultiTrackControls({ episodeId, projectId, projectRoot }: MultiT
           </div>
         )}
 
+        {selectedStickerItem && (() => {
+          const sp = JSON.parse(selectedStickerItem.params_json) as Record<string, unknown>;
+          const px = typeof sp.position_x === "number" ? sp.position_x : 0.5;
+          const py = typeof sp.position_y === "number" ? sp.position_y : 0.5;
+          const sc = typeof sp.scale === "number" ? sp.scale : 1.0;
+          const updateSticker = (patch: Record<string, unknown>) => {
+            updateItem(selectedStickerItem.id, {
+              position_ms: null, duration_ms: null, in_point_ms: null, out_point_ms: null,
+              params_json: JSON.stringify({ ...sp, ...patch }),
+            });
+          };
+          return (
+            <div className="flex items-center gap-2 ml-2 border-l pl-2 border-border">
+              <span className="text-muted-foreground">X</span>
+              <Slider className="w-16" min={0} max={1} step={0.01} value={[px]} onValueChange={([v]) => updateSticker({ position_x: v })} />
+              <span className="text-muted-foreground">Y</span>
+              <Slider className="w-16" min={0} max={1} step={0.01} value={[py]} onValueChange={([v]) => updateSticker({ position_y: v })} />
+              <span className="text-muted-foreground">缩放</span>
+              <Slider className="w-16" min={0.5} max={3} step={0.1} value={[sc]} onValueChange={([v]) => updateSticker({ scale: v })} />
+              <span className="font-mono w-8 text-right">{sc.toFixed(1)}x</span>
+            </div>
+          );
+        })()}
+
         <div className="flex items-center gap-2 ml-auto">
           <span className="text-muted-foreground">缩放</span>
           <Slider
@@ -282,6 +344,18 @@ export function MultiTrackControls({ episodeId, projectId, projectRoot }: MultiT
         open={textDialogOpen}
         onOpenChange={setTextDialogOpen}
         onSubmit={handleAddText}
+      />
+
+      <StickerPicker
+        open={stickerPickerOpen}
+        onOpenChange={setStickerPickerOpen}
+        onSelect={(s) => addOverlayItem("sticker", 3000, JSON.stringify({ sticker_id: s.id, position_x: 0.5, position_y: 0.5, scale: 1.0 }), "贴纸")}
+      />
+
+      <ColorPresetPicker
+        open={colorPresetPickerOpen}
+        onOpenChange={setColorPresetPickerOpen}
+        onSelect={(p) => addOverlayItem("effect", 5000, JSON.stringify({ effect_type: "color_preset", params: { preset_id: p.id } }), "调色")}
       />
     </>
   );

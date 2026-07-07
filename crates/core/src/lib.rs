@@ -1,6 +1,7 @@
 pub mod account;
 pub mod app_config;
 pub mod asset;
+pub mod color_presets;
 pub mod db;
 pub mod error;
 pub mod export;
@@ -11,6 +12,7 @@ pub mod paths;
 pub mod provider;
 pub mod seed;
 pub mod startup;
+pub mod stickers;
 pub mod task_engine;
 pub mod timeline;
 pub mod transitions;

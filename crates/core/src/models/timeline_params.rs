@@ -125,6 +125,12 @@ pub enum TimelineItemParams {
         sticker_id: Option<String>,
         custom_path: Option<String>,
         animation: Option<String>,
+        #[serde(default)]
+        position_x: Option<f64>,
+        #[serde(default)]
+        position_y: Option<f64>,
+        #[serde(default)]
+        scale: Option<f64>,
     },
     Effect {
         effect_type: String,
@@ -230,6 +236,21 @@ mod tests {
                 assert!(animation.is_none());
             }
             _ => panic!("expected Text variant"),
+        }
+    }
+
+    #[test]
+    fn backward_compat_old_sticker_params() {
+        let json = r#"{"type":"Sticker","sticker_id":"heart"}"#;
+        let parsed = parse_params(json).unwrap();
+        match parsed {
+            TimelineItemParams::Sticker { sticker_id, position_x, position_y, scale, .. } => {
+                assert_eq!(sticker_id.as_deref(), Some("heart"));
+                assert!(position_x.is_none());
+                assert!(position_y.is_none());
+                assert!(scale.is_none());
+            }
+            _ => panic!("expected Sticker variant"),
         }
     }
 }

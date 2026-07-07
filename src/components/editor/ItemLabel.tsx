@@ -53,7 +53,9 @@ export function ItemLabel({
         ? (params.transition_type as string) ?? "Transition"
         : item.item_type === "effect" && params
           ? (params.effect_type as string) ?? "Effect"
-          : item.item_type.charAt(0).toUpperCase() + item.item_type.slice(1);
+          : item.item_type === "sticker" && params
+            ? (params.sticker_id as string) ?? "Sticker"
+            : item.item_type.charAt(0).toUpperCase() + item.item_type.slice(1);
     return (
       <>
         <OverlayIcon className="size-3 shrink-0 text-white drop-shadow-sm" />
